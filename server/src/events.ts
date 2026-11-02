@@ -39,6 +39,8 @@ export type PanelEvent =
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   /** Modelo, esforço e modo de permissão vigentes (no início de cada turno e a cada mudança). */
   | { kind: 'settings'; model?: string; effort?: string | null; permissionMode?: string }
+  /** Um /clear esvaziou a conversa: o que veio antes sai da tela, e ela segue do zero, com o mesmo claudinho. */
+  | { kind: 'cleared' }
   | { kind: 'init'; model: string; permissionMode: string; cwd: string }
   | { kind: 'status'; status: string }
   | { kind: 'state'; state: SessionState; waitingFor?: string }

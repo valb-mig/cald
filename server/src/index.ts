@@ -816,7 +816,7 @@ manager.on('rekey', (from: string, to: string) => {
   for (const [socket, subs] of clients) {
     if (subs.delete(from)) {
       subs.add(to);
-      send(socket, { type: 'rekey', from, to });
+      send(socket, { type: 'rekey', from, to, look: manager.lookOf(to) });
     }
   }
 });

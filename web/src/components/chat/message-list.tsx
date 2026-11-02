@@ -353,6 +353,8 @@ function ItemView({
       )
     case 'compacting':
       return <Divider>Compactando o contexto…</Divider>
+    case 'cleared':
+      return <Divider>Conversa limpa</Divider>
   }
 }
 

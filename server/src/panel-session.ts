@@ -448,13 +448,28 @@ export class PanelSession extends EventEmitter {
     this.emit('exit');
   }
 
+  /** O id de antes do último que a sessão ganhou: o /clear pode avisar depois de o id novo já ter chegado. */
+  private previousId: string | undefined;
+
+  private rekeyTo(id: string): void {
+    const from = this.id;
+    this.previousId = from;
+    this.id = id;
+    this.emit('rekey', from, id);
+  }
+
   private handle(msg: SDKMessage): void {
+    // O /clear (e os outros jeitos de recomeçar a conversa): a tela esvazia, sem fechar a conversa, e ela
+    // passa para o id novo. O manager faz o id novo herdar o claudinho e tira o antigo da lista.
+    if (msg.type === 'conversation_reset') {
+      const from = msg.new_conversation_id !== this.id ? this.id : this.previousId;
+      this.record({ kind: 'cleared' });
+      if (msg.new_conversation_id && msg.new_conversation_id !== this.id) this.rekeyTo(msg.new_conversation_id);
+      if (from && from !== this.id) this.emit('cleared', from, this.id);
+      return;
+    }
     if (msg.type === 'system' && msg.subtype === 'init') {
-      if (msg.session_id !== this.id) {
-        const from = this.id;
-        this.id = msg.session_id;
-        this.emit('rekey', from, this.id);
-      }
+      if (msg.session_id !== this.id) this.rekeyTo(msg.session_id);
       // O init nem sempre traz o esforço; sem ele, vale o último escolhido.
       void this.settingsFromInit(msg.model, msg.effort ?? this.settings.effort ?? null, msg.permissionMode);
     }

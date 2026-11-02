@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { onAudio, onAudioReady, quietAudio, type Spectrum } from './audio'
+import { useLooks } from './claudinho'
 import { HOME, baseOf, machineOf, noteSession, noteSessions, useMachines } from './machines'
 import type { CatalogEntry, LoggedEvent, SessionSettings, SessionState, SystemSnapshot, UsageSnapshot } from './types'
 
@@ -305,7 +306,7 @@ type ServerMsg =
   | { type: 'not_open'; sessionId: string }
   | { type: 'event'; sessionId: string; runId: string; event: LoggedEvent }
   | { type: 'delta'; sessionId: string; text: string }
-  | { type: 'rekey'; from: string; to: string }
+  | { type: 'rekey'; from: string; to: string; look?: string }
   | { type: 'system'; system: SystemSnapshot }
   | { type: 'audio'; spectrum: Spectrum }
   | { type: 'audio_ready'; available: boolean }
@@ -381,6 +382,8 @@ function handle(machine: string, m: ServerMsg): void {
       deltaFrame ||= requestAnimationFrame(flushDeltas)
       return
     case 'rekey':
+      // A mesma conversa com id novo (um /clear): já com o claudinho de antes, antes do catálogo chegar.
+      if (m.look) useLooks.setState({ [m.to]: m.look })
       useStore.setState((s) => {
         const { [m.from]: moved, ...rest } = s.live
         const { [m.from]: text, ...streams } = s.streams
@@ -423,6 +426,12 @@ function mergeCatalogs(): void {
 }
 
 function onCatalog(machine: string, sessions: CatalogEntry[]): void {
+  // As conversas que continuam outra vestem o claudinho de lá (ver lib/claudinho.ts).
+  const looks = sessions.filter((e) => e.look)
+  if (looks.length) {
+    const current = useLooks.getState()
+    if (looks.some((e) => current[e.sessionId] !== e.look)) useLooks.setState(Object.fromEntries(looks.map((e) => [e.sessionId, e.look!])))
+  }
   const previous = new Map(useStore.getState().catalog.map((s) => [s.sessionId, s]))
   const before = new Map([...previous].map(([id, s]) => [id, s.owner]))
   // O catálogo chega inteiro a cada mudança; a entrada que não mudou continua o mesmo objeto, senão

@@ -31,6 +31,8 @@ export type Item =
   | { type: 'result'; key: string; result: Of<'result'> }
   | { type: 'exit'; key: string; error?: string }
   | { type: 'compacting'; key: string }
+  /** Um /clear: daqui para cima foi para o lixo, e a conversa segue do zero. */
+  | { type: 'cleared'; key: string }
 
 /**
  * Para cada mensagem do usuário, a entrada do log imediatamente anterior a ela: é onde uma
@@ -111,6 +113,9 @@ export function buildItems(events: Keyed[]): Item[] {
         break
       case 'notice':
         push({ type: 'notice', key: e.key, text: e.text })
+        break
+      case 'cleared':
+        push({ type: 'cleared', key: e.key })
         break
       case 'approval_request': {
         const parent = e.toolUseId ? uses.get(e.toolUseId)?.parentToolUseId : undefined

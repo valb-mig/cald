@@ -32,6 +32,8 @@ export type PanelEvent =
   | { kind: 'tool_use'; id: string; name: string; input: Record<string, unknown>; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   | { kind: 'settings'; model?: string; effort?: string | null; permissionMode?: string }
+  /** Um /clear esvaziou a conversa: o que veio antes sai da tela, e ela segue do zero, com o mesmo claudinho. */
+  | { kind: 'cleared' }
   | { kind: 'init'; model: string; permissionMode: string; cwd: string }
   | { kind: 'status'; status: string }
   | { kind: 'state'; state: SessionState; waitingFor?: string }
@@ -97,6 +99,8 @@ export type CatalogEntry = {
   machine?: string;
   /** O nome que você deu ao claudinho da conversa; sem ele, vale o sorteado (ver lib/claudinho.ts). */
   claudinhoName?: string;
+  /** O id de onde vem o claudinho desta conversa, quando ela continua outra (um /clear). */
+  look?: string;
 };
 
 export type RunOptions = {
