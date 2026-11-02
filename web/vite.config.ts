@@ -51,7 +51,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // As cores de sintaxe (ver lib/highlight.ts) baixam só quando um arquivo é aberto: dezenas de
         // gramáticas no cache offline pesariam mais que o app inteiro.
-        globIgnores: ['assets/hl/**'],
+        // Da Cascadia Code, os alfabetos que não aparecem em código também ficam de fora: baixam se surgirem.
+        globIgnores: ['assets/hl/**', 'assets/cascadia-code-{arabic,braille,cyrillic,cyrillic-ext,greek,hebrew,vietnamese}-*'],
       },
     }),
   ],

@@ -128,15 +128,16 @@ function highlighter(): Promise<HighlighterCore> {
   return core
 }
 
+// As cores do GitHub, as de hoje (Primer); do tema só vêm as cores do texto, o fundo continua o do app.
 const THEMES = {
-  'dark-plus': () => import('shiki/themes/dark-plus.mjs'),
-  'light-plus': () => import('shiki/themes/light-plus.mjs'),
+  'github-dark-default': () => import('shiki/themes/github-dark-default.mjs'),
+  'github-light-default': () => import('shiki/themes/github-light-default.mjs'),
 }
 
 /** O texto em linhas de tokens com cor, no tema do app agora. */
 async function tokenize(code: string, lang: string, dark: boolean): Promise<ThemedToken[][]> {
   const hl = await highlighter()
-  const theme = dark ? 'dark-plus' : 'light-plus'
+  const theme = dark ? 'github-dark-default' : 'github-light-default'
   if (!hl.getLoadedThemes().includes(theme)) await hl.loadTheme((await THEMES[theme]()).default as never)
   if (!hl.getLoadedLanguages().includes(lang)) await hl.loadLanguage((await LANGS[lang]!()).default as never)
   return hl.codeToTokensBase(code, { lang, theme })
