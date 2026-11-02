@@ -54,6 +54,8 @@ export type CatalogEntry = {
   /** Outras tarefas em segundo plano (monitores, comandos): o turno acabou, mas o Claude vai voltar. */
   tasks?: { type: string; description: string }[];
   pinned?: boolean;
+  /** O nome que você deu ao claudinho da conversa; sem ele, o app mostra o sorteado. */
+  claudinhoName?: string;
 };
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
@@ -169,6 +171,8 @@ export class Manager extends EventEmitter {
 
     for (const entry of byId.values()) {
       if (this.meta.isPinned(entry.sessionId)) entry.pinned = true;
+      const name = this.meta.nameOf(entry.sessionId);
+      if (name) entry.claudinhoName = name;
       const fork = this.meta.forkOf(entry.sessionId);
       if (fork) entry.forkedFrom = { sessionId: fork.from, title: byId.get(fork.from)?.title };
     }
@@ -319,6 +323,7 @@ export class Manager extends EventEmitter {
     await deleteSession(sessionId);
     await rm(join(UPLOADS_DIR, sessionId), { recursive: true, force: true });
     if (this.meta.isPinned(sessionId)) await this.meta.setPinned(sessionId, false);
+    if (this.meta.nameOf(sessionId)) await this.meta.setName(sessionId, null);
     this.savedCache = undefined;
     this.emit('catalog');
   }
@@ -326,6 +331,12 @@ export class Manager extends EventEmitter {
   /** Fixa ou desafixa no topo da lista (só no painel). */
   async setPinned(sessionId: string, pinned: boolean): Promise<void> {
     await this.meta.setPinned(sessionId, pinned);
+    this.emit('catalog');
+  }
+
+  /** O nome do claudinho da conversa; `null` volta ao sorteado. Só do painel, como o fixar. */
+  async setClaudinhoName(sessionId: string, name: string | null): Promise<void> {
+    await this.meta.setName(sessionId, name);
     this.emit('catalog');
   }
 
