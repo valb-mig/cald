@@ -67,3 +67,14 @@ export function ClaudeSpinner({ className }: { className?: string }) {
     </svg>
   )
 }
+
+/** A estrelinha do Claude parada, na cor do texto: a marca dele onde não há trabalho em andamento (ver a alça). */
+export function ClaudeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="-12 -12 24 24" className={cn('shrink-0 fill-current', className)} aria-hidden>
+      {FRAMES[FRAMES.length - 1]!.map((p, i) => (
+        <path key={i} d={p.d} transform={p.deg ? `rotate(${p.deg})` : undefined} />
+      ))}
+    </svg>
+  )
+}

@@ -94,6 +94,8 @@ export type CatalogEntry = {
   forkedFrom?: { sessionId: string; title?: string };
   /** Máquina da conversa, posta pelo app ao juntar as de todas (ver machines.ts); `''` é a desta página. */
   machine?: string;
+  /** O nome que você deu ao claudinho da conversa; sem ele, vale o sorteado (ver lib/claudinho.ts). */
+  claudinhoName?: string;
 };
 
 export type RunOptions = {
@@ -166,15 +168,25 @@ export type FileView =
   | { kind: 'text'; size: number; content: string; truncated: boolean }
   | { kind: 'image' | 'pdf' | 'binary' | 'large'; size: number }
 
+/** Linhas a mais e a menos; `null` em arquivo binário. */
+export type LineCount = { additions: number | null; deletions: number | null }
+
 export type GitFile = {
   path: string
   from?: string
   index: string
   worktree: string
   untracked: boolean
+  /** Staged e não staged somados. */
   additions: number | null
   deletions: number | null
+  /** Cada lado separado; `null` se o lado não mudou. */
+  staged: LineCount | null
+  unstaged: LineCount | null
 }
+
+/** Um lado só do diff: o que está staged ou o que ainda não está. Sem lado, contra o último commit. */
+export type DiffSide = 'staged' | 'unstaged'
 
 /** Atualizar o PC pelo celular (ver server/src/updater.ts). */
 export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'restart'
@@ -211,6 +223,88 @@ export type GitSummary = {
   behind: number
 }
 
+
+/** PRs e issues abertos do repositório do projeto no GitHub (ver server/src/github.ts). */
+export type GithubLabel = { name: string; color: string }
+
+export type GithubIssue = {
+  number: number
+  title: string
+  url: string
+  author: string | null
+  updatedAt: string
+  comments: number
+  labels: GithubLabel[]
+}
+
+export type GithubPull = {
+  number: number
+  title: string
+  url: string
+  author: string | null
+  updatedAt: string
+  draft: boolean
+  branch: string
+  review: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  checks: 'SUCCESS' | 'FAILURE' | 'ERROR' | 'PENDING' | 'EXPECTED' | null
+}
+
+export type GithubInfo =
+  | { ok: true; repo: string; pulls: GithubPull[]; pullCount: number; issues: GithubIssue[]; issueCount: number; fetchedAt: number }
+  | { ok: false; reason: 'no_remote' | 'not_github' | 'no_gh' | 'gh_auth' | 'error'; message?: string; fetchedAt: number }
+
+/** Uma issue ou um PR inteiro, para a aba de análise (ver server/src/github.ts). */
+export type GithubComment = { author: string | null; body: string; createdAt: string; url: string }
+
+export type GithubReview = {
+  author: string | null
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'
+  body: string
+  submittedAt: string | null
+}
+
+export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pending' | 'neutral'; url: string | null }
+
+export type GithubFile = { path: string; additions: number; deletions: number; change: string }
+
+type GithubItemBase = {
+  number: number
+  title: string
+  url: string
+  state: 'OPEN' | 'CLOSED' | 'MERGED'
+  author: string | null
+  createdAt: string
+  updatedAt: string
+  body: string
+  labels: GithubLabel[]
+  comments: GithubComment[]
+  commentCount: number
+}
+
+export type GithubIssueDetail = GithubItemBase & { kind: 'issue'; assignees: string[]; stateReason: string | null }
+
+export type GithubPullDetail = GithubItemBase & {
+  kind: 'pr'
+  draft: boolean
+  base: string
+  branch: string
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  review: GithubPull['review']
+  additions: number
+  deletions: number
+  changedFiles: number
+  commitCount: number
+  checks: GithubCheck[]
+  files: GithubFile[]
+  reviews: GithubReview[]
+}
+
+export type GithubItem =
+  | { ok: true; repo: string; item: GithubIssueDetail | GithubPullDetail; fetchedAt: number }
+  | Extract<GithubInfo, { ok: false }>
+
+/** Um item do TODO do projeto, a lista simples do próprio Claude Remote (ver server/src/todos.ts). */
+export type Todo = { id: string; text: string; done: boolean; createdAt: number }
 
 /** Quanto você já codou hoje pelo WakaTime (ver server/src/wakatime.ts). */
 export type WakaToday = { seconds: number; text: string; goalHours: number }

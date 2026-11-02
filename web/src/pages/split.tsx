@@ -1,10 +1,12 @@
 import { Fragment, useState } from 'react'
+import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { useMediaQuery } from '@/lib/hooks'
 import { MachineContext, machineOf } from '@/lib/machines'
 import {
   CHAT_DRAG,
   focusChat,
+  markFocusing,
   moveChat,
   PaneContext,
   saveSplitSizes,
@@ -31,7 +33,7 @@ const isTextField = (target: EventTarget) =>
   target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)
 
 /** A conversa com a máquina dela no contexto: tudo dentro dela (arquivos, git, `@`) vai para lá. */
-function ChatInMachine({ id }: { id: string }) {
+export function ChatInMachine({ id }: { id: string }) {
   const machine = useStore((s) => s.catalog.find((c) => c.sessionId === id)?.machine) ?? machineOf(id)
   return (
     <MachineContext value={machine}>
@@ -51,71 +53,26 @@ function Divider({ a, b, stacked }: { a: string; b: string; stacked: boolean }) 
   /** Reparte o peso das duas: a primeira fica com a fração `f`. */
   const share = (f: number) => setSplitWeights({ [a]: (wa + wb) * f, [b]: (wa + wb) * (1 - f) })
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    const bar = e.currentTarget
-    const before = bar.previousElementSibling?.getBoundingClientRect()
-    const after = bar.nextElementSibling?.getBoundingClientRect()
-    if (!before || !after) return
-    const pos = (ev: { clientX: number; clientY: number }) => (stacked ? ev.clientY : ev.clientX)
-    const start = pos(e)
-    const first = stacked ? before.height : before.width
-    const total = first + (stacked ? after.height : after.width)
-    // Janela pequena demais para o mínimo das duas: cada uma pode ir até a metade.
-    const lo = Math.min(stacked ? MIN_TALL : MIN_WIDE, total / 2)
-    bar.setPointerCapture(e.pointerId)
-    // Sem isso o arrasto vai selecionando o texto das conversas pelo caminho.
-    document.body.style.userSelect = 'none'
-    const move = (ev: PointerEvent) => share(Math.min(total - lo, Math.max(lo, first + pos(ev) - start)) / total)
-    const up = () => {
-      bar.removeEventListener('pointermove', move)
-      bar.removeEventListener('pointerup', up)
-      bar.removeEventListener('pointercancel', up)
-      document.body.style.userSelect = ''
-      saveSplitSizes()
-    }
-    bar.addEventListener('pointermove', move)
-    bar.addEventListener('pointerup', up)
-    bar.addEventListener('pointercancel', up)
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const step = { [stacked ? 'ArrowUp' : 'ArrowLeft']: -KEY_STEP, [stacked ? 'ArrowDown' : 'ArrowRight']: KEY_STEP }[e.key]
-    if (step === undefined) return
-    e.preventDefault()
-    share(Math.min(0.85, Math.max(0.15, wa / (wa + wb) + step)))
-    saveSplitSizes()
-  }
-
   return (
-    <div
-      role="separator"
-      tabIndex={0}
-      aria-orientation={stacked ? 'horizontal' : 'vertical'}
-      aria-label="Tamanho das conversas"
-      aria-valuenow={Math.round((wa / (wa + wb)) * 100)}
-      aria-valuemin={15}
-      aria-valuemax={85}
-      title="Arrastar para mudar o tamanho · dois cliques: meio a meio"
-      onPointerDown={onPointerDown}
-      onDoubleClick={() => {
-        share(0.5)
-        saveSplitSizes()
+    <ResizeHandle
+      label="Tamanho das conversas"
+      value={Math.round((wa / (wa + wb)) * 100)}
+      stacked={stacked}
+      reset="meio a meio"
+      onStart={(bar) => {
+        const before = bar.previousElementSibling?.getBoundingClientRect()
+        const after = bar.nextElementSibling?.getBoundingClientRect()
+        if (!before || !after) return null
+        const first = stacked ? before.height : before.width
+        const total = first + (stacked ? after.height : after.width)
+        // Janela pequena demais para o mínimo das duas: cada uma pode ir até a metade.
+        const lo = Math.min(stacked ? MIN_TALL : MIN_WIDE, total / 2)
+        return (delta) => share(Math.min(total - lo, Math.max(lo, first + delta)) / total)
       }}
-      onKeyDown={onKeyDown}
-      className={cn('group relative z-10 shrink-0 touch-none bg-border outline-none', stacked ? 'h-px cursor-row-resize' : 'w-px cursor-col-resize')}
-    >
-      {/* Área de pegar mais larga que a linha: acertar 1px com o mouse é impossível. */}
-      <span className={cn('absolute', stacked ? 'inset-x-0 -inset-y-1.5' : 'inset-y-0 -inset-x-1.5')} />
-      {/* A linha acende ao passar o mouse, ao arrastar e com foco do teclado. */}
-      <span
-        className={cn(
-          'pointer-events-none absolute bg-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100',
-          stacked ? 'inset-x-0 -top-px h-[3px]' : 'inset-y-0 -left-px w-[3px]',
-        )}
-      />
-    </div>
+      onStep={(dir) => share(Math.min(0.85, Math.max(0.15, wa / (wa + wb) + dir * KEY_STEP)))}
+      onReset={() => share(0.5)}
+      onEnd={saveSplitSizes}
+    />
   )
 }
 
@@ -169,8 +126,11 @@ export function ChatSplit() {
               <div
                 // O peso decide o tamanho; base zero para a divisão ser só pelo peso, não pelo conteúdo.
                 style={collapsed || zen ? undefined : { flex: `${grow(i)} 1 0%` }}
-                className={cn('relative flex min-h-0 min-w-0 flex-col', collapsed ? 'flex-none' : zen && 'flex-1', offstage && 'hidden')}
-                onPointerDownCapture={() => focusChat(id)}
+                className={cn('group/pane relative flex min-h-0 min-w-0 flex-col', collapsed ? 'flex-none' : zen && 'flex-1', offstage && 'hidden')}
+                onPointerDownCapture={(e) => {
+                  if (id !== focused) markFocusing(e.nativeEvent)
+                  focusChat(id)
+                }}
                 onFocus={(e) => {
                   if (!isTextField(e.target)) return
                   focusChat(id)
@@ -211,6 +171,19 @@ export function ChatSplit() {
                   >
                     <span className="rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground shadow-md">Soltar aqui</span>
                   </div>
+                )}
+                {split && (
+                  // Fora de foco, a conversa fica atrás de um véu na cor do fundo: o texto segue nítido, só perde
+                  // contraste, e a em foco salta aos olhos (desfocar borrava as letras). Com o mouse em cima, o
+                  // véu clareia, que é onde se clica para trocar. Não pega o ponteiro: o toque põe a conversa em
+                  // foco e segue para onde foi.
+                  <div
+                    aria-hidden
+                    className={cn(
+                      'pointer-events-none absolute inset-0 z-30 bg-background/45 transition-opacity duration-200',
+                      id === focused ? 'opacity-0' : 'group-hover/pane:opacity-60',
+                    )}
+                  />
                 )}
               </div>
             </PaneContext>

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { create } from 'zustand'
 import { api } from './api'
 import type { GitStatus } from './types'
 
@@ -72,26 +73,49 @@ export function useHome(machine: string): string | undefined {
   return home
 }
 
+/**
+ * Git de cada projeto aberto, por máquina e pasta. Um lugar só para o selo no cabeçalho do chat e a
+ * barra do projeto: um commit pela barra já atualiza o selo, e os dois juntos fazem uma consulta só.
+ */
+const useGitCache = create<Record<string, GitStatus | null>>(() => ({}))
+const gitRequests = new Map<string, Promise<void>>()
+const gitKey = (machine: string, cwd: string) => `${machine}\n${cwd}`
+
+/** Relê o git do projeto (pedidos ao mesmo tempo viram um só). */
+export function reloadGit(machine: string, cwd: string): Promise<void> {
+  const key = gitKey(machine, cwd)
+  let request = gitRequests.get(key)
+  if (!request) {
+    request = api
+      .git(machine, cwd)
+      .then(
+        (s) => useGitCache.setState({ [key]: s }),
+        () => useGitCache.setState({ [key]: null }),
+      )
+      .finally(() => gitRequests.delete(key))
+    gitRequests.set(key, request)
+  }
+  return request
+}
+
 /** Estado do git do projeto; relido quando `refresh` muda (ex.: a cada turno concluído). */
 export function useGitStatus(
   machine: string,
   cwd: string | undefined,
   refresh: unknown,
-): { status: GitStatus | null; reload: () => void } {
-  const [status, setStatus] = useState<GitStatus | null>(null)
-  const [tick, setTick] = useState(0)
+): { status: GitStatus | null; loading: boolean; reload: () => void } {
+  // `undefined`: a primeira resposta ainda não veio; `null`: o projeto não usa git.
+  const entry = useGitCache((s) => (cwd ? s[gitKey(machine, cwd)] : null))
   useEffect(() => {
-    if (!cwd) return setStatus(null)
-    let alive = true
-    api.git(machine, cwd).then(
-      (s) => alive && setStatus(s),
-      () => alive && setStatus(null),
-    )
-    return () => {
-      alive = false
-    }
-  }, [machine, cwd, refresh, tick])
-  return { status, reload: () => setTick((t) => t + 1) }
+    if (cwd) void reloadGit(machine, cwd)
+  }, [machine, cwd, refresh])
+  return {
+    status: entry ?? null,
+    loading: entry === undefined,
+    reload: () => {
+      if (cwd) void reloadGit(machine, cwd)
+    },
+  }
 }
 
 const LONG_PRESS_MS = 500

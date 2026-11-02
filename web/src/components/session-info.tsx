@@ -1,17 +1,27 @@
 import { Bot, GitFork, Hourglass, Monitor, Pin, Server, Smartphone } from 'lucide-react'
+import { Claudinho } from '@/components/claudinho'
+import { claudinhoName } from '@/lib/claudinho'
 import { StateBadge } from '@/components/state-badge'
 import { projectName, relativeTime } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
 import type { CatalogEntry } from '@/lib/types'
 
-/** Conteúdo de uma conversa numa lista: título, projeto, quando mexeu por último, estado e onde está aberta. */
-export function SessionInfo({ s }: { s: CatalogEntry }) {
+/**
+ * Conteúdo de uma conversa numa lista: o claudinho dela, título, projeto, quando mexeu por último,
+ * estado e onde está aberta. `grouped`: dentro do grupo do projeto (ver pages/sessions.tsx), que já
+ * diz o projeto e a máquina.
+ */
+export function SessionInfo({ s, grouped = false }: { s: CatalogEntry; grouped?: boolean }) {
   // Com várias máquinas, cada conversa diz de qual é.
-  const machine = useMachines((m) => (m.machines.length > 1 ? m.machines.find((x) => x.id === (s.machine ?? HOME))?.name : undefined))
+  const machine = useMachines((m) =>
+    !grouped && m.machines.length > 1 ? m.machines.find((x) => x.id === (s.machine ?? HOME))?.name : undefined,
+  )
   // Turno acabou com algo em segundo plano (monitor, comando): o Claude ainda vai voltar.
   const background = s.state === 'idle' && Boolean(s.tasks?.length)
+  const name = claudinhoName(s.sessionId, s.claudinhoName)
   return (
     <>
+      <Claudinho seed={s.sessionId} name={name} state={background ? 'running' : s.state} size={grouped ? 28 : 32} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}
@@ -19,7 +29,9 @@ export function SessionInfo({ s }: { s: CatalogEntry }) {
           <span className="truncate">{s.title}</span>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">{projectName(s.cwd)}</span>
+          <span className="shrink-0 font-medium text-foreground/70">{name}</span>
+          <span>·</span>
+          {!grouped && <span className="truncate">{projectName(s.cwd)}</span>}
           {machine && (
             <>
               <span>·</span>
@@ -29,7 +41,7 @@ export function SessionInfo({ s }: { s: CatalogEntry }) {
               </span>
             </>
           )}
-          <span>·</span>
+          {!grouped && <span>·</span>}
           <span className="shrink-0">{relativeTime(s.lastModified)}</span>
         </div>
         {s.tasks?.length ? (

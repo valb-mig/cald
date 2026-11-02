@@ -1,17 +1,25 @@
-import { FileText, Folder, Slash } from 'lucide-react'
+import { CircleDot, FileText, Folder, GitPullRequest, GitPullRequestDraft, Slash } from 'lucide-react'
 import { useEffect, useImperativeHandle, useRef, useState, type ComponentProps, type Ref } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
+import { getGithub } from '@/lib/github'
 import { useMachine } from '@/lib/machines'
 import type { CommandInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-type Token = { kind: '/' | '@'; query: string; start: number; end: number }
-type Suggestion = ({ kind: 'command' } & CommandInfo) | { kind: 'file'; path: string }
+type Token = { kind: '/' | '@' | '#'; query: string; start: number; end: number }
+type GithubRef = { number: number; title: string; draft: boolean; updatedAt: string }
+type GithubSuggestion = ({ kind: 'issue' } & GithubRef) | ({ kind: 'pr' } & GithubRef)
+type Suggestion = ({ kind: 'command' } & CommandInfo) | { kind: 'file'; path: string } | GithubSuggestion
 
-/** Palavra sob o cursor que dispara sugestões: "/comando" no início da mensagem ou "@caminho" em qualquer lugar. */
+const suggestionKey = (s: Suggestion) => (s.kind === 'command' ? s.name : s.kind === 'file' ? s.path : `${s.kind}${s.number}`)
+
+/**
+ * Palavra sob o cursor que dispara sugestões: "/comando" no início da mensagem, "@caminho" e "#issue"
+ * ou "#PR" (pelo número ou pelo título) em qualquer lugar.
+ */
 function activeToken(text: string, caret: number): Token | null {
-  const m = /(^|\s)([@/])([^\s]*)$/.exec(text.slice(0, caret))
+  const m = /(^|\s)([@/#])([^\s]*)$/.exec(text.slice(0, caret))
   if (!m) return null
   const kind = m[2] as Token['kind']
   const start = caret - 1 - m[3].length
@@ -61,6 +69,26 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
         alive = false
       }
     }
+    if (kind === '#') {
+      // As abertas do projeto, do mesmo cache da barra do projeto: digitar "#" não gasta cota à toa.
+      getGithub(machine, cwd).then(
+        (info) => {
+          if (!alive) return
+          if (!info?.ok) return setItems([])
+          const all: GithubSuggestion[] = [
+            ...info.pulls.map((p) => ({ kind: 'pr' as const, number: p.number, title: p.title, draft: p.draft, updatedAt: p.updatedAt })),
+            ...info.issues.map((i) => ({ kind: 'issue' as const, number: i.number, title: i.title, draft: false, updatedAt: i.updatedAt })),
+          ].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+          // Número: pelo começo dele ("#3" acha 31 e 30); texto: pelo título.
+          const byNumber = /^\d+$/.test(q)
+          setItems(all.filter((g) => (byNumber ? String(g.number).startsWith(q) : g.title.toLowerCase().includes(q))).slice(0, 20))
+        },
+        () => alive && setItems([]),
+      )
+      return () => {
+        alive = false
+      }
+    }
     const timer = setTimeout(() => {
       api.files(machine, cwd, query).then(
         (paths) => alive && setItems(paths.map((path) => ({ kind: 'file', path }))),
@@ -87,6 +115,20 @@ function SuggestionRow({ s }: { s: Suggestion }) {
             {s.argumentHint && <span className="ml-1.5 text-muted-foreground">{s.argumentHint}</span>}
           </div>
           {s.description && <div className="line-clamp-2 text-xs text-muted-foreground">{s.description}</div>}
+        </div>
+      </>
+    )
+  }
+  if (s.kind === 'issue' || s.kind === 'pr') {
+    const Icon = s.kind === 'issue' ? CircleDot : s.draft ? GitPullRequestDraft : GitPullRequest
+    return (
+      <>
+        <Icon className={cn('mt-0.5 size-4 shrink-0', s.draft ? 'text-muted-foreground' : 'text-emerald-500')} />
+        <div className="min-w-0">
+          <div className="truncate text-sm">
+            <span className="font-mono text-muted-foreground">#{s.number}</span> {s.title}
+          </div>
+          <div className="text-xs text-muted-foreground">{s.kind === 'pr' ? (s.draft ? 'PR em rascunho' : 'PR aberto') : 'Issue aberta'}</div>
         </div>
       </>
     )
@@ -120,7 +162,7 @@ export type PromptInputHandle = {
 
 type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   handleRef?: Ref<PromptInputHandle>
-  /** Projeto da sessão: de onde vêm os comandos e os arquivos sugeridos. */
+  /** Projeto da sessão: de onde vêm os comandos, os arquivos, as issues e os PRs sugeridos. */
   cwd?: string
   value: string
   onChange: (value: string) => void
@@ -133,7 +175,7 @@ type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   anchored?: boolean
 }
 
-/** Campo de mensagem com sugestões de "/comando" e "@arquivo". */
+/** Campo de mensagem com sugestões de "/comando", "@arquivo" e "#issue" ou "#PR". */
 export function PromptInput({
   cwd,
   value,
@@ -189,8 +231,16 @@ export function PromptInput({
   function pick(s: Suggestion) {
     const el = ref.current
     if (!el || !token) return
-    // Diretório: mantém a sugestão aberta para descer na árvore.
-    const insert = s.kind === 'command' ? `/${s.name} ` : s.path.endsWith('/') ? `@${s.path}` : `@${s.path} `
+    // Diretório: mantém a sugestão aberta para descer na árvore. Issue e PR entram com o tipo na frente,
+    // para o Claude saber o que buscar no GitHub do projeto (pelo `gh`).
+    const insert =
+      s.kind === 'command'
+        ? `/${s.name} `
+        : s.kind === 'file'
+          ? s.path.endsWith('/')
+            ? `@${s.path}`
+            : `@${s.path} `
+          : `${s.kind === 'pr' ? 'PR' : 'issue'} #${s.number} `
     const next = value.slice(0, token.start) + insert + value.slice(token.end)
     const caret = token.start + insert.length
     onChange(next)
@@ -212,7 +262,7 @@ export function PromptInput({
         >
           {suggestions.map((s, i) => (
             <button
-              key={s.kind === 'command' ? s.name : s.path}
+              key={suggestionKey(s)}
               type="button"
               // Não tirar o foco do campo (o teclado do celular fecharia).
               onMouseDown={(e) => e.preventDefault()}

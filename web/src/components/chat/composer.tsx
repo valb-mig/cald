@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload } from '@/lib/attachments'
+import { useInsertTarget } from '@/lib/compose'
 import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation'
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
@@ -30,6 +31,7 @@ export function Composer({
   onCompact,
   onSend,
   onInterrupt,
+  onEdit,
 }: {
   sessionId: string
   cwd?: string
@@ -44,6 +46,8 @@ export function Composer({
   onCompact?: () => Promise<void>
   onSend: (text: string, attachments: AttachmentPayload[]) => Promise<void> | void
   onInterrupt?: () => Promise<void>
+  /** O texto mudou pela mão de quem usa (digitar, colar, mencionar): no PC, a aba de prévia vira fixa. */
+  onEdit?: () => void
 }) {
   // Rascunho por conversa: trocar de chat, recarregar a tela ou o Android fechar o app não perde o
   // que foi digitado ou anexado. Sem ele na memória, vem do banco; até lá nada é gravado, para não
@@ -56,6 +60,8 @@ export function Composer({
   const [stopping, setStopping] = useState(false)
   const input = useRef<PromptInputHandle>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  // De fora do campo também se escreve aqui: mencionar um arquivo pela barra do projeto, por exemplo.
+  useInsertTarget(sessionId, (inserted) => input.current?.insert(inserted))
   const models = useModels()
 
   // Ditado: o que é ouvido entra onde estava o cursor e vai sendo corrigido enquanto se fala.
@@ -173,7 +179,8 @@ export function Composer({
       )}
       <div
         className={cn(
-          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1',
+          // No PC, a caixa flutua solta no pé da janela, com folga em volta.
+          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
           big
             ? 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]'
             : glass
@@ -184,7 +191,7 @@ export function Composer({
         {hint && !big && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}
         <div
           className={cn(
-            'relative rounded-xl border shadow-xs transition-colors',
+            'relative rounded-2xl border shadow-[0_12px_32px_-18px_rgb(0_0_0/0.35)] transition-[border-color,box-shadow] duration-200',
             big ? 'mx-auto w-full max-w-3xl bg-card shadow-2xl' : glass ? 'bg-card/70 backdrop-blur-md' : 'bg-card',
             tone.focus,
           )}
@@ -201,6 +208,7 @@ export function Composer({
             onChange={(value) => {
               stopDictation()
               setText(value)
+              if (value.trim()) onEdit?.()
             }}
             onPasteFiles={files.add}
             onSubmitShortcut={submit}

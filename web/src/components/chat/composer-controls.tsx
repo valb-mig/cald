@@ -58,11 +58,25 @@ const SELECTABLE_MODES = ['default', 'acceptEdits', 'plan', 'auto']
 export const EFFORTS: Record<string, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' }
 
 /** Cor do botão de enviar e da borda em foco por modo, como no VSCode. */
+/** Cor de cada modo no botão de enviar e na caixa com foco, que acende em volta na mesma cor. */
 export const MODE_TONE: Record<string, { send: string; focus: string }> = {
-  default: { send: 'bg-[#c6613f] text-[#faf9f5]', focus: 'focus-within:border-[#c6613f]/70' },
-  acceptEdits: { send: 'bg-foreground text-background', focus: 'focus-within:border-foreground/50' },
-  plan: { send: 'bg-sky-600 text-white', focus: 'focus-within:border-sky-500/70' },
-  auto: { send: 'bg-red-600 text-white', focus: 'focus-within:border-red-500/70' },
+  default: {
+    send: 'bg-[#c6613f] text-[#faf9f5]',
+    focus: 'focus-within:border-[#c6613f]/70 focus-within:shadow-[0_0_0_3px_rgb(198_97_63/0.12),0_12px_40px_-14px_rgb(198_97_63/0.5)]',
+  },
+  acceptEdits: {
+    send: 'bg-foreground text-background',
+    focus:
+      'focus-within:border-foreground/50 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--foreground)_8%,transparent),0_12px_40px_-16px_color-mix(in_oklab,var(--foreground)_35%,transparent)]',
+  },
+  plan: {
+    send: 'bg-sky-600 text-white',
+    focus: 'focus-within:border-sky-500/70 focus-within:shadow-[0_0_0_3px_rgb(14_165_233/0.12),0_12px_40px_-14px_rgb(14_165_233/0.5)]',
+  },
+  auto: {
+    send: 'bg-red-600 text-white',
+    focus: 'focus-within:border-red-500/70 focus-within:shadow-[0_0_0_3px_rgb(239_68_68/0.12),0_12px_40px_-14px_rgb(239_68_68/0.5)]',
+  },
 }
 
 const tokens = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })

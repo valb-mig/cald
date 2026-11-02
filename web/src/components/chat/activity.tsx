@@ -21,17 +21,19 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { createElement } from 'react'
+import { createElement, Fragment } from 'react'
 import { AgentRow } from '@/components/agents/agent-row'
 import { useAgents } from '@/components/agents/model'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown } from '@/components/markdown'
 import { imageUrl, thumbUrl } from '@/lib/api'
-import { shortPath, toolSummary } from '@/lib/format'
+import { FILE_TOOLS, shortPath, toolSummary } from '@/lib/format'
+import { tokenStyle, useTokens } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 import { useGallery } from './gallery'
 import type { ActivityEntry } from './items'
+import { lineCounts } from './turn'
 
 const ICONS: Record<string, LucideIcon> = {
   Bash: SquareTerminal,
@@ -58,11 +60,13 @@ export function toolIcon(name: string): LucideIcon {
   return ICONS[name] ?? (name.startsWith('mcp__') ? Plug : Wrench)
 }
 
+const PRE = 'max-h-72 overflow-auto rounded border bg-background/60 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all'
+
 function Pre({ children, tone }: { children: string; tone?: 'add' | 'del' | 'error' }) {
   return (
     <pre
       className={cn(
-        'max-h-72 overflow-auto rounded border bg-background/60 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all',
+        PRE,
         tone === 'add' && 'border-emerald-500/30 bg-emerald-500/10',
         tone === 'del' && 'border-red-500/30 bg-red-500/10',
         tone === 'error' && 'border-red-500/30 text-red-700 dark:text-red-300',
@@ -70,6 +74,43 @@ function Pre({ children, tone }: { children: string; tone?: 'add' | 'del' | 'err
     >
       {children}
     </pre>
+  )
+}
+
+/**
+ * Um comando do terminal com as cores de sintaxe do shell (as do VSCode, ver lib/highlight.ts);
+ * enquanto elas carregam, ou sem rede, o texto puro.
+ */
+export function ShellCommand({ command, className }: { command: string; className?: string }) {
+  const lines = useTokens(command, 'comando.sh')
+  return (
+    <pre className={cn(PRE, className)}>
+      <span className="text-muted-foreground select-none">$ </span>
+      {lines
+        ? lines.map((line, i) => (
+            <Fragment key={i}>
+              {i > 0 && '\n'}
+              {line.map((t, j) => (
+                <span key={j} style={tokenStyle(t)}>
+                  {t.content}
+                </span>
+              ))}
+            </Fragment>
+          ))
+        : command}
+    </pre>
+  )
+}
+
+/** Linhas colocadas (verde) e tiradas (vermelho), como no diff; a parte que é zero não aparece. */
+export function LineCounts({ added, removed, className }: { added: number; removed: number; className?: string }) {
+  if (!added && !removed) return null
+  return (
+    <span className={cn('shrink-0 font-mono text-[11px] tabular-nums', className)}>
+      {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+      {added > 0 && removed > 0 && ' '}
+      {removed > 0 && <span className="text-red-600 dark:text-red-400">−{removed}</span>}
+    </span>
   )
 }
 
@@ -84,7 +125,7 @@ export function ToolDetails({ use, result }: Pick<ToolEntry, 'use' | 'result'>) 
     case 'Bash':
       return (
         <>
-          <Pre>{`$ ${s(input.command)}`}</Pre>
+          <ShellCommand command={s(input.command)} />
           {output}
         </>
       )
@@ -135,6 +176,8 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
   const failed = result?.isError
   const name = use.name.startsWith('mcp__') ? use.name.split('__').slice(1).join(' · ') : use.name
   const { claude } = useGallery()
+  // Edição que deu certo: quantas linhas entraram e saíram, como no diff.
+  const counts = FILE_TOOLS.has(use.name) && result && !failed ? lineCounts(use) : null
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60">
@@ -143,6 +186,7 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
         })}
         <span className="shrink-0 font-medium">{name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{toolSummary(use.name, use.input)}</span>
+        {counts && <LineCounts {...counts} />}
         {pending && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />}
         {failed && <XCircle className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />}
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />

@@ -5,13 +5,16 @@ import { dirname, join } from 'node:path';
 /** De onde uma conversa bifurcou, e em que ponto do log da origem ela foi cortada. */
 export type Fork = { from: string; at?: string };
 
-/** Metadados só do painel; títulos ficam no próprio Claude Code (renameSession). */
-type Meta = { pinned: string[]; forks: Record<string, Fork> };
+/**
+ * Metadados só do painel; títulos ficam no próprio Claude Code (renameSession). `names`: o nome que
+ * você deu ao claudinho de uma conversa; sem ele, vale o sorteado pelo app.
+ */
+type Meta = { pinned: string[]; forks: Record<string, Fork>; names: Record<string, string> };
 
 const FILE = process.env.META_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {} };
+  private meta: Meta = { pinned: [], forks: {}, names: {} };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -20,6 +23,7 @@ export class MetaStore {
       this.meta = {
         pinned: Array.isArray(data.pinned) ? data.pinned.filter((p) => typeof p === 'string') : [],
         forks: data.forks && typeof data.forks === 'object' ? data.forks : {},
+        names: data.names && typeof data.names === 'object' ? data.names : {},
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -40,6 +44,19 @@ export class MetaStore {
 
   async setFork(sessionId: string, fork: Fork): Promise<void> {
     this.meta = { ...this.meta, forks: { ...this.meta.forks, [sessionId]: fork } };
+    await this.save();
+  }
+
+  /** O nome que você deu ao claudinho da conversa, se deu. */
+  nameOf(sessionId: string): string | undefined {
+    return this.meta.names[sessionId];
+  }
+
+  /** `null` (ou vazio) volta ao nome sorteado. */
+  async setName(sessionId: string, name: string | null): Promise<void> {
+    const { [sessionId]: _old, ...names } = this.meta.names;
+    const clean = name?.trim();
+    this.meta = { ...this.meta, names: clean ? { ...names, [sessionId]: clean } : names };
     await this.save();
   }
 

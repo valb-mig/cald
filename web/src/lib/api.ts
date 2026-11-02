@@ -4,7 +4,10 @@ import type {
   AttachmentPayload,
   CommandInfo,
   ContextUsage,
+  DiffSide,
   FileView,
+  GithubInfo,
+  GithubItem,
   GitStatus,
   GitSummary,
   LoggedEvent,
@@ -13,6 +16,7 @@ import type {
   PushPrefs,
   RunOptions,
   SessionCost,
+  Todo,
   TreeEntry,
   UpdateStatus,
   WakaToday,
@@ -63,7 +67,8 @@ export const api = {
   /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
   office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
-  activity: (m: string) => request<Activity>('GET', `${at(m)}/activity`),
+  /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
+  activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),
   commands: (m: string, cwd: string) => request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}`),
   files: (m: string, cwd: string, q: string) =>
     request<string[]>('GET', `${at(m)}/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
@@ -87,6 +92,8 @@ export const api = {
     post(`${sid(id)}/messages`, body, signal),
   interrupt: (id: string) => post(`${sid(id)}/interrupt`),
   pin: (id: string, pinned: boolean) => post(`${sid(id)}/pin`, { pinned }),
+  /** O nome do claudinho da conversa; `null` volta ao sorteado. */
+  claudinhoName: (id: string, name: string | null) => post(`${sid(id)}/claudinho`, { name }),
   remove: (id: string) => post(`${sid(id)}/delete`),
   tree: (m: string, cwd: string, path: string) => request<TreeEntry[]>('GET', `${at(m)}/tree?${project(cwd, path)}`),
   file: (m: string, cwd: string, path: string) => request<FileView>('GET', `${at(m)}/file?${project(cwd, path)}`),
@@ -95,7 +102,23 @@ export const api = {
   wakatimeToday: (m: string) => request<{ today: WakaToday | null }>('GET', `${at(m)}/wakatime`),
   /** Avisa que você está mexendo no painel, para o tempo contar no WakaTime (ver lib/wakatime.ts). */
   wakatime: (m: string, body: { cwd: string; path?: string; category?: 'code reviewing' | 'planning' }) => post(`${at(m)}/wakatime`, body),
-  gitDiff: (m: string, cwd: string, path: string) => request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}`),
+  gitDiff: (m: string, cwd: string, path: string, side?: DiffSide) =>
+    request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}${side ? `&side=${side}` : ''}`),
+  gitStage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/stage`, { cwd, paths }),
+  gitUnstage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/unstage`, { cwd, paths }),
+  /** Commit do que está staged; `all` prepara tudo antes. */
+  gitCommit: (m: string, cwd: string, message: string, all: boolean) => post<{ sha: string }>(`${at(m)}/git/commit`, { cwd, message, all }),
+  /** Traz o que chegou do remoto (só avançando) e envia o que falta; sem upstream, publica a branch. */
+  gitSync: (m: string, cwd: string) => post(`${at(m)}/git/sync`, { cwd }),
+  /** PRs e issues abertos no GitHub; o servidor guarda por 2 min, e `refresh` pede de novo (ver server/src/github.ts). */
+  github: (m: string, cwd: string, refresh = false) =>
+    request<GithubInfo>('GET', `${at(m)}/github?${project(cwd)}${refresh ? '&refresh=1' : ''}`),
+  /** Uma issue ou um PR inteiro, com o mesmo cache das listas. */
+  githubItem: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, refresh = false) =>
+    request<GithubItem>('GET', `${at(m)}/github/item?${project(cwd)}&kind=${kind}&number=${number}${refresh ? '&refresh=1' : ''}`),
+  todos: (m: string, cwd: string) => request<{ items: Todo[] }>('GET', `${at(m)}/todos?${project(cwd)}`),
+  /** A lista inteira, como ficou depois da mudança. */
+  saveTodos: (m: string, cwd: string, items: Todo[]) => post<{ items: Todo[] }>(`${at(m)}/todos`, { cwd, items }),
   update: (m: string) => request<UpdateStatus>('GET', `${at(m)}/update`),
   startUpdate: (m: string) => post<UpdateStatus>(`${at(m)}/update`),
   restartNow: (m: string) => post(`${at(m)}/update/restart`),
@@ -121,6 +144,13 @@ export const api = {
 }
 
 /** Mensagens legíveis para os códigos de erro do backend. */
+/**
+ * Rota que o servidor do PC não tem: ele ainda roda uma versão anterior à do app (o código novo só
+ * vale depois de reiniciar). Só para rotas novas: em outras, o mesmo 404 quer dizer outra coisa.
+ */
+export const isOutdatedServer = (err: unknown) => err instanceof ApiError && err.status === 404 && err.code === 'not_found'
+export const OUTDATED_SERVER = 'O servidor do PC ainda roda a versão anterior. Reinicie o Claude Remote no PC para usar isto.'
+
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err)
   const status = String(err.details.status ?? '')
@@ -179,6 +209,14 @@ export function errorMessage(err: unknown): string {
       return 'Não deu para falar com o GitHub.'
     case 'update_no_service':
       return 'O servidor não roda como serviço. Reinicie pelo terminal.'
+    case 'git_failed':
+      return String(err.details.message || 'O git recusou.')
+    case 'nothing_to_commit':
+      return 'Nada para o commit.'
+    case 'detached_head':
+      return 'Sem branch (HEAD destacado): não há para onde sincronizar.'
+    case 'not_a_repository':
+      return 'Esse projeto não usa git.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

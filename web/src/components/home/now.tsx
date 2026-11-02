@@ -65,7 +65,7 @@ function Row({ s, note }: { s: CatalogEntry; note?: string }) {
 }
 
 /** O que precisa de você agora (para responder aqui mesmo) e o que está trabalhando. */
-export function Now() {
+export function Now({ className }: { className?: string }) {
   const catalog = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
   const { asking, onPc, working } = useMemo(() => {
@@ -82,6 +82,7 @@ export function Now() {
 
   return (
     <HomeCard
+      className={className}
       title={asking.length + onPc.length ? 'Pedindo você' : 'Agora'}
       description={
         asking.length + onPc.length

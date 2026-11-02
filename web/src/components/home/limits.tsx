@@ -63,7 +63,7 @@ function Window({ label, window, span, now }: { label: string; window: UsageWind
 }
 
 /** Limites do plano com previsão e, embaixo, o PC num relance (toque abre o painel Computador). */
-export function Limits() {
+export function Limits({ className }: { className?: string }) {
   const now = useSyncExternalStore(everyMinute, minute)
   const usage = useStore((s) => s.usages[HOME])
   const system = useStore((s) => s.systems[HOME])
@@ -71,7 +71,7 @@ export function Limits() {
   const plan = usage?.plan
 
   return (
-    <HomeCard title="Limites do plano" description="Quanto já foi usado e, no ritmo atual, até onde vai.">
+    <HomeCard title="Limites do plano" description="Quanto já foi usado e, no ritmo atual, até onde vai." className={className}>
       {plan?.available ? (
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

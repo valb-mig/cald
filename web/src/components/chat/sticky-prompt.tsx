@@ -85,7 +85,14 @@ function Bar({ item, scrollRef }: { item: Extract<Item, { type: 'user' }>; scrol
   }
 
   return (
-    <div className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 border-b backdrop-blur', glass ? 'bg-background/70' : 'bg-background/90')}>
+    <div
+      className={cn(
+        'pointer-events-none absolute inset-x-0 top-0 z-10 border-b backdrop-blur',
+        // No PC, sem linha: o pé da faixa esfumaça na conversa que rola por baixo.
+        'wide:border-b-0 wide:pb-3 wide:[mask-image:linear-gradient(to_bottom,#000_calc(100%-0.75rem),transparent)]',
+        glass ? 'bg-background/70' : 'bg-background/90',
+      )}
+    >
       <div className="mx-auto flex w-full max-w-3xl flex-col items-end gap-1.5 px-4 py-1.5">
         {open ? (
           // Aberta: a mensagem inteira, rolando dentro da faixa até metade da tela (dá para selecionar o texto).

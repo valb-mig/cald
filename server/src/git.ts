@@ -7,6 +7,9 @@ const exec = promisify(execFile);
 
 const MAX_DIFF = 512 * 1024;
 
+/** Linhas a mais e a menos; `null` em arquivo binário. */
+export type LineCount = { additions: number | null; deletions: number | null };
+
 export type GitFile = {
   path: string;
   /** Caminho anterior, em renomeações. */
@@ -15,8 +18,12 @@ export type GitFile = {
   index: string;
   worktree: string;
   untracked: boolean;
+  /** Staged e não staged somados. */
   additions: number | null;
   deletions: number | null;
+  /** Cada lado separado, para as listas do controle de código-fonte; `null` se o lado não mudou. */
+  staged: LineCount | null;
+  unstaged: LineCount | null;
 };
 
 export type GitStatus = {
@@ -44,7 +51,8 @@ export function remoteWebUrl(remote: string): string | null {
 }
 
 /** `git diff --numstat -z`: "a\td\tcaminho\0" ou, em renomeação, "a\td\t\0antigo\0novo\0". */
-function parseNumstat(out: string, into: Map<string, { add: number | null; del: number | null }>): void {
+function parseNumstat(out: string): Map<string, LineCount> {
+  const counts = new Map<string, LineCount>();
   const tokens = out.split('\0');
   for (let i = 0; i < tokens.length; i++) {
     const [a, d, path] = tokens[i]!.split('\t');
@@ -52,15 +60,13 @@ function parseNumstat(out: string, into: Map<string, { add: number | null; del: 
     const target = path ? path : tokens[(i += 2)];
     if (!target) continue;
     const n = (v: string) => (v === '-' ? null : Number(v)); // "-" = binário
-    const prev = into.get(target);
-    const add = n(a);
-    const del = n(d);
-    into.set(target, {
-      add: prev ? (prev.add === null || add === null ? null : prev.add + add) : add,
-      del: prev ? (prev.del === null || del === null ? null : prev.del + del) : del,
-    });
+    counts.set(target, { additions: n(a), deletions: n(d) });
   }
+  return counts;
 }
+
+const sum = (a: number | null | undefined, b: number | null | undefined) =>
+  a === null || b === null ? null : (a ?? 0) + (b ?? 0);
 
 /** `git status --porcelain=v2 --branch -z`: branch, upstream e arquivos, ainda sem as linhas alteradas. */
 function parseStatus(out: string): GitStatus {
@@ -80,14 +86,14 @@ function parseStatus(out: string): GitStatus {
     } else if (line.startsWith('1 ') || line.startsWith('u ')) {
       const parts = line.split(' ');
       const xy = parts[1]!;
-      status.files.push({ path: parts.slice(line.startsWith('1 ') ? 8 : 10).join(' '), index: xy[0]!, worktree: xy[1]!, untracked: false, additions: null, deletions: null });
+      status.files.push({ path: parts.slice(line.startsWith('1 ') ? 8 : 10).join(' '), index: xy[0]!, worktree: xy[1]!, untracked: false, additions: null, deletions: null, staged: null, unstaged: null });
     } else if (line.startsWith('2 ')) {
       // Renomeação: o caminho antigo vem no token seguinte.
       const parts = line.split(' ');
       const xy = parts[1]!;
-      status.files.push({ path: parts.slice(9).join(' '), from: tokens[++i], index: xy[0]!, worktree: xy[1]!, untracked: false, additions: null, deletions: null });
+      status.files.push({ path: parts.slice(9).join(' '), from: tokens[++i], index: xy[0]!, worktree: xy[1]!, untracked: false, additions: null, deletions: null, staged: null, unstaged: null });
     } else if (line.startsWith('? ')) {
-      status.files.push({ path: line.slice(2), index: '?', worktree: '?', untracked: true, additions: null, deletions: null });
+      status.files.push({ path: line.slice(2), index: '?', worktree: '?', untracked: true, additions: null, deletions: null, staged: null, unstaged: null });
     }
   }
   return status;
@@ -106,35 +112,50 @@ export async function gitStatus(cwd: string): Promise<GitStatus | null> {
   const status = await readStatus(cwd);
   if (!status) return null;
 
-  // Linhas alteradas: staged + não staged somados por arquivo.
-  const counts = new Map<string, { add: number | null; del: number | null }>();
-  const [unstaged, staged, remote] = await Promise.all([
+  // Linhas alteradas de cada lado, e os dois somados por arquivo.
+  const [unstagedOut, stagedOut, remote] = await Promise.all([
     git(cwd, ['diff', '--numstat', '-z']).catch(() => ({ stdout: '' })),
     git(cwd, ['diff', '--numstat', '-z', '--cached']).catch(() => ({ stdout: '' })),
     git(cwd, ['remote', 'get-url', status.upstream?.split('/')[0] || 'origin']).catch(() => ({ stdout: '' })),
   ]);
   status.remote = remoteWebUrl(remote.stdout);
-  parseNumstat(unstaged.stdout, counts);
-  parseNumstat(staged.stdout, counts);
+  const unstaged = parseNumstat(unstagedOut.stdout);
+  const staged = parseNumstat(stagedOut.stdout);
   for (const f of status.files) {
-    const c = counts.get(f.path);
-    if (c) {
-      f.additions = c.add;
-      f.deletions = c.del;
+    f.staged = staged.get(f.path) ?? null;
+    f.unstaged = unstaged.get(f.path) ?? null;
+    if (f.staged || f.unstaged) {
+      f.additions = sum(f.staged?.additions, f.unstaged?.additions);
+      f.deletions = sum(f.staged?.deletions, f.unstaged?.deletions);
     }
   }
   return status;
 }
 
-/** Diff de um arquivo contra o último commit (staged + não staged); novo arquivo = diff contra vazio. */
-export async function gitDiff(cwd: string, path: string): Promise<string> {
+/** Caminho relativo dentro do projeto: nada de absoluto nem "../". */
+function checkPath(path: string): void {
   if (!path || isAbsolute(path) || path.split('/').includes('..')) throw new HttpError(400, 'invalid_path');
+}
+
+/** Um lado só do diff, como nas duas listas do VSCode: o que está staged ou o que ainda não está. */
+export type DiffSide = 'staged' | 'unstaged';
+
+/**
+ * Diff de um arquivo. Sem `side`, contra o último commit (staged + não staged); com ele, só aquele
+ * lado. Arquivo novo, ainda fora do índice, é comparado com o vazio.
+ */
+export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promise<string> {
+  checkPath(path);
   const status = await gitStatus(cwd);
   if (!status) throw new HttpError(404, 'not_a_repository');
   const file = status.files.find((f) => f.path === path);
 
   let out: string;
-  if (file?.untracked) {
+  if (side === 'staged') {
+    out = (await git(cwd, ['diff', '--cached', '--', path])).stdout;
+  } else if (side === 'unstaged' && !file?.untracked) {
+    out = (await git(cwd, ['diff', '--', path])).stdout;
+  } else if (file?.untracked) {
     // Sem histórico: compara com /dev/null (o git sai com código 1 quando há diferença).
     out = await git(cwd, ['diff', '--no-index', '--', '/dev/null', path]).then(
       (r) => r.stdout,
@@ -151,6 +172,87 @@ export async function gitDiff(cwd: string, path: string): Promise<string> {
     );
   }
   return out.length > MAX_DIFF ? `${out.slice(0, MAX_DIFF)}\n… diff cortado (${Math.round(out.length / 1024)} KB)` : out;
+}
+
+// ---- ações do controle de código-fonte ----
+
+/** O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede. */
+function gitWrite(cwd: string, args: string[]) {
+  return exec('git', args, {
+    cwd,
+    timeout: 120_000,
+    maxBuffer: 8 * 1024 * 1024,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_EDITOR: 'true',
+      GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=10',
+    },
+  }).catch((err: { stderr?: string; stdout?: string; message?: string }) => {
+    // O que o git disse (hook que falhou, conflito, remoto recusando) vai para a tela como está.
+    const message = (err.stderr || err.stdout || err.message || '').trim().split('\n').slice(-6).join('\n');
+    throw new HttpError(409, 'git_failed', { message });
+  });
+}
+
+async function requireRepo(cwd: string): Promise<GitStatus> {
+  const status = await readStatus(cwd);
+  if (!status) throw new HttpError(404, 'not_a_repository');
+  return status;
+}
+
+function checkPaths(paths: string[]): void {
+  if (paths.length === 0) throw new HttpError(400, 'invalid_path');
+  paths.forEach(checkPath);
+}
+
+/** Prepara (stage) os arquivos; apagados também, por isso o `-A`. */
+export async function gitStage(cwd: string, paths: string[]): Promise<void> {
+  checkPaths(paths);
+  await requireRepo(cwd);
+  await gitWrite(cwd, ['add', '-A', '--', ...paths]);
+}
+
+/** Tira do stage, sem mexer no arquivo. Num repositório ainda sem commits não há HEAD para voltar. */
+export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
+  checkPaths(paths);
+  await requireRepo(cwd);
+  const born = await git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(
+    () => true,
+    () => false,
+  );
+  await gitWrite(cwd, born ? ['restore', '--staged', '--', ...paths] : ['rm', '--cached', '-r', '-q', '--', ...paths]);
+}
+
+/** Commit do que está staged; com `all`, prepara tudo antes (como o commit sem nada staged do VSCode). */
+export async function gitCommit(cwd: string, message: string, all: boolean): Promise<{ sha: string }> {
+  if (!message.trim()) throw new HttpError(400, 'empty_message');
+  const status = await requireRepo(cwd);
+  if (all) {
+    if (status.files.length === 0) throw new HttpError(409, 'nothing_to_commit');
+    await gitWrite(cwd, ['add', '-A']);
+  } else if (!status.files.some((f) => f.index !== '.' && f.index !== '?')) {
+    throw new HttpError(409, 'nothing_to_commit');
+  }
+  await gitWrite(cwd, ['commit', '-m', message]);
+  const sha = await git(cwd, ['rev-parse', '--short', 'HEAD']).then((r) => r.stdout.trim());
+  return { sha };
+}
+
+/**
+ * Sincroniza com o remoto: traz o que chegou (só avançando, nunca um merge escondido) e envia o que
+ * falta. Branch sem upstream é publicada no origin.
+ */
+export async function gitSync(cwd: string): Promise<void> {
+  const status = await requireRepo(cwd);
+  if (!status.branch) throw new HttpError(409, 'detached_head');
+  if (!status.upstream) {
+    await gitWrite(cwd, ['push', '-u', 'origin', 'HEAD']);
+    return;
+  }
+  await gitWrite(cwd, ['pull', '--ff-only']);
+  const after = await requireRepo(cwd);
+  if (after.ahead > 0) await gitWrite(cwd, ['push']);
 }
 
 /** O que a lista de projetos mostra de cada repositório. */

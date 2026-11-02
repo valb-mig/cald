@@ -1,5 +1,6 @@
 import { useLocation } from 'wouter'
 import { create } from 'zustand'
+import { onWorkbench } from './workbench'
 
 /**
  * Fundo animado da conversa: qual tema e com que força ele aparece. É escolha deste aparelho (como
@@ -69,13 +70,14 @@ export const useWallpaper = create<WallpaperPrefs>(load)
 
 /**
  * Se as superfícies do chat (a barra de mensagem, o leitor, o cais dos pedidos) devem virar vidro.
- * Só na tela da conversa, que é a única com fundo animado atrás, e só com um tema escolhido: desfocar
+ * Só na tela das conversas (no PC, a das abas: ver `onWorkbench`), que é a única com fundo animado atrás,
+ * e só com um tema escolhido: desfocar
  * uma cor chapada custaria GPU para não mudar nada na tela.
  */
 export function useGlass(): boolean {
   const theme = useWallpaper((s) => s.theme)
   const [location] = useLocation()
-  return theme !== 'none' && location.startsWith('/s/')
+  return theme !== 'none' && onWorkbench(location)
 }
 
 /** O véu da coluna de mensagens agora, ou vazio quando não há cena atrás. */

@@ -19,7 +19,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const lines = (text: string) => (text ? text.split('\n').length : 0)
 
 /** Linhas tiradas e colocadas por uma edição, a partir do que a ferramenta recebeu. */
-function lineCounts(use: ToolEntry['use']): { added: number; removed: number } {
+export function lineCounts(use: ToolEntry['use']): { added: number; removed: number } {
   const input = use.input
   switch (use.name) {
     case 'Edit':
