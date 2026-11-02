@@ -36,9 +36,9 @@ import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
+import { ChatTimeline } from '@/components/chat/timeline'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
-import { StickyPrompt } from '@/components/chat/sticky-prompt'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { toolsIn } from '@/components/chat/turn'
 import { Claudinho } from '@/components/claudinho'
@@ -737,8 +737,7 @@ export function ChatPage({ id }: { id: string }) {
             {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
                 margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
                 seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
-            {glass && <Veil scrim={scrim} />}
-            <StickyPrompt scrollRef={scrollRef} items={items} />
+            {scrim && <Veil scrim={scrim} />}
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
                 {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
@@ -770,6 +769,8 @@ export function ChatPage({ id }: { id: string }) {
               </div>
             </div>
 
+            {/* Fora do zen: no canto dela fica o botão de sair dele. */}
+            {!zen && <ChatTimeline scrollRef={scrollRef} items={items} />}
             {zen && (
               // Onde o cabeçalho estava. Fica sempre na tela, só apagado: um botão que some de vez
               // deixaria sem saída quem não sabe do Esc nem do voltar.
