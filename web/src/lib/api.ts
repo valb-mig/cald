@@ -7,6 +7,7 @@ import type {
   DiffSide,
   FileView,
   GithubInfo,
+  GithubAction,
   GithubItem,
   GitStatus,
   GitSummary,
@@ -116,6 +117,9 @@ export const api = {
   /** Uma issue ou um PR inteiro, com o mesmo cache das listas. */
   githubItem: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, refresh = false) =>
     request<GithubItem>('GET', `${at(m)}/github/item?${project(cwd)}&kind=${kind}&number=${number}${refresh ? '&refresh=1' : ''}`),
+  /** Faz a ação e devolve o item como ficou (ver server/src/github.ts). */
+  githubAct: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, action: GithubAction) =>
+    request<GithubItem>('POST', `${at(m)}/github/action`, { cwd, kind, number, action }),
   todos: (m: string, cwd: string) => request<{ items: Todo[] }>('GET', `${at(m)}/todos?${project(cwd)}`),
   /** A lista inteira, como ficou depois da mudança. */
   saveTodos: (m: string, cwd: string, items: Todo[]) => post<{ items: Todo[] }>(`${at(m)}/todos`, { cwd, items }),
@@ -180,6 +184,8 @@ export function errorMessage(err: unknown): string {
       return 'A transcrição demorou demais. Tente um trecho mais curto.'
     case 'audio_too_long':
       return 'Gravação longa demais: até 10 minutos.'
+    case 'github_action_failed':
+      return String(err.details.message ?? 'O GitHub recusou.')
     case 'agent_not_found':
       return 'O registro deste subagente não está no PC.'
     case 'cwd_outside_roots':

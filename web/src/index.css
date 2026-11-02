@@ -221,6 +221,52 @@
 .cr-terminal .xterm-screen {
   background-color: transparent !important;
 }
+/* Sem a sombra que o xterm põe no alto ao rolar: o app separa por espaço, não por linha ou sombra. O
+   traço da barra de rolagem fica fino e arredondado, como o resto (as cores vêm do tema, terminal.tsx). */
+.cr-terminal .xterm-scrollable-element > .shadow {
+  display: none;
+}
+.cr-terminal .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: 3px !important;
+  width: 5px !important;
+  border-radius: 9999px;
+}
+/* O cabeçalho de cada bloco do terminal (terminal.tsx, `watchBlocks`): uma faixa suave por baixo da
+   linha da pasta e da branch, que acompanha a largura do terminal, e à direita o que o comando deu. */
+.cr-terminal .cr-term-head {
+  width: calc(100% - 0.5rem) !important;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+}
+.cr-terminal .cr-term-status {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.cr-terminal .cr-term-head[data-state='ok'] .cr-term-status {
+  color: color-mix(in oklab, var(--color-emerald-500) 80%, var(--foreground));
+}
+.cr-terminal .cr-term-head[data-state='fail'] {
+  background: color-mix(in oklab, var(--color-red-500) 9%, transparent);
+}
+.cr-terminal .cr-term-head[data-state='fail'] .cr-term-status {
+  color: var(--color-red-500);
+}
+.cr-terminal .cr-term-head[data-state='running'] .cr-term-status {
+  color: #d97757;
+  animation: cr-term-running 1.4s ease-in-out infinite;
+}
+@keyframes cr-term-running {
+  50% {
+    opacity: 0.45;
+  }
+}
 
 /* O claudinho de uma conversa trabalhando pisca de vez em quando (components/claudinho.tsx). */
 @keyframes claudinho-blink {

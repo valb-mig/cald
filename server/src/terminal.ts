@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import type { WebSocket } from 'ws';
 
 const BRIDGE = fileURLToPath(new URL('./terminal-pty.py', import.meta.url));
+// O prompt e os blocos do painel no zsh (ver shell/claude-remote.zsh).
+const SHELL_DIR = fileURLToPath(new URL('./shell', import.meta.url));
 
 /** O que o painel manda: o que você digita, ou o tamanho do terminal na tela. */
 type ClientMsg = { t: 'in'; d: string } | { t: 'size'; c: number; r: number };
@@ -16,7 +18,7 @@ type ClientMsg = { t: 'in'; d: string } | { t: 'size'; c: number; r: number };
 export function openTerminal(socket: WebSocket, cwd: string): void {
   const child = spawn('python3', [BRIDGE], {
     cwd,
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', CR_SHELL_DIR: SHELL_DIR },
     stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
   });
   const control = child.stdio[3] as Writable;

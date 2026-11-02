@@ -250,8 +250,20 @@ export type GithubPull = {
   checks: 'SUCCESS' | 'FAILURE' | 'ERROR' | 'PENDING' | 'EXPECTED' | null
 }
 
+/** Quanto sobra da cota da API do GitHub da conta, lido junto com cada consulta. */
+export type GithubQuota = { remaining: number; limit: number; resetAt: string }
+
 export type GithubInfo =
-  | { ok: true; repo: string; pulls: GithubPull[]; pullCount: number; issues: GithubIssue[]; issueCount: number; fetchedAt: number }
+  | {
+      ok: true
+      repo: string
+      pulls: GithubPull[]
+      pullCount: number
+      issues: GithubIssue[]
+      issueCount: number
+      fetchedAt: number
+      quota?: GithubQuota | null
+    }
   | { ok: false; reason: 'no_remote' | 'not_github' | 'no_gh' | 'gh_auth' | 'error'; message?: string; fetchedAt: number }
 
 /** Uma issue ou um PR inteiro, para a aba de análise (ver server/src/github.ts). */
@@ -274,6 +286,9 @@ type GithubItemBase = {
   url: string
   state: 'OPEN' | 'CLOSED' | 'MERGED'
   author: string | null
+  /** Quem está logado no `gh` do PC abriu este: o GitHub não deixa aprovar o próprio PR. */
+  mine: boolean
+  assignees: string[]
   createdAt: string
   updatedAt: string
   body: string
@@ -282,7 +297,9 @@ type GithubItemBase = {
   commentCount: number
 }
 
-export type GithubIssueDetail = GithubItemBase & { kind: 'issue'; assignees: string[]; stateReason: string | null }
+export type GithubIssueDetail = GithubItemBase & { kind: 'issue'; stateReason: string | null }
+
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
 
 export type GithubPullDetail = GithubItemBase & {
   kind: 'pr'
@@ -298,11 +315,37 @@ export type GithubPullDetail = GithubItemBase & {
   checks: GithubCheck[]
   files: GithubFile[]
   reviews: GithubReview[]
+  mergeState: string
+  crossRepo: boolean
+  mergeMethods: MergeMethod[]
+  defaultMethod: MergeMethod
+  deleteBranchOnMerge: boolean
 }
 
+/** `viewer`: o login do `gh` do PC; `repoLabels`: as etiquetas do repositório, para pôr e tirar. */
 export type GithubItem =
-  | { ok: true; repo: string; item: GithubIssueDetail | GithubPullDetail; fetchedAt: number }
+  | {
+      ok: true
+      repo: string
+      viewer: string
+      repoLabels: GithubLabel[]
+      item: GithubIssueDetail | GithubPullDetail
+      fetchedAt: number
+      quota?: GithubQuota | null
+      /** Só no app: o servidor é de antes das ações (falta reiniciar), e elas ficam escondidas. */
+      outdated?: boolean
+    }
   | Extract<GithubInfo, { ok: false }>
+
+/** Uma ação numa issue ou num PR, pelo `gh` do PC (ver server/src/github.ts). `review`, `merge` e `draft` são de PR. */
+export type GithubAction =
+  | { type: 'comment'; body: string }
+  | { type: 'labels'; add: string[]; remove: string[] }
+  | { type: 'state'; open: boolean; reason?: 'completed' | 'not planned' }
+  | { type: 'assign'; me: boolean }
+  | { type: 'review'; event: 'approve' | 'request-changes' | 'comment'; body?: string }
+  | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
+  | { type: 'draft'; draft: boolean }
 
 /** Um item do TODO do projeto, a lista simples do próprio Claude Remote (ver server/src/todos.ts). */
 export type Todo = { id: string; text: string; done: boolean; createdAt: number }

@@ -7,6 +7,7 @@ import { GITHUB_REASON, useGithubItem } from '@/lib/github'
 import { insertInChat } from '@/lib/project-panel'
 import type { GithubCheck, GithubComment, GithubIssueDetail, GithubLabel, GithubPullDetail, GithubReview } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { CommentBox, GithubTarget, ItemMenu, LabelsEditor, PullActions, QuotaNote } from './github-actions'
 
 const when = (iso: string) => relativeTime(Date.parse(iso))
 
@@ -37,7 +38,7 @@ function StatePill({ item }: { item: GithubIssueDetail | GithubPullDetail }) {
 function Labels({ labels }: { labels: GithubLabel[] }) {
   if (!labels.length) return null
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <>
       {labels.map((l) => (
         // A cor da etiqueta é a do GitHub: é o jeito de reconhecer cada uma de relance.
         <span key={l.name} className="flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs">
@@ -45,7 +46,7 @@ function Labels({ labels }: { labels: GithubLabel[] }) {
           {l.name}
         </span>
       ))}
-    </div>
+    </>
   )
 }
 
@@ -113,16 +114,21 @@ function PullStatus({ pr }: { pr: GithubPullDetail }) {
           ? [CHECK.pending, `${running} de ${pr.checks.length} checks rodando`]
           : [CHECK.success, `${pr.checks.length} ${pr.checks.length === 1 ? 'check passou' : 'checks passaram'}`],
     )
-  if (!lines.length) return null
+  if (!lines.length && pr.state !== 'OPEN') return null
   return (
-    <ul className="mt-5 space-y-1.5 rounded-2xl border bg-card px-4 py-3 text-sm">
-      {lines.map(([icon, text]) => (
-        <li key={text} className="flex items-center gap-2">
-          <span className="flex size-4 items-center justify-center">{icon}</span>
-          {text}
-        </li>
-      ))}
-    </ul>
+    <div className="mt-5 space-y-3 rounded-2xl border bg-card px-4 py-3 text-sm">
+      {lines.length > 0 && (
+        <ul className="space-y-1.5">
+          {lines.map(([icon, text]) => (
+            <li key={text} className="flex items-center gap-2">
+              <span className="flex size-4 items-center justify-center">{icon}</span>
+              {text}
+            </li>
+          ))}
+        </ul>
+      )}
+      <PullActions pr={pr} />
+    </div>
   )
 }
 
@@ -193,7 +199,7 @@ function PullDetails({ pr }: { pr: GithubPullDetail }) {
   )
 }
 
-function Comments({ comments, total }: { comments: GithubComment[]; total: number }) {
+function Comments({ comments, total, kind }: { comments: GithubComment[]; total: number; kind: 'issue' | 'pr' }) {
   return (
     <Section title={`Comentários · ${total}`}>
       {comments.length === 0 ? (
@@ -206,6 +212,7 @@ function Comments({ comments, total }: { comments: GithubComment[]; total: numbe
           ))}
         </div>
       )}
+      <CommentBox kind={kind} />
     </Section>
   )
 }
@@ -240,77 +247,80 @@ export function GithubItemView({
   }
 
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-background">
-      <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-16">
-        <div className="flex items-center gap-1">
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {name}
-            {result?.ok && ` · ${result.repo}`}
-            {result && ` · ${relativeTime(result.fetchedAt)}`}
-          </span>
-          <Button variant="ghost" size="sm" onClick={send} disabled={!item}>
-            <MessageSquarePlus /> Mandar para o chat
-          </Button>
-          {item && (
-            <Button variant="ghost" size="icon-sm" asChild>
-              <a href={item.url} target="_blank" rel="noreferrer" aria-label="Abrir no GitHub" title="Abrir no GitHub">
-                <ExternalLink />
-              </a>
+    <GithubTarget value={{ machine, cwd, kind, number }}>
+      <div className="absolute inset-0 overflow-y-auto bg-background">
+        <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-16">
+          <div className="flex items-center gap-1">
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {name}
+              {result?.ok && ` · ${result.repo}`}
+              {result && ` · ${relativeTime(result.fetchedAt)}`}
+              {result?.ok && <QuotaNote quota={result.quota} />}
+            </span>
+            <Button variant="ghost" size="sm" onClick={send} disabled={!item}>
+              <MessageSquarePlus /> Mandar para o chat
             </Button>
-          )}
-          <Button variant="ghost" size="icon-sm" onClick={refresh} disabled={loading} aria-label="Atualizar" title="Atualizar">
-            <RefreshCw className={cn(loading && 'animate-spin')} />
-          </Button>
-        </div>
+            {item && (
+              <Button variant="ghost" size="icon-sm" asChild>
+                <a href={item.url} target="_blank" rel="noreferrer" aria-label="Abrir no GitHub" title="Abrir no GitHub">
+                  <ExternalLink />
+                </a>
+              </Button>
+            )}
+            <Button variant="ghost" size="icon-sm" onClick={refresh} disabled={loading} aria-label="Atualizar" title="Atualizar">
+              <RefreshCw className={cn(loading && 'animate-spin')} />
+            </Button>
+            {item && result?.ok && <ItemMenu item={item} viewer={result.viewer} />}
+          </div>
 
-        {error || (result && !result.ok) ? (
-          <div className="mt-16 text-center">
-            <h1 className="text-lg font-semibold">{title ?? name}</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{error ?? (result && !result.ok ? (result.message ?? GITHUB_REASON[result.reason]) : '')}</p>
-          </div>
-        ) : !item ? (
-          <div className="mt-16 flex flex-col items-center gap-3 text-center">
-            {title && <h1 className="text-lg font-semibold">{title}</h1>}
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
-            <h1 className="mt-3 text-xl leading-snug font-semibold">{item.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
-              <StatePill item={item} />
-              <span>
-                <span className="text-foreground">{item.author ?? 'alguém'}</span> abriu {when(item.createdAt)} · mexido {when(item.updatedAt)}
-              </span>
+          {error || (result && !result.ok) ? (
+            <div className="mt-16 text-center">
+              <h1 className="text-lg font-semibold">{title ?? name}</h1>
+              <p className="mt-2 text-sm text-muted-foreground">{error ?? (result && !result.ok ? (result.message ?? GITHUB_REASON[result.reason]) : '')}</p>
             </div>
-            {item.kind === 'pr' && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono">{item.branch}</span>→
-                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono">{item.base}</span>
-                <span className="font-mono tabular-nums">
-                  <span className="text-emerald-600 dark:text-emerald-400">+{item.additions}</span>{' '}
-                  <span className="text-red-600 dark:text-red-400">−{item.deletions}</span>
-                </span>
+          ) : !item ? (
+            <div className="mt-16 flex flex-col items-center gap-3 text-center">
+              {title && <h1 className="text-lg font-semibold">{title}</h1>}
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <h1 className="mt-3 text-xl leading-snug font-semibold">{item.title}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
+                <StatePill item={item} />
                 <span>
-                  {item.changedFiles} {item.changedFiles === 1 ? 'arquivo' : 'arquivos'} · {item.commitCount}{' '}
-                  {item.commitCount === 1 ? 'commit' : 'commits'}
+                  <span className="text-foreground">{item.author ?? 'alguém'}</span> abriu {when(item.createdAt)} · mexido {when(item.updatedAt)}
                 </span>
               </div>
-            )}
-            {item.kind === 'issue' && item.assignees.length > 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">Com {item.assignees.join(', ')}</p>
-            )}
-            <div className="mt-3">
-              <Labels labels={item.labels} />
-            </div>
-            {item.kind === 'pr' && <PullStatus pr={item} />}
-            <div className="mt-6">
-              <Post author={item.author} at={item.createdAt} body={item.body} href={item.url} />
-            </div>
-            {item.kind === 'pr' && <PullDetails pr={item} />}
-            <Comments comments={item.comments} total={item.commentCount} />
-          </>
-        )}
+              {item.kind === 'pr' && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono">{item.branch}</span>→
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono">{item.base}</span>
+                  <span className="font-mono tabular-nums">
+                    <span className="text-emerald-600 dark:text-emerald-400">+{item.additions}</span>{' '}
+                    <span className="text-red-600 dark:text-red-400">−{item.deletions}</span>
+                  </span>
+                  <span>
+                    {item.changedFiles} {item.changedFiles === 1 ? 'arquivo' : 'arquivos'} · {item.commitCount}{' '}
+                    {item.commitCount === 1 ? 'commit' : 'commits'}
+                  </span>
+                </div>
+              )}
+              {item.assignees.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Com {item.assignees.join(', ')}</p>}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <Labels labels={item.labels} />
+                {result?.ok && <LabelsEditor labels={item.labels} repoLabels={result.repoLabels} />}
+              </div>
+              {item.kind === 'pr' && <PullStatus pr={item} />}
+              <div className="mt-6">
+                <Post author={item.author} at={item.createdAt} body={item.body} href={item.url} />
+              </div>
+              {item.kind === 'pr' && <PullDetails pr={item} />}
+              <Comments comments={item.comments} total={item.commentCount} kind={item.kind} />
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </GithubTarget>
   )
 }
