@@ -24,15 +24,16 @@ const DEFAULTS: WallpaperPrefs = { theme: 'none', intensity: 'medium' }
 export const OPACITY: Record<Intensity, number> = { subtle: 0.3, medium: 0.55, strong: 0.85 }
 
 /**
- * Véu por trás da coluna de mensagens, na cor do fundo da página: ele puxa a cena de volta para o
- * fundo do app e devolve contraste ao texto. Acompanha a intensidade, senão no "sutil" escureceria
- * mais do que a própria cena aparece. As classes ficam escritas por extenso porque o Tailwind lê o
- * fonte para saber quais gerar.
+ * Véu por trás da coluna de mensagens: ele puxa a cena de volta para o fundo do app e devolve
+ * contraste ao texto. No claro, tem a cor do fundo da página; no escuro, é preto, uma sombra, porque o
+ * cinza da janela deixava a foto lavada atrás do texto em vez de escurecer. Acompanha a intensidade,
+ * senão no "sutil" escureceria mais do que a própria cena aparece. As classes ficam escritas por
+ * extenso porque o Tailwind lê o fonte para saber quais gerar.
  */
 export const SCRIM: Record<Intensity, string> = {
-  subtle: 'bg-background/45',
-  medium: 'bg-background/65',
-  strong: 'bg-background/80',
+  subtle: 'bg-background/45 dark:bg-black/45',
+  medium: 'bg-background/65 dark:bg-black/65',
+  strong: 'bg-background/80 dark:bg-black/80',
 }
 
 export const INTENSITIES: { key: Intensity; label: string }[] = [
