@@ -417,15 +417,27 @@ function mergeCatalogs(): void {
     .flat()
     .filter((s) => !seen.has(s.sessionId) && seen.add(s.sessionId))
     .sort((a, b) => b.lastModified - a.lastModified)
+  const current = useStore.getState().catalog
+  if (catalog.length === current.length && catalog.every((s, i) => s === current[i])) return
   useStore.setState({ catalog })
 }
 
 function onCatalog(machine: string, sessions: CatalogEntry[]): void {
-  const before = new Map(useStore.getState().catalog.map((s) => [s.sessionId, s.owner]))
-  catalogs.set(machine, sessions.map((s) => ({ ...s, machine })))
+  const previous = new Map(useStore.getState().catalog.map((s) => [s.sessionId, s]))
+  const before = new Map([...previous].map(([id, s]) => [id, s.owner]))
+  // O catálogo chega inteiro a cada mudança; a entrada que não mudou continua o mesmo objeto, senão
+  // toda tela que lê uma conversa renderizaria de novo por causa de outra.
+  catalogs.set(
+    machine,
+    sessions.map((s) => {
+      const next = { ...s, machine }
+      const old = previous.get(s.sessionId)
+      return old && JSON.stringify(old) === JSON.stringify(next) ? old : next
+    }),
+  )
   noteSessions(machine, sessions.map((s) => s.sessionId))
   mergeCatalogs()
-  useStore.setState({ catalogLoaded: true })
+  if (!useStore.getState().catalogLoaded) useStore.setState({ catalogLoaded: true })
   for (const s of sessions) {
     const at = subscribed.get(s.sessionId)
     if (at === undefined) continue

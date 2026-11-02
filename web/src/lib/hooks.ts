@@ -3,16 +3,32 @@ import { create } from 'zustand'
 import { api } from './api'
 import type { GitStatus } from './types'
 
+type External<T> = { subscribe: (onChange: () => void) => () => void; get: () => T }
+
+// Uma inscrição por consulta, estável entre renders: criada no render, o React se reinscreveria a
+// cada um deles.
+const mediaQueries = new Map<string, External<boolean>>()
+
+function mediaQuery(query: string): External<boolean> {
+  let entry = mediaQueries.get(query)
+  if (!entry) {
+    const list = matchMedia(query)
+    entry = {
+      subscribe: (onChange) => {
+        list.addEventListener('change', onChange)
+        return () => list.removeEventListener('change', onChange)
+      },
+      get: () => list.matches,
+    }
+    mediaQueries.set(query, entry)
+  }
+  return entry
+}
+
 /** Se a media query vale agora, acompanhando mudanças (girar o celular, redimensionar a janela). */
 export function useMediaQuery(query: string): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const list = matchMedia(query)
-      list.addEventListener('change', onChange)
-      return () => list.removeEventListener('change', onChange)
-    },
-    () => matchMedia(query).matches,
-  )
+  const { subscribe, get } = mediaQuery(query)
+  return useSyncExternalStore(subscribe, get)
 }
 
 /**
@@ -25,15 +41,16 @@ export const useWide = () => useMediaQuery(WIDE_QUERY)
 
 /** Se o app está no tema escuro agora: a classe que o next-themes põe no `<html>` é a fonte da verdade. */
 export function useDarkMode(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const observer = new MutationObserver(onChange)
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-      return () => observer.disconnect()
-    },
-    () => document.documentElement.classList.contains('dark'),
-  )
+  return useSyncExternalStore(subscribeTheme, isDark)
 }
+
+function subscribeTheme(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}
+
+const isDark = () => document.documentElement.classList.contains('dark')
 
 /** Largura de um elemento, acompanhando a tela (girar o celular, abrir outra conversa ao lado). */
 export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
@@ -51,14 +68,15 @@ export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
 
 /** Largura da janela, acompanhando o redimensionamento. */
 export function useWindowWidth(): number {
-  return useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener('resize', onChange)
-      return () => window.removeEventListener('resize', onChange)
-    },
-    () => window.innerWidth,
-  )
+  return useSyncExternalStore(subscribeResize, windowWidth)
 }
+
+function subscribeResize(onChange: () => void): () => void {
+  window.addEventListener('resize', onChange)
+  return () => window.removeEventListener('resize', onChange)
+}
+
+const windowWidth = () => window.innerWidth
 
 const homeRequests = new Map<string, Promise<string>>()
 

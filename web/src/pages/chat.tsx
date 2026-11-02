@@ -108,7 +108,8 @@ function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: bo
     try {
       const result = await api.history(id)
       if (ticket === latest.current) {
-        setEvents(result)
+        // A atualização periódica quase sempre traz o mesmo histórico: sem trocar o array, nada renderiza.
+        setEvents((current) => (current && sameHistory(current, result) ? current : result))
         setError(null)
       }
     } catch (err) {
@@ -123,11 +124,33 @@ function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: bo
 
   useEffect(() => {
     if (!pcOwned) return
-    const timer = setInterval(load, pcWorking ? 4_000 : 15_000)
+    const timer = setInterval(() => document.visibilityState === 'visible' && void load(), pcWorking ? 4_000 : 15_000)
     return () => clearInterval(timer)
   }, [load, pcOwned, pcWorking])
 
   return { events, error }
+}
+
+// O histórico salvo só cresce no fim (e a janela das últimas mensagens desliza): bastam as pontas e o tamanho.
+function sameHistory(a: LoggedEvent[], b: LoggedEvent[]): boolean {
+  if (a.length !== b.length) return false
+  if (!a.length) return true
+  return a[0]!.uuid === b[0]!.uuid && JSON.stringify(a.at(-1)) === JSON.stringify(b.at(-1))
+}
+
+/**
+ * Chave de cada evento do histórico: pela mensagem de onde ele veio, não pela posição. A lista são as
+ * últimas mensagens, então a posição de todas muda quando chega uma nova, e cada item renderizaria
+ * do zero (e o que estava aberto pularia para outro).
+ */
+function historyKeys(events: LoggedEvent[]): Keyed[] {
+  const seen = new Map<string, number>()
+  return events.map((e, i) => {
+    if (!e.uuid) return { ...e, key: `h${i}` }
+    const n = seen.get(e.uuid) ?? 0
+    seen.set(e.uuid, n + 1)
+    return { ...e, key: `h${e.uuid}-${n}` }
+  })
 }
 
 /** Ocupação do contexto da sessão aberta no painel; relida a cada turno concluído. */
@@ -338,12 +361,10 @@ export function ChatPage({ id }: { id: string }) {
 
   const history = useHistory(id, machine, panelOpen, owner === 'pc', entry?.state === 'running')
 
+  const saved = useMemo(() => historyKeys(history.events ?? []), [history.events])
   const events: Keyed[] = useMemo(
-    () => [
-      ...(history.events ?? []).map((e, i) => ({ ...e, key: `h${i}` })),
-      ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : []),
-    ],
-    [history.events, panelOpen, view.events, view.runId],
+    () => [...saved, ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : [])],
+    [saved, panelOpen, view.events, view.runId],
   )
   const items = useMemo(() => buildItems(events), [events])
   // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
