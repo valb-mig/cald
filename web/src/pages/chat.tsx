@@ -37,6 +37,8 @@ import { Composer } from '@/components/chat/composer'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
+import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
+import { attachInto } from '@/lib/compose'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
@@ -476,6 +478,10 @@ export function ChatPage({ id }: { id: string }) {
   // Mapa mental (components/mindmap): no lugar do chat ou, com espaço, ao lado dele.
   const [display, setDisplay] = useChatDisplay()
   const areaRef = useRef<HTMLDivElement>(null)
+  // Soltar imagens e documentos em qualquer lugar da conversa anexa todos na caixa de mensagem dela.
+  const drop = useFileDrop((list) => {
+    if (!attachInto(id, list)) toast('Esta conversa não recebe mensagens daqui agora')
+  })
   const areaWidth = useWidth(areaRef)
   const roomy = areaWidth >= 1000
   // Estreita (o celular em pé, ou várias lado a lado): só o essencial no topo, o resto vai para o menu.
@@ -772,6 +778,7 @@ export function ChatPage({ id }: { id: string }) {
 
         <div
           ref={areaRef}
+          {...drop.bind}
           className={cn(
             'relative flex min-h-0 flex-1',
             // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
@@ -779,6 +786,7 @@ export function ChatPage({ id }: { id: string }) {
             pane.collapsed && 'hidden',
           )}
         >
+          <DropOverlay show={drop.over} />
           {trash && <TrashFall items={trash} sessionId={id} cwd={cwd} />}
           {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
               vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
