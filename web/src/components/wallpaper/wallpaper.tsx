@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDarkMode } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
-import { OPACITY, useWallpaper, type ThemeId } from '@/lib/wallpaper'
-import { Renderer, type Pointer } from './engine'
+import { OPACITY, useWallpaper } from '@/lib/wallpaper'
+import { useWallpaperImages, type WallpaperImage } from '@/lib/wallpaper-images'
+import { Renderer, type Pointer, type Theme } from './engine'
+import { imageTheme } from './image'
 import { themeOf } from './themes'
 
 // Acima de 2x a densidade não aparece na tela e cada quadro custa o dobro.
@@ -15,13 +17,13 @@ const MAX_DPR = 2
  * mouse pela janela inteira, porque fica por baixo do app e nunca recebe o evento direto.
  */
 export function Scene({
-  id,
+  theme,
   zoom = 1,
   interactive = false,
   className,
   style,
 }: {
-  id: Exclude<ThemeId, 'none'>
+  theme: Theme
   /** Multiplica o tamanho da célula; abaixo de 1 cabe mais cena numa miniatura. */
   zoom?: number
   interactive?: boolean
@@ -31,12 +33,11 @@ export function Scene({
   const box = useRef<HTMLDivElement>(null)
   const surface = useRef<HTMLCanvasElement>(null)
   const dark = useDarkMode()
-  const theme = themeOf(id)
 
   useEffect(() => {
     const host = box.current
     const el = surface.current
-    if (!host || !el || !theme) return
+    if (!host || !el) return
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches
     const renderer = new Renderer(el, theme, dark, zoom)
     let time = 0
@@ -142,7 +143,6 @@ export function Scene({
     }
   }, [theme, dark, zoom, interactive])
 
-  if (!theme) return null
   return (
     <div ref={box} aria-hidden className={cn('relative overflow-hidden', className)} style={{ ...style, background: theme.look(dark).backdrop }}>
       <canvas ref={surface} className="absolute top-0 left-0 block" />
@@ -150,10 +150,42 @@ export function Scene({
   )
 }
 
-/** O fundo da conversa, com o tema e a força escolhidos no painel Computador. */
+type Layer = { className?: string; style?: React.CSSProperties }
+
+/** Uma imagem sua em caracteres; nada até ela decodificar, o que leva um instante na primeira vez. */
+export function ImageScene({ image, ...rest }: { image: WallpaperImage; zoom?: number; interactive?: boolean } & Layer) {
+  const [theme, setTheme] = useState<{ id: string; theme: Theme } | null>(null)
+  useEffect(() => {
+    let alive = true
+    imageTheme(image)
+      .then((t) => alive && setTheme({ id: image.id, theme: t }))
+      .catch(() => {
+        // Imagem que o navegador não abre mais: fica sem cena, como se não houvesse fundo.
+      })
+    return () => {
+      alive = false
+    }
+  }, [image])
+  if (theme?.id !== image.id) return null
+  return <Scene theme={theme.theme} {...rest} />
+}
+
+/** Uma imagem sua como foto, cobrindo o elemento. */
+export function Photo({ image, className, style }: { image: WallpaperImage } & Layer) {
+  return (
+    <div aria-hidden className={cn('overflow-hidden', className)} style={style}>
+      <img src={image.url} alt="" draggable={false} decoding="async" className="size-full object-cover" />
+    </div>
+  )
+}
+
+/** O fundo da conversa, com o tema (ou a imagem) e a força escolhidos no painel Computador. */
 export function Wallpaper({ className }: { className?: string }) {
-  const theme = useWallpaper((s) => s.theme)
+  const id = useWallpaper((s) => s.theme)
   const intensity = useWallpaper((s) => s.intensity)
-  if (theme === 'none') return null
-  return <Scene id={theme} interactive className={cn('pointer-events-none absolute inset-0', className)} style={{ opacity: OPACITY[intensity] }} />
+  const image = useWallpaperImages((s) => s.items.find((i) => i.id === id))
+  const layer = { className: cn('pointer-events-none absolute inset-0', className), style: { opacity: OPACITY[intensity] } }
+  if (image) return image.style === 'photo' ? <Photo image={image} {...layer} /> : <ImageScene image={image} interactive {...layer} />
+  const theme = themeOf(id)
+  return theme ? <Scene theme={theme} interactive {...layer} /> : null
 }

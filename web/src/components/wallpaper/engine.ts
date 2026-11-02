@@ -67,6 +67,12 @@ export type Theme = {
    * precisa dele para o texto ler; caracteres finos e discretos somem no desfoque, e dispensam.
    */
   veil: boolean
+  /**
+   * A cena não muda com o tempo nem com o ponteiro (uma imagem parada): a grade lê ela uma vez por
+   * tamanho, e o quadro só se refaz quando algo muda na tela — o caractere troca, o ponteiro anda, o
+   * rastro apaga. Parada e sem mouse por perto, quase não gasta.
+   */
+  still?: boolean
   look(dark: boolean): Look
   create(env: Pick<Env, 'W' | 'H' | 'k'>, dark: boolean): Instance
 }
@@ -95,6 +101,9 @@ export class Renderer {
   private trail = new Float32Array(0)
   private level = new Int8Array(0)
   private chars = new Int8Array(0)
+  // Cena parada (`still`): a leitura da grade e o que o último quadro mostrou.
+  private grid: Float32Array | null = null
+  private shown: { slot: number; x: number; y: number; lit: boolean } | null = null
   W = 0
   H = 0
   cols = 0
@@ -136,6 +145,8 @@ export class Renderer {
     this.trail = new Float32Array(n)
     this.level = new Int8Array(n)
     this.chars = new Int8Array(n)
+    this.grid = null
+    this.shown = null
     // A escala acompanha a célula: a miniatura tem células menores e o mesmo desenho, só que menor.
     this.k = this.zoom * Math.max(1, Math.min(W, H) / 900)
     this.instance = this.theme.create({ W, H, k: this.k }, this.dark)
@@ -196,6 +207,10 @@ export class Renderer {
   frame(t: number, dt: number, mouse: Pointer | null): void {
     const { ctx, cw, ch, cols, rows, W, H, look, theme, instance } = this
     if (!instance || !cols || !rows) return
+    // O caractere troca de vez em quando, sozinho: é o que dá a cintilação de ASCII.
+    const slot = Math.floor(t * 1.5)
+    const last = this.shown
+    if (theme.still && last && !last.lit && last.slot === slot && last.x === (mouse?.x ?? -1) && last.y === (mouse?.y ?? -1)) return
     const env: Env = {
       W,
       H,
@@ -218,13 +233,12 @@ export class Renderer {
       for (let y = 0; y < H; y += ch) ctx.fillRect(0, y, W, 1)
     }
 
-    const L = this.sample((g) => instance.scene(g, env))
+    const L = theme.still ? (this.grid ??= this.sample((g) => instance.scene(g, env))) : this.sample((g) => instance.scene(g, env))
     const lantern = mouse ? 150 * Math.max(this.zoom, 0.5) : 0
     const ramp = theme.ramp
     const top = ramp.length - 1
-    // O caractere troca de vez em quando, sozinho: é o que dá a cintilação de ASCII.
-    const slot = Math.floor(t * 1.5)
     const fade = Math.pow(0.05, dt)
+    let trail = 0
 
     ctx.font = `600 ${Math.round(ch * 0.7)}px 'Cascadia Code Variable', ui-monospace, monospace`
     ctx.textAlign = 'center'
@@ -240,6 +254,7 @@ export class Renderer {
           const cy = j * ch + ch / 2
           const near = lantern ? clamp(1 - Math.hypot(cx - mouse!.x, cy - mouse!.y) / lantern) : 0
           const tr = (this.trail[k] *= fade)
+          if (tr > trail) trail = tr
           const lit = Math.max(near * near * 0.45, tr * 0.5)
           const v = a > 0.04 ? clamp(a + lit * 0.6) : lit * 0.7
           if (v < 0.05) {
@@ -261,6 +276,8 @@ export class Renderer {
           ctx.fillText(ramp[this.chars[k]], i * cw + cw / 2, j * ch + ch / 2 + 1)
         }
       }
+      // Rastro ainda apagando: o próximo quadro muda, mesmo com o ponteiro parado.
+      this.shown = { slot, x: mouse?.x ?? -1, y: mouse?.y ?? -1, lit: trail > 0.01 }
       return
     }
 
