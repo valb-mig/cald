@@ -283,3 +283,30 @@
     animation: none;
   }
 }
+
+/* Abas (pages/workbench.tsx): a aberta agora cresce no lugar dela, empurrando as vizinhas, e o conteúdo
+   da que fica à vista aparece com um fade, sem transform (um `fixed` de dentro, como o composer
+   expandido, não pode ficar preso nela). */
+@keyframes tab-enter {
+  from {
+    opacity: 0;
+    max-width: 0;
+  }
+}
+.tab-enter {
+  animation: tab-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes tab-panel-in {
+  from {
+    opacity: 0;
+  }
+}
+.tab-panel-in {
+  animation: tab-panel-in 0.18s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-enter,
+  .tab-panel-in {
+    animation: none;
+  }
+}
