@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
 import { AttachmentTray, useAttachments } from './attachment-tray'
-import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
+import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
 import { VoiceWave } from './voice-wave'
 
@@ -139,7 +139,6 @@ export function Composer({
   const showStop = working && empty && Boolean(onInterrupt)
   const mode = settings.permissionMode ?? 'default'
   const tone = MODE_TONE[mode] ?? MODE_TONE.default!
-  const efforts = findModel(models, settings.model)?.efforts ?? []
 
   async function submit() {
     if (empty || sending || files.reading) return
@@ -181,7 +180,7 @@ export function Composer({
         data-big={big || undefined}
         className={cn(
           // No PC, a caixa flutua solta no pé da janela, com folga em volta.
-          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
+          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,var(--safe-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
           big
             ? 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]'
             : glass
@@ -266,7 +265,7 @@ export function Composer({
                 {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
                 <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
                 <div className="flex-1" />
-                <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+                <ModeMenu settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
               </>
             )}
             {canDictate && (

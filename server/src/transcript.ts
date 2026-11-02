@@ -129,3 +129,24 @@ export class TranscriptTally<T> {
     return (await done).state;
   }
 }
+
+/**
+ * O esforço com que cada resposta foi pensada, por UUID da mensagem. O Claude Code grava isso no
+ * transcript ao lado da mensagem (`perTurnEffort`, quando o turno mudou o esforço, ou `effort`, o da
+ * sessão), mas o `getSessionMessages` do SDK não repassa: sai daqui, lido só no trecho novo do arquivo.
+ */
+const efforts = new TranscriptTally<Map<string, string>>((state, line) => {
+  if (!line.includes('"type":"assistant"') || !line.includes('ffort"')) return;
+  try {
+    const d = JSON.parse(line) as { type?: string; uuid?: unknown; effort?: unknown; perTurnEffort?: unknown };
+    const effort = d.perTurnEffort ?? d.effort;
+    if (d.type === 'assistant' && typeof d.uuid === 'string' && typeof effort === 'string') state.set(d.uuid, effort);
+  } catch {
+    // Linha cortada (o Claude Code ainda está gravando): fica sem esforço.
+  }
+});
+
+export async function transcriptEfforts(sessionId: string): Promise<ReadonlyMap<string, string>> {
+  const path = await transcriptPath(sessionId);
+  return path ? efforts.read(path, () => new Map()).catch(() => new Map()) : new Map();
+}

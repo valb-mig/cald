@@ -1,32 +1,30 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useDarkMode } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import { OPACITY, useWallpaper, type ThemeId } from '@/lib/wallpaper'
-import { Atlas, Grid } from './grid'
-import type { Step } from './scene'
+import { Renderer, type Pointer } from './engine'
 import { themeOf } from './themes'
 
-// Quadros por segundo: é uma grade de caracteres, que não ganha nada acima disso.
-const FPS = 12
-// Teto de células: em tela grande o caractere cresce em vez de a grade multiplicar.
-const MAX_CELLS = 11_000
-// Acima de 2x a densidade não aparece na tela e o atlas e os blits ficam três vezes mais caros.
+// Acima de 2x a densidade não aparece na tela e cada quadro custa o dobro.
 const MAX_DPR = 2
 
 /**
- * Uma cena de ASCII animado preenchendo o elemento. Ela só gasta quadro enquanto está mesmo à vista:
- * fora da tela (outra conversa ao lado, rolagem) e com o app em segundo plano o laço é cancelado, não
- * só ignorado. Com `prefers-reduced-motion` desenha um quadro e para.
+ * Uma cena de ASCII animado preenchendo o elemento (ver engine.ts). Ela só gasta quadro enquanto está
+ * mesmo à vista: fora da tela e com o app em segundo plano o laço é cancelado, não só ignorado. Com
+ * `prefers-reduced-motion` desenha um quadro e para. `interactive` liga o ponteiro: a cena ouve o
+ * mouse pela janela inteira, porque fica por baixo do app e nunca recebe o evento direto.
  */
 export function Scene({
   id,
   zoom = 1,
+  interactive = false,
   className,
   style,
 }: {
   id: Exclude<ThemeId, 'none'>
-  /** Multiplica o tamanho do caractere; abaixo de 1 cabe mais cena numa miniatura. */
+  /** Multiplica o tamanho da célula; abaixo de 1 cabe mais cena numa miniatura. */
   zoom?: number
+  interactive?: boolean
   className?: string
   style?: React.CSSProperties
 }) {
@@ -34,55 +32,28 @@ export function Scene({
   const surface = useRef<HTMLCanvasElement>(null)
   const dark = useDarkMode()
   const theme = themeOf(id)
-  const look = useMemo(() => theme?.look(dark), [theme, dark])
 
   useEffect(() => {
     const host = box.current
     const el = surface.current
-    if (!host || !el || !theme || !look) return
-    const ctx = el.getContext('2d')
-    if (!ctx) return
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR)
+    if (!host || !el || !theme) return
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches
-
-    let grid: Grid | null = null
-    let step: Step | null = null
+    const renderer = new Renderer(el, theme, dark, zoom)
     let time = 0
+    let mouse: Pointer | null = null
 
     const build = () => {
       const w = host.clientWidth
       const h = host.clientHeight
-      if (!w || !h) {
-        grid = null
-        return
-      }
-      let px = look.size * zoom
-      let atlas = new Atlas(look.chars, look.palette, px, dpr, look.tile)
-      // Uma coluna e uma linha a mais do que cabe: a sobra fica fora do recorte, sem faixa vazia.
-      let cols = Math.ceil((w * dpr) / atlas.cellW)
-      let rows = Math.ceil((h * dpr) / atlas.cellH)
-      for (let guard = 0; cols * rows > MAX_CELLS && guard < 4; guard++) {
-        px *= Math.sqrt((cols * rows) / MAX_CELLS)
-        atlas = new Atlas(look.chars, look.palette, px, dpr, look.tile)
-        cols = Math.ceil((w * dpr) / atlas.cellW)
-        rows = Math.ceil((h * dpr) / atlas.cellH)
-      }
-      // Mexer no tamanho já limpa o canvas, então o quadro guardado na grade nova (vazio) confere.
-      el.width = cols * atlas.cellW
-      el.height = rows * atlas.cellH
-      el.style.width = `${el.width / dpr}px`
-      el.style.height = `${el.height / dpr}px`
-      grid = new Grid(atlas, cols, rows)
-      step = theme.create(cols, rows, dark)
-      time = 0
+      if (!w || !h) return
+      el.style.width = `${w}px`
+      el.style.height = `${h}px`
+      renderer.resize(w, h, Math.min(window.devicePixelRatio || 1, MAX_DPR))
     }
 
     const draw = (dt: number) => {
-      if (!grid || !step) return
       time += dt
-      grid.clear()
-      step(grid, dt, time)
-      grid.paint(ctx)
+      renderer.frame(time, dt, mouse)
     }
 
     let raf = 0
@@ -93,28 +64,21 @@ export function Scene({
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
-      if (now - drawn < 1000 / FPS - 4) return
+      if (now - drawn < 1000 / theme.fps - 4) return
       const dt = Math.min((now - last) / 1000, 0.25)
       last = now
       drawn = now
       draw(dt)
     }
 
-    // A fonte externa do tema (ver `Theme.attach`) segue o laço: liga quando ele liga e desliga
-    // junto, para nada ficar sendo capturado no PC com a cena parada.
-    let detach: (() => void) | undefined
-
     const start = () => {
       if (raf || still || !onScreen || !awake) return
-      detach ??= theme.attach?.()
       last = performance.now()
       drawn = 0
       raf = requestAnimationFrame(frame)
     }
 
     const stop = () => {
-      detach?.()
-      detach = undefined
       if (!raf) return
       cancelAnimationFrame(raf)
       raf = 0
@@ -122,7 +86,7 @@ export function Scene({
 
     const resize = new ResizeObserver(() => {
       build()
-      if (still) draw(0)
+      draw(0)
     })
     resize.observe(host)
 
@@ -139,6 +103,33 @@ export function Scene({
       else stop()
     }
     document.addEventListener('visibilitychange', onVisibility)
+
+    // Só o mouse: no toque, o dedo passando para rolar a conversa não é um gesto na cena.
+    let lastMove = 0
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return
+      const r = host.getBoundingClientRect()
+      const x = e.clientX - r.left
+      const y = e.clientY - r.top
+      if (x < 0 || y < 0 || x > r.width || y > r.height) {
+        mouse = null
+        return
+      }
+      const now = performance.now()
+      const gap = Math.max(1, now - lastMove) / 1000
+      const speed = mouse ? Math.hypot(x - mouse.x, y - mouse.y) / gap : 0
+      lastMove = now
+      mouse = { x, y, speed: mouse ? mouse.speed * 0.7 + speed * 0.3 : 0 }
+      renderer.mark(x, y)
+    }
+    const onLeave = () => {
+      mouse = null
+    }
+    if (interactive && !still) {
+      window.addEventListener('pointermove', onMove, { passive: true })
+      document.documentElement.addEventListener('pointerleave', onLeave)
+    }
+
     start()
 
     return () => {
@@ -146,12 +137,14 @@ export function Scene({
       resize.disconnect()
       seen.disconnect()
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pointermove', onMove)
+      document.documentElement.removeEventListener('pointerleave', onLeave)
     }
-  }, [theme, look, dark, zoom])
+  }, [theme, dark, zoom, interactive])
 
-  if (!look) return null
+  if (!theme) return null
   return (
-    <div ref={box} aria-hidden className={cn('relative overflow-hidden', className)} style={{ ...style, background: look.backdrop }}>
+    <div ref={box} aria-hidden className={cn('relative overflow-hidden', className)} style={{ ...style, background: theme.look(dark).backdrop }}>
       <canvas ref={surface} className="absolute top-0 left-0 block" />
     </div>
   )
@@ -162,5 +155,5 @@ export function Wallpaper({ className }: { className?: string }) {
   const theme = useWallpaper((s) => s.theme)
   const intensity = useWallpaper((s) => s.intensity)
   if (theme === 'none') return null
-  return <Scene id={theme} className={cn('pointer-events-none absolute inset-0', className)} style={{ opacity: OPACITY[intensity] }} />
+  return <Scene id={theme} interactive className={cn('pointer-events-none absolute inset-0', className)} style={{ opacity: OPACITY[intensity] }} />
 }

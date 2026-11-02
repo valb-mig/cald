@@ -221,6 +221,7 @@ export function ModelPill({
 }) {
   const current = findModel(models, settings.model)
   const label = current ? modelName(current) : prettyModel(settings.model)
+  const efforts = current?.efforts ?? []
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -230,29 +231,35 @@ export function ModelPill({
           <ChevronDown className="size-3 shrink-0" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="max-h-80 overflow-y-auto" onCloseAutoFocus={(e) => e.preventDefault()}>
+      {/* O esforço fica no alto, fora da rolagem: a lista de modelos é que rola embaixo dele. */}
+      <DropdownMenuContent side="top" align="start" className="w-72" onCloseAutoFocus={(e) => e.preventDefault()}>
+        {efforts.length > 0 && (
+          <>
+            <EffortBar
+              efforts={efforts}
+              value={settings.effort}
+              model={label}
+              onChange={(effort) => onChange({ effort: effort as RunOptions['effort'] })}
+            />
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuLabel>Modelo</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={current?.value ?? ''} onValueChange={(model) => onChange({ model })}>
-          {models?.map((m) => (
-            <DropdownMenuRadioItem key={m.value} value={m.value}>
-              {modelName(m)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        <div className="max-h-64 overflow-y-auto">
+          <DropdownMenuRadioGroup value={current?.value ?? ''} onValueChange={(model) => onChange({ model })}>
+            {models?.map((m) => (
+              <DropdownMenuRadioItem key={m.value} value={m.value}>
+                {modelName(m)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-export function ModeMenu({
-  settings,
-  efforts,
-  onChange,
-}: {
-  settings: SessionSettings
-  efforts: string[]
-  onChange: (patch: RunOptions) => void
-}) {
+export function ModeMenu({ settings, onChange }: { settings: SessionSettings; onChange: (patch: RunOptions) => void }) {
   const mode = settings.permissionMode ?? 'default'
   const info = MODES[mode] ?? MODES.default!
   const Icon = info.icon
@@ -280,12 +287,6 @@ export function ModeMenu({
             </DropdownMenuItem>
           )
         })}
-        {efforts.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <EffortBar efforts={efforts} value={settings.effort} onChange={(effort) => onChange({ effort: effort as RunOptions['effort'] })} />
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -295,17 +296,45 @@ export function ModeMenu({
 const SPRING = 'duration-300 ease-[cubic-bezier(0.34,1.4,0.64,1)] motion-reduce:transition-none'
 
 /**
- * O esforço numa barra com uma parada por nível, como no ChatGPT: clicar ou arrastar escolhe, e o
- * preenchimento e o pino deslizam até a parada. Pelo teclado, as setas para os lados mudam o nível.
- * O menu fica aberto, para dar para ir e voltar.
+ * A cor de cada nível, do começo ao fim do degradê: esfria no baixo e esquenta até o roxo e o rosa no
+ * máximo. É a única cor da barra, e diz o estado (quanto o Claude vai pensar), como no resto do app.
+ */
+const EFFORT_TONE: Record<string, [string, string]> = {
+  low: ['#64748b', '#94a3b8'],
+  medium: ['#0284c7', '#38bdf8'],
+  high: ['#4f46e5', '#818cf8'],
+  xhigh: ['#6d28d9', '#c084fc'],
+  max: ['#a21caf', '#f472b6'],
+}
+
+/** Os brilhos dentro do preenchimento, espalhados sempre do mesmo jeito; mais esforço acende mais deles. */
+const SPARKS = Array.from({ length: 20 }, (_, i) => ({
+  x: (i * 37) % 100,
+  y: 18 + ((i * 53) % 64),
+  delay: -((i * 0.37) % 2),
+  size: i % 3 === 0 ? 3 : 2,
+}))
+
+// O pino (24 px) anda dentro da faixa com 2 px de folga: o centro dele vai de 14 px até a largura menos 14 px.
+const THUMB_INSET = 14
+const stop = (i: number, last: number) => `calc(${THUMB_INSET}px + (100% - ${THUMB_INSET * 2}px) * ${i / Math.max(1, last)})`
+
+/**
+ * O esforço numa barra como a do ChatGPT, no alto do seletor de modelo: o nome do nível e o modelo em
+ * cima, e uma faixa com uma parada por nível. O preenchimento é um degradê na cor do nível, com brilhos
+ * correndo e um reflexo passando, mais rápidos quanto mais esforço; a cor muda deslizando. Clicar ou
+ * arrastar escolhe, e o pino desliza até a parada; pelo teclado, as setas para os lados. O menu fica
+ * aberto, para dar para ir e voltar.
  */
 function EffortBar({
   efforts,
   value,
+  model,
   onChange,
 }: {
   efforts: string[]
   value: string | null | undefined
+  model: string
   onChange: (effort: string) => void
 }) {
   // Enquanto arrasta, só a barra acompanha; o nível vai para a sessão ao soltar.
@@ -315,12 +344,16 @@ function EffortBar({
   const current = asked && asked.over === value ? asked.effort : value
   const index = drag ?? (current ? efforts.indexOf(current) : -1)
   const last = efforts.length - 1
-  const at = (i: number) => `${(i / Math.max(1, last)) * 100}%`
-  const label = index < 0 ? 'Padrão' : (EFFORTS[efforts[index]!] ?? efforts[index]!)
+  const level = index < 0 ? null : efforts[index]!
+  const label = level ? (EFFORTS[level] ?? level) : 'Padrão'
+  const [from, to] = (level && EFFORT_TONE[level]) || EFFORT_TONE.high!
+  // De 0 (o mais baixo) a 1 (o mais alto): quantos brilhos e quão rápido eles correm.
+  const heat = index < 0 ? 0 : index / Math.max(1, last)
 
   const pick = (e: React.PointerEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
-    return Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * last)
+    const span = Math.max(1, r.width - THUMB_INSET * 2)
+    return Math.round(Math.min(1, Math.max(0, (e.clientX - r.left - THUMB_INSET) / span)) * last)
   }
   const choose = (i: number) => {
     const effort = efforts[Math.min(last, Math.max(0, i))]!
@@ -332,7 +365,8 @@ function EffortBar({
   return (
     <DropdownMenuItem
       aria-label={`Esforço: ${label}`}
-      className="flex-col items-stretch gap-1 focus:bg-transparent"
+      className="flex-col items-stretch gap-2.5 px-2 pt-2 pb-2.5 transition-[--fx-from,--fx-to] duration-500 focus:bg-transparent"
+      style={{ '--fx-from': from, '--fx-to': to } as React.CSSProperties}
       onSelect={(e) => e.preventDefault()}
       onKeyDown={(e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
@@ -340,15 +374,22 @@ function EffortBar({
         choose(index < 0 ? 0 : index + (e.key === 'ArrowRight' ? 1 : -1))
       }}
     >
-      <div className="flex items-center justify-between text-xs font-medium">
-        <span className="text-muted-foreground">Esforço</span>
+      <div className="text-center leading-tight">
         {/* A chave refaz a entrada a cada nível, e o nome novo sobe no lugar do antigo. */}
-        <span key={label} className="animate-in duration-200 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+        <div
+          key={label}
+          className={cn(
+            'animate-in text-sm font-semibold duration-200 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none',
+            // Com `!`: o item do menu em foco pinta todos os filhos com a cor dele, e o nome perderia o tom do nível.
+            level ? 'text-(--fx-from)! dark:text-(--fx-to)!' : 'text-muted-foreground!',
+          )}
+        >
           {label}
-        </span>
+        </div>
+        <div className="truncate text-xs text-muted-foreground!">{model}</div>
       </div>
       <div
-        className="relative mx-2 h-6 cursor-pointer touch-none"
+        className="relative h-7 cursor-pointer touch-none rounded-full bg-foreground/[0.07]"
         onPointerDown={(e) => {
           if (e.button !== 0) return
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -362,30 +403,43 @@ function EffortBar({
         }}
         onPointerCancel={() => setDrag(null)}
       >
-        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/10" />
-        <span
-          className={cn('absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full bg-foreground/80 transition-[width]', SPRING)}
-          style={{ width: index < 0 ? 0 : at(index) }}
-        />
+        {/* As paradas, apagadas na faixa vazia; o preenchimento passa por cima delas. */}
         {efforts.map((e, i) => (
-          <span
-            key={e}
-            className={cn(
-              'absolute top-1/2 size-1.5 -translate-1/2 rounded-full transition-colors duration-300',
-              i <= index ? 'bg-background/80' : 'bg-foreground/25',
-            )}
-            style={{ left: at(i) }}
-          />
+          <span key={e} className="absolute top-1/2 size-1 -translate-1/2 rounded-full bg-foreground/25" style={{ left: stop(i, last) }} />
         ))}
         <span
           className={cn(
-            'absolute top-1/2 size-4 -translate-1/2 rounded-full bg-foreground shadow-[0_1px_4px_rgb(0_0_0/0.35)] ring-ring/50 transition-[left,scale,opacity]',
+            'absolute inset-y-0 left-0 overflow-hidden rounded-full bg-linear-to-r from-(--fx-from) to-(--fx-to) transition-[width,opacity]',
+            SPRING,
+            index < 0 && 'opacity-0',
+          )}
+          style={{ width: index < 0 ? 0 : `calc(${stop(index, last)} + ${THUMB_INSET}px)` }}
+        >
+          <span className="effort-shimmer absolute inset-0" style={{ animationDuration: `${3.2 - heat * 1.6}s` }} />
+          {SPARKS.slice(0, 6 + Math.round(heat * 14)).map((p, i) => (
+            <span
+              key={i}
+              className="effort-spark absolute rounded-full bg-white"
+              style={{
+                left: `${p.x}%`,
+                top: `${p.y}%`,
+                width: p.size,
+                height: p.size,
+                animationDelay: `${p.delay}s`,
+                animationDuration: `${2.4 - heat * 1.1}s`,
+              }}
+            />
+          ))}
+        </span>
+        <span
+          className={cn(
+            'absolute top-1/2 size-6 -translate-1/2 rounded-full bg-white shadow-[0_1px_6px_rgb(0_0_0/0.35)] ring-ring/50 transition-[left,scale,opacity]',
             'group-focus-visible/dropdown-menu-item:ring-[3px]',
             SPRING,
-            drag !== null && 'scale-125',
+            drag !== null && 'scale-110',
             index < 0 && 'scale-50 opacity-0',
           )}
-          style={{ left: at(Math.max(0, index)) }}
+          style={{ left: stop(Math.max(0, index), last) }}
         />
       </div>
     </DropdownMenuItem>

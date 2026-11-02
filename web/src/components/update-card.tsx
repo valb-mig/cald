@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Group } from '@/components/settings-ui'
 import { ApiError, api, errorMessage } from '@/lib/api'
 import type { UpdateStatus, UpdateStep } from '@/lib/types'
 
@@ -114,16 +114,13 @@ export function UpdateCard({ machine }: { machine: string }) {
 
   if (missing) return null
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>Atualização do PC</CardTitle>
+    <Group title="Atualização do PC">
+      <div className="space-y-3 px-3 py-2.5 text-sm">
         {status && (
-          <CardDescription className="truncate">
+          <p className="truncate text-xs text-muted-foreground">
             Na {status.branch ?? 'versão solta'} · <span className="font-mono">{status.head.sha}</span> {status.head.subject}
-          </CardDescription>
+          </p>
         )}
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
         {error && !restarting && !running && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
         {restarting || running ? (
@@ -188,13 +185,13 @@ export function UpdateCard({ machine }: { machine: string }) {
                   {starting ? <Loader2 className="animate-spin" /> : <Download />} Atualizar e reiniciar
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => void load()}>
+              <Button size="sm" variant="ghost" onClick={() => void load()}>
                 <RefreshCw /> Verificar
               </Button>
             </div>
           </>
         )}
-      </CardContent>
+      </div>
 
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>
@@ -210,6 +207,6 @@ export function UpdateCard({ machine }: { machine: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </Group>
   )
 }

@@ -1,9 +1,12 @@
 import { FolderGit2, House, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
+import { useShallow } from 'zustand/react/shallow'
 import { ClaudeMark } from '@/components/chat/claude-spinner'
+import { Claudinho } from '@/components/claudinho'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { setComputerOpen, useComputer } from '@/lib/computer'
+import { claudinhoName } from '@/lib/claudinho'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
@@ -11,6 +14,7 @@ import { useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { focusedChat, onWorkbench, useWorkbench } from '@/lib/workbench'
 
 // As medidas ficam no cinza da ilha: a cor (a do quadro do PC, pc-status.tsx) é só para o alerta e o
 // crítico, e o verde para a meta de horas batida, em que encher é bom.
@@ -136,8 +140,8 @@ export function RailItem({
 }) {
   const className = cn(
     'relative flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [&_svg]:size-5',
-    // O ativo tem a cor da janela, como a aba aberta: um pedaço dela na ilha.
-    active && 'bg-background text-foreground shadow-xs hover:bg-background',
+    // O ativo ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta).
+    active && 'bg-sidebar-accent text-foreground shadow-xs hover:bg-sidebar-accent',
   )
   const content = (
     <>
@@ -223,16 +227,49 @@ function RailMeters() {
  * Com a lista aberta, as medidas saem da coluna estreita da alça para o pé dela, uma por linha, soltas
  * na ilha como as conversas (ver App.tsx). Recolhida a lista, voltam para a alça, no mesmo traço.
  */
-export function SidebarMeters() {
+/** `className`: no celular, no alto da lista de conversas, as medidas vão em duas colunas. */
+export function SidebarMeters({ className }: { className?: string }) {
   const metrics = useMetrics()
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="shrink-0 px-2 pt-2 pb-3">
+      <div className={cn('shrink-0 px-2 pt-2 pb-3', className)}>
         {metrics.map((m) => (
           <BarRow key={m.label} {...m} />
         ))}
       </div>
     </TooltipProvider>
+  )
+}
+
+/** Uma conversa aberta em aba, na alça: o claudinho dela, com o estado, e o nome e o título ao passar o mouse. */
+function RailChat({ id, active }: { id: string; active: boolean }) {
+  const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
+  const name = claudinhoName(id, entry?.claudinhoName)
+  return (
+    <RailItem label={entry?.title ? `${name} · ${entry.title}` : name} href={`/s/${id}`} active={active}>
+      <Claudinho seed={id} state={entry?.state} status size={20} />
+    </RailItem>
+  )
+}
+
+/**
+ * Com a lista recolhida, as conversas abertas em abas (de todos os grupos, na ordem da tela) ficam na
+ * alça, para trocar de conversa sem abrir a lista; a que está em foco ganha o destaque.
+ */
+function RailChats() {
+  const [location] = useLocation()
+  const ids = useWorkbench(useShallow((s) => s.groups.flatMap((g) => g.tabs.flatMap((t) => (t.kind === 'chat' ? [t.id] : [])))))
+  const focused = useWorkbench((s) => (onWorkbench(location) ? focusedChat(s) : null))
+  if (!ids.length) return null
+  return (
+    <>
+      <div className="my-1 h-px w-6 shrink-0 bg-foreground/10" />
+      <div className="chat-enter flex min-h-0 flex-col items-center gap-1 overflow-y-auto [scrollbar-width:none] [animation-delay:120ms]">
+        {ids.map((id) => (
+          <RailChat key={id} id={id} active={id === focused} />
+        ))}
+      </div>
+    </>
   )
 }
 
@@ -272,8 +309,9 @@ export function SidebarRail() {
         <RailItem label="Projetos" shown={!collapsed && view === 'projects'} onClick={() => toggleSidebarView('projects')}>
           <FolderGit2 />
         </RailItem>
+        {collapsed && <RailChats />}
 
-        <div className="mt-auto flex flex-col items-center gap-1.5">
+        <div className="mt-auto flex shrink-0 flex-col items-center gap-1.5 pt-2">
           {collapsed && <RailMeters />}
           {/* O painel Computador: o PC, os limites do Claude e os ajustes deste aparelho. Abre por cima,
               sem tirar você da conversa (ver lib/computer.ts). */}

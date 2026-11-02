@@ -94,9 +94,13 @@ export default function App() {
     // Na horizontal, o entalhe da câmera fica num dos lados.
     <div
       className={cn(
-        'relative isolate flex h-dvh bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]',
+        'relative isolate flex h-dvh pr-[max(var(--frame),env(safe-area-inset-right))] pl-[max(var(--frame),env(safe-area-inset-left))]',
         // No PC, ilhas soltas sobre o fundo: a barra lateral e a casca, com a mesma margem em volta e entre elas.
-        'wide:py-frame wide:pr-[max(var(--frame),env(safe-area-inset-right))] wide:pl-[max(var(--frame),env(safe-area-inset-left))]',
+        // No claro, a margem é da cor da janela; no escuro, funda como as ilhas (ver index.css).
+        // No celular, a casca é a tela: a janela e a pílula das abas ficam soltas nela, longe dos entalhes.
+        wide
+          ? 'bg-background py-frame dark:bg-shell'
+          : 'bg-shell pt-[max(var(--frame),env(safe-area-inset-top))] pb-[max(var(--frame),env(safe-area-inset-bottom))]',
       )}
     >
       {/* No PC, a cena animada é o fundo do app inteiro: aparece na margem e, pelo recorte da casca, na
@@ -119,7 +123,13 @@ export default function App() {
           <Switch>
             <Route path="/s/:id">
               {/* No PC, abas como no VSCode (ver lib/workbench.ts); no celular, a tela segue a URL. */}
-              {wide ? <Workbench /> : <ChatSplit />}
+              {wide ? (
+                <Workbench />
+              ) : (
+                <Pane>
+                  <ChatSplit />
+                </Pane>
+              )}
             </Route>
             {/* As abas com um arquivo, issue ou PR em foco (ver WORKBENCH_PATH); no celular não há abas. */}
             <Route path="/abas">{wide ? <Workbench /> : <Redirect to="/" />}</Route>
@@ -143,9 +153,13 @@ export default function App() {
               )}
             </Route>
             <Route>
-              <Pane>
-                <TabPages wide={wide} />
-              </Pane>
+              {wide ? (
+                <Pane>
+                  <TabPages wide />
+                </Pane>
+              ) : (
+                <TabPages wide={false} />
+              )}
             </Route>
           </Switch>
           {/* No PC, embaixo das conversas: o painel de comandos e a barra de status, como no VSCode. */}
@@ -172,7 +186,7 @@ function Sidebar() {
   const view = useSidebar((s) => s.view)
   return (
     // Isolada: o cabeçalho fixo da lista e o fio de luz não sobem para cima da casca (e do que abre nela).
-    <div className="relative isolate flex shrink-0 overflow-hidden rounded-island bg-shell shadow-island-ring">
+    <div className="relative isolate flex shrink-0 overflow-hidden rounded-island bg-sidebar shadow-island-ring">
       <SidebarRail />
       <SlidePanel open={!collapsed} size={width} side="left">
         <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
@@ -231,11 +245,17 @@ function SidebarHandle() {
   )
 }
 
-/** No PC, cada tela fica numa janela dentro da casca, como as conversas; no celular, a tela já é a janela. */
+/**
+ * Cada tela fica numa janela arredondada: no PC, dentro da casca, como as conversas; no celular, solta na
+ * casca, que é a tela toda e a afasta dos entalhes (por isso `framed`, ver index.css).
+ */
 function Pane({ children }: { children: React.ReactNode }) {
   const wide = useWide()
-  if (!wide) return children
-  return <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-pane bg-background">{children}</div>
+  return (
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-pane bg-background', !wide && 'framed shadow-island')}>
+      {children}
+    </div>
+  )
 }
 
 /** Início, Conversas e Projetos (o Computador abre por cima); no celular deitado, as abas viram uma coluna na lateral. */
@@ -243,8 +263,7 @@ function TabPages({ wide }: { wide: boolean }) {
   const [location] = useLocation()
   // O "voltar" de uma conversa leva de volta à aba de onde ela foi aberta.
   useEffect(() => rememberTab(location), [location])
-  return (
-    <div className="flex min-h-0 flex-1 flex-col compact:flex-row-reverse">
+  const main = (
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl">
           <Switch>
@@ -264,7 +283,13 @@ function TabPages({ wide }: { wide: boolean }) {
           </Switch>
         </div>
       </main>
-      {!wide && <BottomNav />}
+  )
+  if (wide) return main
+  // No celular, a janela e, embaixo dela (ao lado, deitado), a pílula das abas.
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-frame compact:flex-row-reverse">
+      <Pane>{main}</Pane>
+      <BottomNav />
     </div>
   )
 }

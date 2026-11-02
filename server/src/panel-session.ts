@@ -23,6 +23,7 @@ import type { PlanUsage } from './system.ts';
 import { HttpError } from './errors.ts';
 import {
   fromSdkMessage,
+  stampAssistant,
   parseQuestions,
   type LoggedEvent,
   type PanelEvent,
@@ -474,6 +475,8 @@ export class PanelSession extends EventEmitter {
     // Resultados de ferramentas podem trazer imagens (prints, arquivos lidos): vão para o cache.
     const sink = msg.type === 'user' ? imageStore.sink(this.id, (msg as { uuid?: string }).uuid ?? randomUUID()) : undefined;
     const { events, delta } = fromSdkMessage(msg, sink);
+    // O esforço não vem na mensagem: é o ajuste da sessão agora. Subagente pensa com o dele, que não se sabe daqui.
+    if (msg.type === 'assistant' && msg.parent_tool_use_id === null) stampAssistant(events, undefined, this.settings.effort);
     // O UUID vem junto para o que chega ao vivo também, senão só daria para bifurcar no histórico
     // já lido do arquivo — e não no turno que acabou de acontecer.
     const uuid = (msg as { uuid?: string }).uuid;

@@ -32,7 +32,8 @@ export type PanelEvent =
    */
   | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
-  | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
+  /** `model` e `effort`: o modelo que escreveu a resposta e o esforço com que pensou, quando se sabe. */
+  | { kind: 'assistant'; text: string; parentToolUseId?: string | null; model?: string; effort?: string }
   | { kind: 'thinking'; text: string; parentToolUseId?: string | null }
   | { kind: 'tool_use'; id: string; name: string; input: unknown; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
@@ -241,18 +242,34 @@ export function parseQuestions(input: Record<string, unknown>): Question[] {
   });
 }
 
-/** Histórico salvo (getSessionMessages) → eventos. */
-export function fromSessionMessage(m: SessionMessage, sink?: ImageSink): PanelEvent[] {
+/**
+ * Marca nas respostas quem as escreveu. O modelo vem na própria mensagem da API; o esforço, de fora
+ * (o transcript guarda ao lado da mensagem, e ao vivo vale o ajuste da sessão). Mensagens sintéticas
+ * (erro da API, `<synthetic>`) não têm modelo de verdade e ficam sem.
+ */
+export function stampAssistant(events: PanelEvent[], model?: string, effort?: string | null): PanelEvent[] {
+  const real = model && !model.startsWith('<') ? model : undefined;
+  for (const e of events) {
+    if (e.kind !== 'assistant') continue;
+    if (real) e.model = real;
+    if (effort) e.effort = effort;
+  }
+  return events;
+}
+
+/** Histórico salvo (getSessionMessages) → eventos. `effort`: o do transcript para esta mensagem. */
+export function fromSessionMessage(m: SessionMessage, sink?: ImageSink, effort?: string): PanelEvent[] {
   if (m.type !== 'user' && m.type !== 'assistant') return [];
-  const content = (m.message as { content?: unknown } | null)?.content;
-  return fromContent(m.type, content, m.parent_tool_use_id, sink);
+  const message = m.message as { content?: unknown; model?: string } | null;
+  const events = fromContent(m.type, message?.content, m.parent_tool_use_id, sink);
+  return m.type === 'assistant' ? stampAssistant(events, message?.model, effort) : events;
 }
 
 /** Mensagem do stream do SDK → eventos persistentes + texto parcial efêmero. */
 export function fromSdkMessage(msg: SDKMessage, sink?: ImageSink): { events: PanelEvent[]; delta?: string } {
   switch (msg.type) {
     case 'assistant':
-      return { events: fromContent('assistant', msg.message.content, msg.parent_tool_use_id) };
+      return { events: stampAssistant(fromContent('assistant', msg.message.content, msg.parent_tool_use_id), msg.message.model) };
     case 'user':
       // Prompts do usuário já são registrados no envio; aqui só interessam resultados de ferramentas.
       return { events: fromContent('user', msg.message.content, null, sink).filter((e) => e.kind === 'tool_result') };
