@@ -44,7 +44,7 @@ import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { MindMap } from '@/components/mindmap/mind-map'
-import { mindTree } from '@/components/mindmap/model'
+import { firstSentence, mindTree } from '@/components/mindmap/model'
 import { MapPane } from '@/components/mindmap/pane'
 import { ProjectPanelButton } from '@/components/project/panel'
 import { useChatDisplay } from '@/components/mindmap/view'
@@ -394,10 +394,10 @@ export function ChatPage({ id }: { id: string }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [zen])
+  // O texto do streaming crescendo não entra aqui: o ResizeObserver do conteúdo já acompanha.
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
     items.length,
     queued.length,
-    view.streaming,
     history.events === null,
   ])
 
@@ -407,9 +407,15 @@ export function ChatPage({ id }: { id: string }) {
   const roomy = useWidth(areaRef) >= 1000
   const shown = display === 'both' && !roomy ? 'map' : display
   const stateLabel = stateInfo(shownState, shownWaiting).label
+  // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
+  // refaria a árvore e o layout a cada delta.
+  const streamHead = useStore((s) => {
+    const text = shown === 'chat' ? '' : s.streams[id]
+    return text ? firstSentence(text) || 'Escrevendo…' : ''
+  })
   const mapRoot = useMemo(
-    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: view.streaming, agents })),
-    [shown, items, entry?.title, stateLabel, working, view.streaming, agents],
+    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: streamHead, agents })),
+    [shown, items, entry?.title, stateLabel, working, streamHead, agents],
   )
   // Aprovações e perguntas esperando: com só o mapa na tela, ficam acima do campo de mensagem.
   const requests = useMemo(
@@ -697,7 +703,6 @@ export function ChatPage({ id }: { id: string }) {
                       queued={queued}
                       sessionId={id}
                       actionable={panelOpen}
-                      streaming={view.streaming}
                       working={working}
                       background={background}
                       uses={uses}

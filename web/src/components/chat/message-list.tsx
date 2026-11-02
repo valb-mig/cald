@@ -1,6 +1,6 @@
 import { Check, CircleAlert, Clock, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, Pause, Play, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import { ImageThumb } from '@/components/image-viewer'
@@ -335,12 +335,44 @@ function WorkingLine({ items }: { items: Item[] }) {
   )
 }
 
+/**
+ * O fim da conversa enquanto o Claude trabalha: o texto que ele está escrevendo ou o "Trabalhando…".
+ * É o único pedaço da lista que acompanha cada delta do streaming; o resto só muda com eventos.
+ */
+function LiveTail({ sessionId, working, items }: { sessionId: string; working: boolean; items: Item[] }) {
+  const streaming = useStore((s) => s.streams[sessionId] ?? '')
+  // O markdown é reprocessado inteiro a cada atualização, então o custo cresce com a resposta: quanto
+  // maior ela fica, mais espaçadas as atualizações (de uma por delta até ~4 por segundo).
+  const throttled = useThrottled(streaming, Math.min(250, streaming.length / 40))
+  // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
+  const text = streaming && throttled
+  if (text) return <Markdown text={text} className="opacity-90" />
+  return working ? <WorkingLine items={items} /> : null
+}
+
+/** O valor mais recente, mas trocado no máximo uma vez a cada `ms`. */
+function useThrottled<T>(value: T, ms: number): T {
+  const [shown, setShown] = useState(value)
+  const last = useRef(0)
+  useEffect(() => {
+    if (Object.is(value, shown)) return
+    const timer = setTimeout(
+      () => {
+        last.current = performance.now()
+        setShown(value)
+      },
+      Math.max(0, last.current + ms - performance.now()),
+    )
+    return () => clearTimeout(timer)
+  }, [value, ms, shown])
+  return shown
+}
+
 export function MessageList({
   items,
   queued,
   sessionId,
   actionable,
-  streaming,
   working,
   background,
   uses,
@@ -355,7 +387,6 @@ export function MessageList({
   sessionId: string
   /** Aprovações e perguntas só podem ser respondidas com a sessão aberta no painel. */
   actionable: boolean
-  streaming: string
   working: boolean
   /** O que ficou rodando em segundo plano depois da resposta (monitores, comandos, subagentes). */
   background: BackgroundTask[]
@@ -380,8 +411,7 @@ export function MessageList({
         {queued.map((item) => (
           <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
         ))}
-        {streaming && <Markdown text={streaming} className="opacity-90" />}
-        {working && !streaming && <WorkingLine items={items} />}
+        <LiveTail sessionId={sessionId} working={working} items={items} />
         {/* Fica na tela também durante os turnos: num monitor, cada novidade acorda o Claude. */}
         <BackgroundTasks sessionId={sessionId} tasks={background} uses={uses} actionable={actionable} />
       </div>
