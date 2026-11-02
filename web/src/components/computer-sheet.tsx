@@ -1,17 +1,16 @@
-import { Armchair, ChevronRight, RefreshCw } from 'lucide-react'
+import { Activity, Armchair, Bell, ChevronRight, Gauge, Info, Monitor, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
+import { Group, Segmented, SettingRow } from '@/components/settings-ui'
 import { SoundSettings } from '@/components/sound-settings'
 import { WallpaperSettings } from '@/components/wallpaper-settings'
 import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 import { setComputerOpen, useComputer } from '@/lib/computer'
 import { bytes, relativeTime, uptime } from '@/lib/format'
@@ -25,40 +24,122 @@ const CONNECTION = {
   closed: { label: 'Desconectado', dot: 'bg-red-500' },
 } as const
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{value}</span>
-    </div>
-  )
-}
+type Section = 'status' | 'usage' | 'alerts' | 'look' | 'about'
+
+/** `machine`: a seção é de uma máquina, e o filtro delas aparece no topo (com mais de uma). */
+const SECTIONS: { key: Section; label: string; description: string; icon: typeof Activity; machine?: boolean }[] = [
+  { key: 'status', label: 'Status', description: 'O PC que roda as conversas.', icon: Activity, machine: true },
+  { key: 'usage', label: 'Uso do Claude', description: 'Os limites do seu plano.', icon: Gauge, machine: true },
+  { key: 'alerts', label: 'Avisos', description: 'Notificações e sons deste aparelho.', icon: Bell },
+  { key: 'look', label: 'Aparência', description: 'Tema e fundo, só neste aparelho.', icon: Palette },
+  { key: 'about', label: 'Sobre', description: 'Versão, atualização e segurança.', icon: Info, machine: true },
+]
 
 /**
  * O painel Computador, por cima da tela em que você está (ver lib/computer.ts). Abre da alça, dos
- * anéis, do quadro do PC no início e da aba no celular. A lista rola por dentro, e o título, o filtro
- * de máquina e o X ficam no topo.
+ * anéis, do quadro do PC no início e da aba no celular. Desenhado como o próprio app: uma ilha na cor
+ * da casca, com as seções à esquerda (como a barra lateral) e a escolhida numa janela à direita, um
+ * assunto por vez. No celular, as seções viram uma fileira de pílulas em cima da janela.
  */
 export function ComputerSheet() {
   const open = useComputer((s) => s.open)
   return (
-    <Sheet open={open} onOpenChange={setComputerOpen}>
-      <SheetContent side="bottom" className="gap-0 p-0 data-[side=bottom]:h-[92dvh] lg:mx-auto lg:max-w-3xl lg:rounded-t-xl lg:border-x">
+    <Dialog open={open} onOpenChange={setComputerOpen}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[min(38rem,calc(100dvh-2rem))] w-[min(52rem,calc(100vw-1.5rem))] max-w-none flex-col gap-0 overflow-hidden rounded-island bg-shell p-0 shadow-island ring-0 max-sm:h-[calc(100dvh-6rem)] sm:max-w-none sm:flex-row"
+      >
         <Computer />
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function Computer() {
-  // Com várias máquinas, os cartões são os da escolhida no topo (sem "Todas").
+  const [section, setSection] = useState<Section>('status')
+  const current = SECTIONS.find((s) => s.key === section)!
+  return (
+    <>
+      <nav className="flex shrink-0 flex-col gap-1 p-3 max-sm:pb-2 sm:w-52">
+        <div className="flex items-center justify-between px-2 pt-1 pb-2 sm:pb-3">
+          <DialogTitle className="text-sm">Computador</DialogTitle>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon-sm" className="sm:hidden" aria-label="Fechar">
+              <X />
+            </Button>
+          </DialogClose>
+        </div>
+        <DialogDescription className="sr-only">O PC, os limites do Claude e os ajustes deste aparelho.</DialogDescription>
+        <div className="flex gap-1 max-sm:overflow-x-auto max-sm:[scrollbar-width:none] sm:flex-col">
+          {SECTIONS.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              aria-current={section === s.key ? 'page' : undefined}
+              onClick={() => setSection(s.key)}
+              className="flex h-9 shrink-0 items-center gap-2.5 rounded-lg px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground aria-[current=page]:shadow-xs [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <s.icon />
+              <span className="flex-1 text-left">{s.label}</span>
+              <NavMeta section={s.key} />
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* A janela, como a da conversa: um tom acima da casca no claro, e mais clara que ela no escuro. */}
+      <div className="m-gap flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-pane bg-background max-sm:mt-0 sm:ml-0">
+        {/* No celular, a pílula escolhida já diz a seção: o cabeçalho sai para sobrar espaço. */}
+        <header className="flex items-start gap-3 px-6 pt-5 pb-4 max-sm:hidden">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-medium">{current.label}</h2>
+            <p className="text-xs text-muted-foreground">{current.description}</p>
+          </div>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon-sm" className="-mt-1 -mr-2 max-sm:hidden" aria-label="Fechar">
+              <X />
+            </Button>
+          </DialogClose>
+        </header>
+        {current.machine && <MachineFilter all={false} className="px-6 pb-4 max-sm:px-4 max-sm:pt-4 max-sm:pb-0" />}
+        <div key={section} className="tab-panel-in min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6 max-sm:px-4 max-sm:pt-4">
+          {section === 'status' ? (
+            <StatusSection />
+          ) : section === 'usage' ? (
+            <UsageSection />
+          ) : section === 'alerts' ? (
+            <>
+              <PushSettings />
+              <SoundSettings />
+            </>
+          ) : section === 'look' ? (
+            <LookSection />
+          ) : (
+            <AboutSection />
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Um relance na própria navegação: a conexão no Status, a janela de 5 h no Uso. */
+function NavMeta({ section }: { section: Section }) {
+  const machine = useMachineFilter() ?? HOME
+  const connection = useStore((s) => s.connections[machine] ?? 'connecting')
+  const fiveHour = useStore((s) => s.usages[machine]?.plan?.fiveHour?.utilization)
+  if (section === 'status') return <span className={cn('size-1.5 rounded-full', CONNECTION[connection].dot)} />
+  if (section === 'usage' && fiveHour != null) return <span className="text-xs text-muted-foreground tabular-nums max-sm:hidden">{Math.round(fiveHour)}%</span>
+  return null
+}
+
+function StatusSection() {
+  // Com várias máquinas, o status é o da escolhida no topo (sem "Todas").
   const machine = useMachineFilter() ?? HOME
   const connection = useStore((s) => s.connections[machine] ?? 'connecting')
   const all = useStore((s) => s.catalog)
   const system = useStore((s) => s.systems[machine])
-  const usage = useStore((s) => s.usages[machine])
   const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null)
-  const { theme, setTheme } = useTheme()
 
   useEffect(() => {
     api.health(machine).then(setHealth, () => setHealth(null))
@@ -69,9 +150,8 @@ function Computer() {
     const pc = catalog.filter((c) => c.owner === 'pc')
     return {
       pc: pc.length,
-      pcBusy: pc.filter((c) => c.state === 'running').length,
-      pcWaiting: pc.filter((c) => c.state === 'waiting').length,
-      panel: catalog.filter((c) => c.owner === 'panel').length,
+      busy: catalog.filter((c) => c.state === 'running').length,
+      waiting: catalog.filter((c) => c.state === 'waiting').length,
       saved: catalog.length,
     }
   }, [all, machine])
@@ -79,170 +159,159 @@ function Computer() {
   const c = CONNECTION[connection]
   return (
     <>
-      <SheetHeader>
-        <SheetTitle>Computador</SheetTitle>
-        <SheetDescription>O PC, os limites do Claude e os ajustes deste aparelho.</SheetDescription>
-      </SheetHeader>
-      <MachineFilter all={false} className="px-4 pb-3" />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        {/* Link próprio, para deixar de fundo num tablet ou monitor (ver pages/office.tsx). */}
+      <Group>
+        <SettingRow
+          label={
+            <span className="flex items-center gap-2">
+              <span className={cn('size-2 rounded-full', c.dot)} />
+              {c.label}
+            </span>
+          }
+          hint={
+            <>
+              <span className="font-mono">{health?.tailnetHost ?? (baseOf(machine) || location.host)}</span>
+              {health && ` · servidor iniciado ${relativeTime(health.startedAt)}`}
+            </>
+          }
+        >
+          <Button variant="ghost" size="sm" onClick={() => reconnectNow(true)}>
+            <RefreshCw /> Reconectar
+          </Button>
+        </SettingRow>
+      </Group>
+
+      <Group
+        title="Sistema"
+        className="grid grid-cols-2 gap-x-6 gap-y-4 p-4 max-sm:grid-cols-1"
+        note={system && `Ligado há ${uptime(system.uptimeSec)} · Claude Code: ${system.claude.processes} processos, ${bytes(system.claude.rss)}`}
+      >
+        {system ? (
+          <>
+            <Meter
+              label={`CPU · ${system.cpu.cores} núcleos`}
+              value={`${Math.round(system.cpu.percent)}%`}
+              percent={system.cpu.percent}
+              detail={`carga ${system.cpu.load.map((l) => l.toLocaleString('pt-BR')).join(' · ')}`}
+            />
+            <Meter
+              label="Memória"
+              value={`${bytes(system.memory.used)} de ${bytes(system.memory.total)}`}
+              percent={(system.memory.used / system.memory.total) * 100}
+            />
+            {system.memory.swapTotal > 0 && (
+              <Meter
+                label="Swap"
+                value={`${bytes(system.memory.swapUsed)} de ${bytes(system.memory.swapTotal)}`}
+                percent={(system.memory.swapUsed / system.memory.swapTotal) * 100}
+              />
+            )}
+          </>
+        ) : (
+          <p className="col-span-2 text-sm text-muted-foreground">Lendo o PC…</p>
+        )}
+      </Group>
+
+      <Group title="Conversas" className="grid grid-cols-4 gap-1 p-1 max-sm:grid-cols-2">
+        <Stat value={counts.busy} label="trabalhando" />
+        <Stat value={counts.waiting} label="esperando você" />
+        <Stat value={counts.pc} label="abertas no PC" />
+        <Stat value={counts.saved} label="salvas" />
+      </Group>
+
+      {/* Link próprio, para deixar de fundo num tablet ou monitor (ver pages/office.tsx). */}
+      <Group>
         <Link
           href="/salinha"
           // A salinha toma a tela toda: o painel fecha, para não estar aberto por cima ao voltar dela.
           onClick={() => setComputerOpen(false)}
-          className="flex items-center gap-3 rounded-xl border bg-card p-3 hover:bg-muted/50 active:bg-muted">
-          <Armchair className="size-5 shrink-0 text-muted-foreground" />
+          className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-foreground/5"
+        >
+          <Armchair className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Salinha</div>
-            <div className="text-xs text-muted-foreground">Seus claudinhos trabalhando num mini escritório, para deixar de fundo.</div>
+            <div className="text-sm">Salinha</div>
+            <div className="text-xs text-muted-foreground">Seus claudinhos num mini escritório, para deixar de fundo.</div>
           </div>
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
         </Link>
+      </Group>
+    </>
+  )
+}
 
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Conexão</CardTitle>
-            <CardDescription>O PC executa tudo; o celular só envia mensagens e respostas.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Row
-              label="Status"
-              value={
-                <span className="flex items-center gap-2">
-                  <span className={cn('size-2 rounded-full', c.dot)} />
-                  {c.label}
-                </span>
-              }
-            />
-            <Row label="Servidor" value={health ? `iniciado ${relativeTime(health.startedAt)}` : '—'} />
-            <Row label="Endereço" value={<span className="font-mono text-xs">{health?.tailnetHost ?? (baseOf(machine) || location.host)}</span>} />
-            <Button variant="outline" className="mt-2 w-full" onClick={() => reconnectNow(true)}>
-              <RefreshCw /> Reconectar
-            </Button>
-          </CardContent>
-        </Card>
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="rounded-lg px-3 py-2.5">
+      <div className="text-lg leading-tight font-medium tabular-nums">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  )
+}
 
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Sistema</CardTitle>
-            {system && <CardDescription>Ligado há {uptime(system.uptimeSec)}</CardDescription>}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {system ? (
-              <>
-                <Meter
-                  label={`CPU · ${system.cpu.cores} núcleos`}
-                  value={`${Math.round(system.cpu.percent)}%`}
-                  percent={system.cpu.percent}
-                  detail={`carga média ${system.cpu.load.map((l) => l.toLocaleString('pt-BR')).join(' · ')} (1, 5 e 15 min)`}
-                />
-                <Meter
-                  label="Memória"
-                  value={`${bytes(system.memory.used)} de ${bytes(system.memory.total)}`}
-                  percent={(system.memory.used / system.memory.total) * 100}
-                />
-                {system.memory.swapTotal > 0 && (
-                  <Meter
-                    label="Swap"
-                    value={`${bytes(system.memory.swapUsed)} de ${bytes(system.memory.swapTotal)}`}
-                    percent={(system.memory.swapUsed / system.memory.swapTotal) * 100}
-                  />
-                )}
-                <Row
-                  label="Processos do Claude Code"
-                  value={`${system.claude.processes} · ${bytes(system.claude.rss)}`}
-                />
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Lendo o PC…</p>
-            )}
-          </CardContent>
-        </Card>
+function UsageSection() {
+  const machine = useMachineFilter() ?? HOME
+  const usage = useStore((s) => s.usages[machine])
+  const plan = usage?.plan
+  const name = plan?.subscription ? `Plano ${plan.subscription.charAt(0).toUpperCase()}${plan.subscription.slice(1)}` : 'Limites do plano'
+  return (
+    <Group
+      title={name}
+      className={cn(plan?.available && 'grid grid-cols-2 gap-x-6 gap-y-4 p-4 max-sm:grid-cols-1')}
+      note={`${usage?.planAt ? `Atualizado ${relativeTime(usage.planAt)}. ` : ''}Mesmo dado do /usage do Claude Code, a cada 90 s.`}
+    >
+      {plan?.available ? (
+        <>
+          <WindowMeter label="Sessão (5 h)" window={plan.fiveHour} />
+          <WindowMeter label="Semana" window={plan.sevenDay} />
+          {plan.models.map((m) => (
+            <WindowMeter key={m.name} label={`Semana · ${m.name}`} window={m} />
+          ))}
+          {plan.extraUsage && <WindowMeter label="Uso extra (mês)" window={{ utilization: plan.extraUsage.utilization, resetsAt: null }} />}
+        </>
+      ) : (
+        <SettingRow
+          label={
+            plan && !plan.available
+              ? 'Esta conta não tem limites de plano (chave de API).'
+              : usage?.planError
+                ? `Indisponível: ${usage.planError}`
+                : 'Consultando…'
+          }
+        />
+      )}
+    </Group>
+  )
+}
 
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Uso do Claude</CardTitle>
-            <CardDescription>
-              {usage?.plan?.subscription
-                ? `Plano ${usage.plan.subscription.charAt(0).toUpperCase()}${usage.plan.subscription.slice(1)}`
-                : 'Limites do plano'}
-              {usage?.planAt ? ` · atualizado ${relativeTime(usage.planAt)}` : ''}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {usage?.plan?.available ? (
-              <>
-                <WindowMeter label="Sessão (janela de 5 h)" window={usage.plan.fiveHour} />
-                <WindowMeter label="Semana (todos os modelos)" window={usage.plan.sevenDay} />
-                {usage.plan.models.map((m) => (
-                  <WindowMeter key={m.name} label={`Semana · ${m.name}`} window={m} />
-                ))}
-                {usage.plan.extraUsage && (
-                  <WindowMeter label="Uso extra (mensal)" window={{ utilization: usage.plan.extraUsage.utilization, resetsAt: null }} />
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {usage?.plan && !usage.plan.available
-                  ? 'Esta conta não tem limites de plano (chave de API).'
-                  : usage?.planError
-                    ? `Indisponível: ${usage.planError}`
-                    : 'Consultando…'}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Mesmo dado do /usage do Claude Code (recurso experimental do SDK), atualizado a cada 90 s.
-            </p>
-          </CardContent>
-        </Card>
+function LookSection() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <>
+      <Group title="Tema" className="bg-transparent p-0">
+        <Segmented
+          value={(theme ?? 'system') as 'system' | 'light' | 'dark'}
+          onChange={setTheme}
+          options={[
+            { key: 'system', label: 'Sistema', icon: <Monitor /> },
+            { key: 'light', label: 'Claro', icon: <Sun /> },
+            { key: 'dark', label: 'Escuro', icon: <Moon /> },
+          ]}
+        />
+      </Group>
+      <WallpaperSettings />
+    </>
+  )
+}
 
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Sessões</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Row label="Abertas no PC" value={`${counts.pc} (${counts.pcBusy} trabalhando, ${counts.pcWaiting} aguardando)`} />
-            <Row label="Abertas no painel" value={counts.panel} />
-            <Row label="Conversas salvas" value={counts.saved} />
-          </CardContent>
-        </Card>
-
-        <PushSettings />
-        <SoundSettings />
-        <WallpaperSettings />
-
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Aparência</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Select value={theme ?? 'system'} onValueChange={setTheme}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="system">Seguir o sistema</SelectItem>
-                <SelectItem value="light">Claro</SelectItem>
-                <SelectItem value="dark">Escuro</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-
-        {/* Um cartão por máquina: trocar de máquina recomeça a consulta. */}
-        <UpdateCard key={machine} machine={machine} />
-
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Segurança</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1 text-sm text-muted-foreground">
-            <p>O painel só responde pela sua rede Tailscale e apenas para a conta dona do PC.</p>
-            <p>As credenciais do Claude Code ficam no PC.</p>
-            <p className="pt-2 text-xs">Versão {__BUILD_TIME__}</p>
-          </CardContent>
-        </Card>
-      </div>
+function AboutSection() {
+  const machine = useMachineFilter() ?? HOME
+  return (
+    <>
+      {/* Uma por máquina: trocar de máquina recomeça a consulta. */}
+      <UpdateCard key={machine} machine={machine} />
+      <Group title="Segurança" note={`Versão ${__BUILD_TIME__}`}>
+        <SettingRow label="Só pela sua rede Tailscale" hint="E apenas para a conta dona do PC." />
+        <SettingRow label="Credenciais no PC" hint="As do Claude Code não saem de lá." />
+      </Group>
     </>
   )
 }
