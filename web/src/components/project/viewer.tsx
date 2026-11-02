@@ -1,5 +1,19 @@
-import { AArrowDown, AArrowUp, ArrowLeft, AtSign, ExternalLink, FileDiff, FileText, Loader2, WrapText } from 'lucide-react'
-import { createElement, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  AArrowDown,
+  AArrowUp,
+  ArrowLeft,
+  AtSign,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  FileDiff,
+  FileText,
+  Loader2,
+  Map as MapIcon,
+  WrapText,
+  X,
+} from 'lucide-react'
+import { Fragment, createElement, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ThemedToken } from 'shiki/core'
 import { CopyButton, Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
@@ -10,11 +24,14 @@ import { CODE_FONT, CODE_FONT_MAX, CODE_FONT_MIN, setCodeFont, stepCodeFont, use
 import { projectName } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
 import { tokenStyle, useTokens } from '@/lib/highlight'
+import { setMinimap, useMinimap } from '@/lib/minimap'
 import { closeViewer, openViewer, useProjectPanel, type Viewing } from '@/lib/project-panel'
 import type { FileView } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useCodeSelection } from './code-mention'
 import { mention } from './file-menu'
+import { blocksOf, innerChange, MARK_BAR, MarkedCode, type Block, type Mark } from './changes'
+import { CodeMinimap } from './minimap'
 import { fileIcon, splitPath } from './status'
 
 const MAX_LINES = 5_000
@@ -24,7 +41,7 @@ const SIDE_LABEL = { staged: 'Alterações preparadas', unstaged: 'Alterações'
 
 // Números da margem desenhados pelo CSS (`data-n`): fora da seleção e do que se copia. Em `em`, para
 // crescerem com a fonte do código (ver `useCodeZoom`).
-const GUTTER = 'w-[4em] shrink-0 pr-[1em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
+const GUTTER = 'w-[4em] shrink-0 pr-[0.4em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
 const DIFF_GUTTER = 'w-[3.7em] shrink-0 pr-[0.6em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
 // O tamanho vem da variável posta no contêiner, e não por propriedade: mudar a fonte (na pinça, a cada
 // movimento) não redesenha as milhares de linhas. A altura da linha acompanha (20 px nos 12 px).
@@ -40,22 +57,240 @@ function Code({ text, tokens }: { text: string; tokens: ThemedToken[] | undefine
   ))
 }
 
-function TextContent({ content, path, wrap }: { content: string; path: string; wrap: boolean }) {
+/** O que o código mostra, para o minimapa (ver minimap.tsx) e para as setas de mudança (ver `ChangeNav`). */
+export type CodeMap = {
+  lines: string[]
+  tokens: (ThemedToken[] | undefined)[] | null
+  marks?: (Mark | undefined)[]
+  /** A linha da grade (`data-row`) onde cada mudança começa, na ordem. */
+  changes: number[]
+  added: number
+  removed: number
+  /** No diff, o minimapa tinge a linha toda; no arquivo, só a borda. */
+  tint?: boolean
+}
+
+/**
+ * Leva a linha `row` da grade a um terço do alto da tela, com um lampejo nela para o olho achar onde
+ * parou. Fica a um terço, e não no topo, para sobrar um pouco do que vem antes.
+ */
+export function revealRow(scroller: HTMLElement, row: number): void {
+  const el = scroller.querySelector<HTMLElement>(`[data-row="${row}"]`)
+  if (!el) return
+  scroller.scrollTo({ top: Math.max(0, el.offsetTop - scroller.clientHeight / 3), behavior: 'smooth' })
+  el.animate([{ backgroundColor: 'rgb(14 165 233 / 0.28)' }, { backgroundColor: 'transparent' }], { duration: 1000, easing: 'ease-out' })
+}
+
+const KIND_LABEL: Record<Block['kind'], string> = { add: 'Linhas novas', mod: 'Linhas mudadas', del: 'Linhas apagadas' }
+
+/**
+ * A mudança aberta debaixo das linhas dela, como o "peek" do VSCode: o que saiu em vermelho e o que
+ * entrou em verde, com o trecho exato que mudou realçado dentro da linha. As setas vão para a mudança
+ * vizinha, e o X fecha. Fora da grade de linhas (sem `data-row`), para a seleção de código não contar com ela.
+ */
+function ChangePeek({
+  block,
+  index,
+  total,
+  tokens,
+  onGo,
+  onClose,
+}: {
+  block: Block
+  index: number
+  total: number
+  /** As cores das linhas que entraram, já no arquivo. */
+  tokens: (ThemedToken[] | undefined)[] | null
+  onGo: (index: number) => void
+  onClose: () => void
+}) {
+  const pairs = Math.min(block.removed.length, block.added.length)
+  const inner = Array.from({ length: pairs }, (_, k) => innerChange(block.removed[k]!, block.added[k]!))
+  return (
+    <div
+      className="my-1.5 mr-4 ml-[4.9em] overflow-hidden rounded-lg bg-background shadow-lg ring-1 ring-foreground/10"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2 border-b py-1 pr-1 pl-3 font-sans text-xs">
+        <span className={cn('size-2 shrink-0 rounded-full', MARK_BAR[block.kind])} />
+        <span className="truncate">
+          {KIND_LABEL[block.kind]} · <span className="text-muted-foreground tabular-nums">mudança {index + 1} de {total}</span>
+        </span>
+        <span className="shrink-0 tabular-nums">
+          {block.added.length > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{block.added.length}</span>}{' '}
+          {block.removed.length > 0 && <span className="text-red-600 dark:text-red-400">−{block.removed.length}</span>}
+        </span>
+        <div className="flex-1" />
+        <Button variant="ghost" size="icon-sm" disabled={total < 2} onClick={() => onGo((index - 1 + total) % total)} aria-label="Mudança anterior">
+          <ChevronUp />
+        </Button>
+        <Button variant="ghost" size="icon-sm" disabled={total < 2} onClick={() => onGo((index + 1) % total)} aria-label="Próxima mudança">
+          <ChevronDown />
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fechar">
+          <X />
+        </Button>
+      </div>
+      <div className="max-h-80 overflow-auto py-1">
+        {block.removed.map((line, k) => (
+          <div key={`r${k}`} className="flex w-max min-w-full bg-red-500/[0.12] text-red-950 dark:text-red-100">
+            <span className="w-[1.6em] shrink-0 text-center text-red-600/80 select-none dark:text-red-400/80">−</span>
+            <span className="pr-4 whitespace-pre">
+              <MarkedCode text={line} tokens={undefined} range={inner[k]?.old} tone="del" />
+            </span>
+          </div>
+        ))}
+        {block.added.map((line, k) => (
+          <div key={`a${k}`} className="flex w-max min-w-full bg-emerald-500/[0.12]">
+            <span className="w-[1.6em] shrink-0 text-center text-emerald-600/80 select-none dark:text-emerald-400/80">+</span>
+            <span className="pr-4 whitespace-pre">
+              <MarkedCode text={line} tokens={tokens?.[block.start - 1 + k]} range={inner[k]?.new} tone="add" />
+            </span>
+          </div>
+        ))}
+        {block.kind === 'del' && block.removed.length === 0 && <div className="px-3 text-muted-foreground">Nada a mostrar.</div>}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * O arquivo, linha a linha. Ao lado dos números, as marcas do que mudou desde o último commit, como o
+ * VSCode: verde nas linhas novas, azul nas mudadas e um triângulo vermelho onde linhas saíram. Clicar
+ * numa marca abre a mudança ali mesmo, debaixo das linhas (ver `ChangePeek`).
+ */
+function TextContent({
+  content,
+  path,
+  machine,
+  cwd,
+  wrap,
+  onCode,
+}: {
+  content: string
+  path: string
+  machine: string
+  cwd: string
+  wrap: boolean
+  /** Estável, como um `setState`: recebe o código ao chegar e `null` ao sair. */
+  onCode?: (code: CodeMap | null) => void
+}) {
   const lines = useMemo(() => content.split('\n'), [content])
-  const shown = lines.length > MAX_LINES ? lines.slice(0, MAX_LINES) : lines
+  const shown = useMemo(() => (lines.length > MAX_LINES ? lines.slice(0, MAX_LINES) : lines), [lines])
   const code = useMemo(() => (lines.length > MAX_LINES ? lines.slice(0, MAX_LINES).join('\n') : content), [lines, content])
   const tokens = useTokens(code, path)
+  const box = useRef<HTMLPreElement>(null)
+  const [blocks, setBlocks] = useState<Block[]>([])
+  const [peek, setPeek] = useState<number | null>(null)
+
+  // O que mudou desde o último commit; fora de um repositório, ou sem mudança, nada aparece.
+  useEffect(() => {
+    let alive = true
+    api.gitDiff(machine, cwd, path).then(
+      (r) => alive && setBlocks(blocksOf(r.diff)),
+      () => alive && setBlocks([]),
+    )
+    return () => {
+      alive = false
+    }
+  }, [machine, cwd, path, content])
+
+  // Por linha (contando de 0): a mudança que a cobre e a que saiu logo acima dela.
+  const layout = useMemo(() => {
+    const owner: (number | undefined)[] = []
+    const removedAbove: (number | undefined)[] = []
+    const marks: (Mark | undefined)[] = []
+    const changes: number[] = []
+    let added = 0
+    let removed = 0
+    blocks.forEach((b, k) => {
+      added += b.added.length
+      removed += b.removed.length
+      if (b.kind === 'del') {
+        const i = Math.min(shown.length, b.start) - 1
+        removedAbove[i] ??= k
+        marks[i] ??= 'del'
+        changes.push(i)
+      } else {
+        for (let l = b.start; l <= Math.min(b.end, shown.length); l++) {
+          owner[l - 1] = k
+          marks[l - 1] = b.kind
+        }
+        changes.push(b.start - 1)
+      }
+    })
+    return { owner, removedAbove, marks, changes, added, removed }
+  }, [blocks, shown.length])
+
+  useEffect(() => {
+    onCode?.({ lines: shown, tokens, marks: layout.marks, changes: layout.changes, added: layout.added, removed: layout.removed })
+  }, [onCode, shown, tokens, layout])
+  useEffect(() => () => onCode?.(null), [onCode])
+
+  const openPeek = (k: number) => setPeek((p) => (p === k ? null : k))
+  const goPeek = (k: number) => {
+    setPeek(k)
+    const scroller = box.current?.parentElement
+    const row = layout.changes[k]
+    if (scroller && row !== undefined) requestAnimationFrame(() => revealRow(scroller, row))
+  }
+  // Onde a mudança aberta aparece: debaixo da última linha dela; numa que só tirou linhas, logo acima da que ficou.
+  const open = peek !== null ? blocks[peek] : undefined
+  const after = open ? (open.kind === 'del' ? Math.min(shown.length, open.start) - 2 : Math.min(open.end, shown.length) - 1) : null
+  const peekView = open && (
+    <ChangePeek block={open} index={peek!} total={blocks.length} tokens={tokens} onGo={goPeek} onClose={() => setPeek(null)} />
+  )
+
   return (
     // Sem a seleção do navegador: a de linhas é do app (ver code-mention.tsx), assim como `data-*`.
-    <pre className={cn('min-w-full py-2', CODE_TEXT)}>
-      {shown.map((line, i) => (
-        <div key={i} data-row={i} data-line={i + 1} data-code="" className="flex">
-          <span data-n={i + 1} className={GUTTER} />
-          <span className={cn('pr-4', wrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre')}>
-            <Code text={line} tokens={tokens?.[i]} />
-          </span>
-        </div>
-      ))}
+    <pre ref={box} className={cn('min-w-full py-2', CODE_TEXT)}>
+      {after === -1 && peekView}
+      {shown.map((line, i) => {
+        const k = layout.owner[i]
+        const gone = layout.removedAbove[i]
+        return (
+          <Fragment key={i}>
+            <div data-row={i} data-line={i + 1} data-code="" className="flex">
+              <span data-n={i + 1} className={GUTTER} />
+              {/* A marca do que mudou, com folga para o clique; a seleção de linhas não começa nela. */}
+              <span className="relative w-[0.9em] shrink-0 select-none" onPointerDown={(e) => (k ?? gone) !== undefined && e.stopPropagation()}>
+                {k !== undefined && blocks[k] && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => openPeek(k)}
+                    aria-label={`${KIND_LABEL[blocks[k]!.kind]}: ver a mudança`}
+                    title="Ver a mudança"
+                    className="group/mark absolute inset-y-0 left-0 w-full cursor-pointer"
+                  >
+                    <span className={cn('absolute inset-y-0 left-[0.2em] w-[3px] transition-[width] group-hover/mark:w-[5px]', MARK_BAR[blocks[k]!.kind])} />
+                  </button>
+                )}
+                {gone !== undefined && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => openPeek(gone)}
+                    aria-label="Linhas apagadas: ver a mudança"
+                    title="Ver o que saiu"
+                    className={cn(
+                      'absolute left-0 h-2.5 w-full cursor-pointer',
+                      // No fim do arquivo não há linha depois: o triângulo fica no pé da última.
+                      blocks[gone]!.start > shown.length ? '-bottom-[5px]' : '-top-[5px]',
+                    )}
+                  >
+                    <span className="absolute top-1/2 left-[0.2em] -translate-y-1/2 border-y-[5px] border-l-[6px] border-y-transparent border-l-red-500" />
+                  </button>
+                )}
+              </span>
+              <span className={cn('pr-4', wrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre')}>
+                <Code text={line} tokens={tokens?.[i]} />
+              </span>
+            </div>
+            {after === i && peekView}
+          </Fragment>
+        )
+      })}
       {lines.length > MAX_LINES && (
         <div className="px-4 py-2 text-muted-foreground">… mostrando {MAX_LINES} de {lines.length} linhas</div>
       )}
@@ -72,11 +307,13 @@ const FileContent = memo(function FileContent({
   wrap,
   rendered,
   onView,
+  onCode,
 }: {
   viewing: Viewing
   wrap: boolean
   rendered: boolean
   onView: (v: FileView) => void
+  onCode: (code: CodeMap | null) => void
 }) {
   const { machine, cwd, path } = viewing
   const [view, setView] = useState<FileView | { kind: 'error'; message: string } | null>(null)
@@ -96,7 +333,7 @@ const FileContent = memo(function FileContent({
   if (view.kind === 'text') {
     return (
       <>
-        {rendered ? <Markdown text={view.content} className="p-4" /> : <TextContent content={view.content} path={path} wrap={wrap} />}
+        {rendered ? <Markdown text={view.content} className="p-4" /> : <TextContent content={view.content} path={path} machine={machine} cwd={cwd} wrap={wrap} onCode={onCode} />}
         {view.truncated && <p className="px-4 pb-4 text-xs text-muted-foreground">Arquivo grande: mostrando só o primeiro 1 MB.</p>}
       </>
     )
@@ -128,15 +365,18 @@ const FileContent = memo(function FileContent({
 })
 
 type DiffRow =
-  | { kind: 'hunk'; text: string }
-  | { kind: 'add' | 'del' | 'ctx'; old?: number; new?: number; text: string; side: 'old' | 'new'; at: number }
+  /** `line`: onde o trecho começa no arquivo novo; `context`: a função ou bloco em volta, que o git diz. */
+  | { kind: 'hunk'; line: number; context: string }
+  /** `inner`: o trecho exato que mudou dentro da linha, quando ela tem par do outro lado. */
+  | { kind: 'add' | 'del' | 'ctx'; old?: number; new?: number; text: string; side: 'old' | 'new'; at: number; inner?: [number, number] }
   | { kind: 'note'; text: string }
 
 /**
  * O diff unificado em linhas com o número antigo e o novo; o cabeçalho do git (`diff`, `index`, `---`)
  * sai. Junta também os dois lados como texto (o antigo: contexto e tiradas; o novo: contexto e
  * colocadas), para colorir cada um de uma vez: uma linha sozinha não sabe se está dentro de um
- * comentário ou de uma string que começou antes. `at` é a linha dela no texto do seu lado.
+ * comentário ou de uma string que começou antes. `at` é a linha dela no texto do seu lado. Uma troca
+ * (linhas que saem seguidas das que entram) casa cada uma com a sua par, para realçar o que mudou nela.
  */
 function parseDiff(diff: string): { rows: DiffRow[]; old: string[]; new: string[] } {
   const rows: DiffRow[] = []
@@ -151,7 +391,7 @@ function parseDiff(diff: string): { rows: DiffRow[]; old: string[]; new: string[
       oldNo = Number(hunk[1])
       newNo = Number(hunk[2])
       inHunk = true
-      rows.push({ kind: 'hunk', text: line })
+      rows.push({ kind: 'hunk', line: newNo, context: hunk[3]!.trim() })
     } else if (line.startsWith('… diff cortado')) {
       rows.push({ kind: 'note', text: line })
     } else if (!inHunk) {
@@ -167,10 +407,45 @@ function parseDiff(diff: string): { rows: DiffRow[]; old: string[]; new: string[
       rows.push({ kind: 'note', text: 'sem quebra de linha no fim do arquivo' })
     }
   }
+  // Trocas: um bloco de tiradas logo seguido de um de colocadas; a k-ésima de cada lado formam um par.
+  for (let i = 0; i < rows.length; ) {
+    if (rows[i]!.kind !== 'del') {
+      i++
+      continue
+    }
+    let d = i
+    while (rows[d]?.kind === 'del') d++
+    let a = d
+    while (rows[a]?.kind === 'add') a++
+    for (let k = 0; k < Math.min(d - i, a - d); k++) {
+      const del = rows[i + k] as Extract<DiffRow, { side: 'old' | 'new' }>
+      const add = rows[d + k] as Extract<DiffRow, { side: 'old' | 'new' }>
+      const inner = innerChange(del.text, add.text)
+      if (inner) {
+        del.inner = inner.old
+        add.inner = inner.new
+      }
+    }
+    i = a
+  }
   return { rows, old: before, new: after }
 }
 
-const DiffContent = memo(function DiffContent({ viewing, wrap }: { viewing: Viewing; wrap: boolean }) {
+/**
+ * O diff do arquivo. Cada trecho abre com a linha em que começa e a função em volta (o que o git diz
+ * depois do `@@`); as linhas que entram e saem ganham uma borda na cor delas, e numa troca o trecho
+ * exato que mudou fica realçado. As mudanças (blocos seguidos de linhas que entram ou saem) vão para
+ * as setas do cabeçalho e para o minimapa, pelo `onCode`.
+ */
+const DiffContent = memo(function DiffContent({
+  viewing,
+  wrap,
+  onCode,
+}: {
+  viewing: Viewing
+  wrap: boolean
+  onCode: (code: CodeMap | null) => void
+}) {
   const { machine, cwd, path, diff: side } = viewing
   const [diff, setDiff] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -184,18 +459,54 @@ const DiffContent = memo(function DiffContent({ viewing, wrap }: { viewing: View
   const parsed = useMemo(() => (diff === null ? null : parseDiff(diff)), [diff])
   const oldText = useMemo(() => parsed?.old.join('\n') ?? null, [parsed])
   const newText = useMemo(() => parsed?.new.join('\n') ?? null, [parsed])
-  const tokens = { old: useTokens(oldText, path), new: useTokens(newText, path) }
+  const oldTokens = useTokens(oldText, path)
+  const newTokens = useTokens(newText, path)
+
+  const shown = useMemo(() => parsed?.rows.slice(0, MAX_DIFF_ROWS) ?? [], [parsed])
+  const map = useMemo<CodeMap>(() => {
+    const changes: number[] = []
+    let added = 0
+    let removed = 0
+    shown.forEach((r, i) => {
+      if (r.kind !== 'add' && r.kind !== 'del') return
+      if (r.kind === 'add') added++
+      else removed++
+      const prev = shown[i - 1]
+      if (prev?.kind !== 'add' && prev?.kind !== 'del') changes.push(i)
+    })
+    return {
+      lines: shown.map((r) => (r.kind === 'add' || r.kind === 'del' || r.kind === 'ctx' ? r.text : '')),
+      tokens: shown.map((r) =>
+        r.kind === 'add' || r.kind === 'del' || r.kind === 'ctx' ? (r.side === 'old' ? oldTokens : newTokens)?.[r.at] : undefined,
+      ),
+      marks: shown.map((r) => (r.kind === 'add' || r.kind === 'del' || r.kind === 'hunk' ? r.kind : undefined)),
+      changes,
+      added,
+      removed,
+      tint: true,
+    }
+  }, [shown, oldTokens, newTokens])
+  useEffect(() => {
+    if (parsed) onCode(map)
+  }, [onCode, map, parsed])
+  useEffect(() => () => onCode(null), [onCode])
 
   if (error) return <p className="p-4 text-sm text-red-600 dark:text-red-400">{error}</p>
   if (!parsed) return <Loader2 className="m-auto size-5 animate-spin text-muted-foreground" />
   const { rows } = parsed
   if (rows.length === 0) return <p className="p-4 text-sm text-muted-foreground">Sem diferenças em texto (só permissões ou nada a mostrar).</p>
   return (
-    <pre className={cn('w-max min-w-full py-1', CODE_TEXT)}>
-      {rows.slice(0, MAX_DIFF_ROWS).map((r, i) =>
+    <pre className={cn('w-max min-w-full pb-2', CODE_TEXT)}>
+      {shown.map((r, i) =>
         r.kind === 'hunk' ? (
-          <div key={i} data-row={i} className="mt-1 bg-sky-500/10 px-3 text-sky-700 first:mt-0 dark:text-sky-300">
-            {r.text}
+          // O começo de um trecho: o que ficou de fora entre um e outro não muda, e a linha diz onde se está.
+          <div
+            key={i}
+            data-row={i}
+            className="mt-3 flex items-center gap-2 border-y border-foreground/[0.06] bg-foreground/[0.035] px-3 py-1 font-sans text-[0.9em] text-muted-foreground first:mt-0 first:border-t-0"
+          >
+            <span className="shrink-0 tabular-nums">Linha {r.line}</span>
+            {r.context && <span className="truncate font-mono text-foreground/70">{r.context}</span>}
           </div>
         ) : r.kind === 'note' ? (
           <div key={i} data-row={i} className="px-3 text-muted-foreground italic">
@@ -210,18 +521,25 @@ const DiffContent = memo(function DiffContent({ viewing, wrap }: { viewing: View
             data-code=""
             className={cn(
               'flex',
-              r.kind === 'add' && 'bg-emerald-500/15 text-emerald-900 dark:text-emerald-100',
-              r.kind === 'del' && 'bg-red-500/15 text-red-900 dark:text-red-100',
+              r.kind === 'add' && 'bg-emerald-500/[0.1] shadow-[inset_3px_0_0_var(--color-emerald-500)]',
+              r.kind === 'del' && 'bg-red-500/[0.1] shadow-[inset_3px_0_0_var(--color-red-500)]',
             )}
           >
             <span data-n={r.old ?? ''} className={DIFF_GUTTER} />
             <span data-n={r.new ?? ''} className={DIFF_GUTTER} />
             <span
               data-n={r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}
-              className="w-[1.4em] shrink-0 text-center text-muted-foreground select-none before:content-[attr(data-n)]"
+              className={cn(
+                'w-[1.4em] shrink-0 text-center select-none before:content-[attr(data-n)]',
+                r.kind === 'add' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
+              )}
             />
             <span className={cn('pr-4', wrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre')}>
-              <Code text={r.text} tokens={tokens[r.side]?.[r.at]} />
+              {r.kind === 'ctx' ? (
+                <Code text={r.text} tokens={newTokens?.[r.at]} />
+              ) : (
+                <MarkedCode text={r.text} tokens={(r.side === 'old' ? oldTokens : newTokens)?.[r.at]} range={r.inner} tone={r.kind} />
+              )}
             </span>
           </div>
         ),
@@ -230,6 +548,95 @@ const DiffContent = memo(function DiffContent({ viewing, wrap }: { viewing: View
     </pre>
   )
 })
+
+/**
+ * As setas para ir de mudança em mudança, como no VSCode: "2 de 7" diz em qual o trecho na tela está,
+ * e as setas levam à anterior e à seguinte (da última, volta à primeira). Pelo teclado, Alt+↑ / Alt+↓
+ * ou F7 / Shift+F7, com o código em foco. Ao lado, o tanto que entrou e saiu.
+ */
+function ChangeNav({ scrollRef, map }: { scrollRef: React.RefObject<HTMLDivElement | null>; map: CodeMap }) {
+  const [current, setCurrent] = useState(-1)
+  const total = map.changes.length
+
+  // Onde cada mudança começa, na rolagem; a régua é um terço do alto da tela, onde `revealRow` as põe.
+  const tops = () => {
+    const el = scrollRef.current
+    if (!el) return []
+    return map.changes.map((row) => el.querySelector<HTMLElement>(`[data-row="${row}"]`)?.offsetTop ?? 0)
+  }
+  const ruler = () => {
+    const el = scrollRef.current
+    return el ? el.scrollTop + el.clientHeight / 3 : 0
+  }
+
+  // A última ida, para cliques seguidos: enquanto a rolagem suave anda, a posição ainda é a de antes.
+  const last = useRef<{ k: number; at: number } | null>(null)
+  const go = (dir: 1 | -1) => {
+    const el = scrollRef.current
+    if (!el || total === 0) return
+    let k: number
+    if (last.current && performance.now() - last.current.at < 700) k = (last.current.k + dir + total) % total
+    else {
+      const at = tops()
+      const y = ruler()
+      k = dir > 0 ? at.findIndex((t) => t > y + 4) : at.findLastIndex((t) => t < y - 4)
+      if (k < 0) k = dir > 0 ? 0 : total - 1
+    }
+    last.current = { k, at: performance.now() }
+    revealRow(el, map.changes[k]!)
+    setCurrent(k)
+  }
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    let frame = 0
+    const update = () => {
+      frame = 0
+      if (last.current && performance.now() - last.current.at < 700) return
+      const y = ruler() + 4
+      setCurrent(tops().findLastIndex((t) => t <= y))
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      const down = (e.altKey && e.key === 'ArrowDown') || (e.key === 'F7' && !e.shiftKey)
+      const up = (e.altKey && e.key === 'ArrowUp') || (e.key === 'F7' && e.shiftKey)
+      if (!down && !up) return
+      e.preventDefault()
+      go(down ? 1 : -1)
+    }
+    el.addEventListener('scroll', schedule, { passive: true })
+    el.addEventListener('keydown', onKey)
+    schedule()
+    return () => {
+      el.removeEventListener('scroll', schedule)
+      el.removeEventListener('keydown', onKey)
+      cancelAnimationFrame(frame)
+    }
+    // `go` e as réguas leem o mapa da vez: refaz quando ele muda.
+  }, [scrollRef, map])
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-foreground/[0.05] p-0.5">
+      <span className="px-2 text-xs tabular-nums max-sm:hidden">
+        {map.added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{map.added}</span>}
+        {map.added > 0 && map.removed > 0 && ' '}
+        {map.removed > 0 && <span className="text-red-600 dark:text-red-400">−{map.removed}</span>}
+      </span>
+      <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={() => go(-1)} aria-label="Mudança anterior" title="Mudança anterior · Alt+↑">
+        <ChevronUp />
+      </Button>
+      <span className="min-w-[4.5em] text-center text-xs text-muted-foreground tabular-nums">
+        {current >= 0 ? current + 1 : '–'} de {total}
+      </span>
+      <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={() => go(1)} aria-label="Próxima mudança" title="Próxima mudança · Alt+↓">
+        <ChevronDown />
+      </Button>
+    </div>
+  )
+}
 
 /**
  * O tamanho da fonte do código (ver lib/code-font.ts): Ctrl+roda e a pinça sobre o código, e Ctrl+= /
@@ -334,6 +741,15 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
   const [wrap, setWrap] = useState(false)
   const [rendered, setRendered] = useState(false)
   const [file, setFile] = useState<FileView | null>(null)
+  const [codeMap, setCodeMap] = useState<CodeMap | null>(null)
+  // O minimapa é do PC: no celular a tela é estreita demais para tirar uma coluna do código. Cada aba
+  // tem o seu: esconder aqui não mexe no da aba ao lado; o último escolhido vale para as que abrirem depois.
+  const [mapOn, setMapOn] = useState(() => useMinimap.getState().code)
+  const toggleMap = () => {
+    setMapOn(!mapOn)
+    setMinimap({ code: !mapOn })
+  }
+  const canMap = !dialog && (diff ? true : file?.kind === 'text' && !rendered)
   const { name, dir } = splitPath(path)
   const markdown = !diff && /\.mdx?$/i.test(name) && file?.kind === 'text'
   const Title = dialog ? DialogTitle : 'h2'
@@ -358,6 +774,7 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
             {file && !diff && ` · ${formatSize(file.size)}`}
           </div>
         </div>
+        {codeMap && codeMap.changes.length > 0 && (diff || !rendered) && <ChangeNav scrollRef={code.bind.ref} map={codeMap} />}
         {diff && (
           // Arquivo apagado não tem o que abrir: o servidor responde que não existe, e a tela diz isso.
           <Button variant="ghost" size="sm" onClick={() => openViewer({ ...viewing, diff: undefined })} aria-label="Abrir arquivo">
@@ -394,6 +811,18 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
             </Button>
           </>
         )}
+        {canMap && (
+          <Button
+            variant={mapOn ? 'secondary' : 'ghost'}
+            size="icon"
+            onClick={toggleMap}
+            aria-pressed={mapOn}
+            aria-label="Minimapa"
+            title={mapOn ? 'Esconder o minimapa' : 'Mostrar o minimapa'}
+          >
+            <MapIcon />
+          </Button>
+        )}
         {isCode && (
           <Button
             variant={wrap ? 'secondary' : 'ghost'}
@@ -411,15 +840,25 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
         </Button>
         <CopyButton text={path} className="size-8" />
       </header>
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* O código e, à direita dele, o minimapa, numa coluna própria: por cima, cobriria o fim das linhas. */}
+      <div className="relative flex min-h-0 flex-1">
         <div
-          className="relative flex min-h-0 flex-1 flex-col overflow-auto"
+          // Focável pelo clique (sem entrar no Tab): é o que leva as teclas de mudança (ver `ChangeNav`).
+          tabIndex={-1}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto outline-none"
           style={{ '--code-font': `${fontSize}px` } as React.CSSProperties}
           {...code.bind}
         >
-          {diff ? <DiffContent viewing={viewing} wrap={wrap} /> : <FileContent viewing={viewing} wrap={wrap} rendered={rendered} onView={setFile} />}
+          {diff ? (
+            <DiffContent viewing={viewing} wrap={wrap} onCode={setCodeMap} />
+          ) : (
+            <FileContent viewing={viewing} wrap={wrap} rendered={rendered} onView={setFile} onCode={setCodeMap} />
+          )}
           {code.highlight}
         </div>
+        {canMap && mapOn && codeMap && (
+          <CodeMinimap scrollRef={code.bind.ref} lines={codeMap.lines} tokens={codeMap.tokens} marks={codeMap.marks} tint={codeMap.tint} />
+        )}
         {code.overlay}
       </div>
     </>
