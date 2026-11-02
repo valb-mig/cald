@@ -5,11 +5,13 @@ import { navigate } from 'wouter/use-browser-location'
 import { create } from 'zustand'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
+import { Crash, ErrorBoundary } from '@/components/error-boundary'
 import { GithubItemView } from '@/components/project/github-item'
 import { ProjectHub } from '@/components/project/hub'
 import { fileIcon, splitPath } from '@/components/project/status'
 import { ViewerBody } from '@/components/project/viewer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName } from '@/lib/format'
@@ -486,17 +488,37 @@ function GroupView({
                 active ? 'tab-panel-in' : 'invisible [content-visibility:hidden]',
               )}
             >
-              {!seen.has(tab.key) ? null : tab.kind === 'chat' ? (
-                <PaneContext value={{ split, focused: focused && active, collapsed: false }}>
-                  <ChatInMachine id={tab.id} />
-                </PaneContext>
-              ) : tab.kind === 'file' ? (
-                <FileTabContent tab={tab} active={focused && active} />
-              ) : tab.kind === 'github' ? (
-                <GithubTabContent tab={tab} visible={active} focused={focused && active} />
-              ) : (
-                <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
-              )}
+              {/* Uma aba que quebra mostra o erro só nela; as outras, e o resto do app, seguem de pé. */}
+              <ErrorBoundary
+                fallback={(error, reset) => (
+                  <Crash
+                    title="Esta aba não conseguiu abrir"
+                    error={error}
+                    actions={
+                      <>
+                        <Button size="sm" variant="outline" onClick={reset}>
+                          Tentar de novo
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => closeTab(group.id, tab.key)}>
+                          Fechar a aba
+                        </Button>
+                      </>
+                    }
+                  />
+                )}
+              >
+                {!seen.has(tab.key) ? null : tab.kind === 'chat' ? (
+                  <PaneContext value={{ split, focused: focused && active, collapsed: false }}>
+                    <ChatInMachine id={tab.id} />
+                  </PaneContext>
+                ) : tab.kind === 'file' ? (
+                  <FileTabContent tab={tab} active={focused && active} />
+                ) : tab.kind === 'github' ? (
+                  <GithubTabContent tab={tab} visible={active} focused={focused && active} />
+                ) : (
+                  <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
+                )}
+              </ErrorBoundary>
             </div>
           )
         })}
