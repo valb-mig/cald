@@ -12,18 +12,16 @@ import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-// Mesmas cores do quadro do PC (pc-status.tsx): padrão → alerta → crítico, trilho no tom mais claro.
-const RING = {
-  normal: { stroke: 'stroke-sky-500', track: 'stroke-sky-500/20' },
-  warning: { stroke: 'stroke-[#fab219]', track: 'stroke-[#fab219]/25' },
-  critical: { stroke: 'stroke-[#d03b3b]', track: 'stroke-[#d03b3b]/25' },
-  // Horas de hoje: encher é bom, e bater a meta fica em verde (ver o anel do WakaTime).
-  done: { stroke: 'stroke-emerald-500', track: 'stroke-emerald-500/20' },
+// As medidas ficam no cinza da ilha: a cor (a do quadro do PC, pc-status.tsx) é só para o alerta e o
+// crítico, e o verde para a meta de horas batida, em que encher é bom.
+const BAR = {
+  normal: { fill: 'bg-foreground/40', text: 'text-foreground' },
+  warning: { fill: 'bg-[#fab219]', text: 'text-[#c98a00] dark:text-[#fab219]' },
+  critical: { fill: 'bg-[#d03b3b]', text: 'text-[#d03b3b]' },
+  done: { fill: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
 }
-const R = 15
-const CIRCUMFERENCE = 2 * Math.PI * R
 
-type Level = keyof typeof RING
+type Level = keyof typeof BAR
 type Metric = {
   label: string
   percent: number | null
@@ -44,10 +42,19 @@ function AlertIcon({ level }: { level: Level }) {
   return <Icon className={cn('size-2.5 shrink-0', level === 'critical' ? 'text-[#d03b3b]' : 'text-[#c98a00] dark:text-[#fab219]')} aria-hidden />
 }
 
-/** Anel de progresso com o valor no meio; alerta e crítico vêm com ícone, para não depender só da cor. */
-function Ring(metric: Metric) {
-  const { label, percent, tip } = metric
-  const known = percent !== null
+/** O traço fino de uma medida: o trilho apagado e o preenchido no cinza, ou na cor do alerta. */
+function Track({ percent, level, className }: { percent: number | null; level: Level; className?: string }) {
+  return (
+    <span className={cn('h-1 overflow-hidden rounded-full bg-foreground/10', className)}>
+      <span className={cn('block h-full rounded-full transition-[width] duration-500', BAR[level].fill)} style={{ width: `${clamp(percent)}%` }} />
+    </span>
+  )
+}
+
+const valueColor = (metric: Metric) => (metric.percent !== null ? BAR[levelOf(metric)].text : 'text-muted-foreground')
+
+/** Na alça estreita, com a lista recolhida: o valor, um traço curto embaixo e o nome. */
+function RailMeter(metric: Metric) {
   const level = levelOf(metric)
   return (
     <Tooltip>
@@ -55,45 +62,20 @@ function Ring(metric: Metric) {
         <button
           type="button"
           onClick={() => setComputerOpen(true)}
-          aria-label={tip}
-          className="flex w-13 flex-col items-center gap-0.5 rounded-xl py-1 transition-colors hover:bg-foreground/5"
+          aria-label={metric.tip}
+          className="flex w-12 flex-col items-center gap-1 rounded-lg py-1.5 transition-colors hover:bg-foreground/5"
         >
-          <span className="relative size-10">
-            <svg viewBox="0 0 36 36" className="size-10 -rotate-90" aria-hidden>
-              <circle cx="18" cy="18" r={R} fill="none" strokeWidth="3.5" className={known ? RING[level].track : 'stroke-muted'} />
-              {known && (
-                <circle
-                  cx="18"
-                  cy="18"
-                  r={R}
-                  fill="none"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={CIRCUMFERENCE * (1 - clamp(percent) / 100)}
-                  className={cn('transition-[stroke-dashoffset] duration-500', RING[level].stroke)}
-                />
-              )}
-            </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums">{valueOf(metric)}</span>
-          </span>
-          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+          <span className={cn('text-[11px] leading-none font-medium tabular-nums', valueColor(metric))}>{valueOf(metric)}</span>
+          <Track percent={metric.percent} level={level} className="w-7" />
+          <span className="flex items-center gap-0.5 text-[10px] leading-none text-muted-foreground">
             <AlertIcon level={level} />
-            {label}
+            {metric.label}
           </span>
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{tip}</TooltipContent>
+      <TooltipContent side="right">{metric.tip}</TooltipContent>
     </Tooltip>
   )
-}
-
-// As barras ficam no cinza da ilha: a cor é só para o alerta e para a meta de horas batida.
-const BAR = {
-  normal: { fill: 'bg-foreground/40', text: 'text-foreground' },
-  warning: { fill: 'bg-[#fab219]', text: 'text-[#c98a00] dark:text-[#fab219]' },
-  critical: { fill: 'bg-[#d03b3b]', text: 'text-[#d03b3b]' },
-  done: { fill: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
 }
 
 /** Uma medida numa linha: nome, traço fino e valor. */
@@ -113,15 +95,8 @@ function BarRow(metric: Metric) {
             <AlertIcon level={level} />
             {label}
           </span>
-          <span className="h-1 overflow-hidden rounded-full bg-foreground/10">
-            <span
-              className={cn('block h-full rounded-full transition-[width] duration-500', BAR[level].fill)}
-              style={{ width: `${clamp(percent)}%` }}
-            />
-          </span>
-          <span className={cn('text-right font-medium tabular-nums', percent !== null ? BAR[level].text : 'text-muted-foreground')}>
-            {valueOf(metric)}
-          </span>
+          <Track percent={percent} level={level} />
+          <span className={cn('text-right font-medium tabular-nums', valueColor(metric))}>{valueOf(metric)}</span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">{tip}</TooltipContent>
@@ -231,13 +206,13 @@ function useMetrics(): Metric[] {
   ]
 }
 
-/** Na alça (com a lista recolhida), as medidas em anéis empilhados; tocar em um abre o painel Computador. */
+/** Na alça (com a lista recolhida), as medidas empilhadas; tocar em uma abre o painel Computador. */
 function RailMeters() {
   const metrics = useMetrics()
   return (
     <div className="flex flex-col items-center gap-1.5">
       {metrics.map((m) => (
-        <Ring key={m.label} {...m} />
+        <RailMeter key={m.label} {...m} />
       ))}
     </div>
   )
@@ -245,7 +220,7 @@ function RailMeters() {
 
 /**
  * Com a lista aberta, as medidas saem da coluna estreita da alça para o pé dela, uma por linha, soltas
- * na ilha como as conversas (ver App.tsx). Recolhida a lista, voltam para a alça em anéis.
+ * na ilha como as conversas (ver App.tsx). Recolhida a lista, voltam para a alça, no mesmo traço.
  */
 export function SidebarMeters() {
   const metrics = useMetrics()
@@ -263,7 +238,7 @@ export function SidebarMeters() {
 /**
  * Alça do PC, sempre à esquerda, como a barra de atividades do VS Code: o botão do topo abre e recolhe a
  * barra lateral; Sessões (com o contador das que precisam de você) e Projetos escolhem o que ela
- * mostra. Embaixo, com a lista recolhida, os anéis (com ela aberta, eles ficam no pé dela) e, por
+ * mostra. Embaixo, com a lista recolhida, as medidas (com ela aberta, elas ficam no pé dela) e, por
  * último, a marca do Claude, que abre o painel Computador.
  */
 export function SidebarRail() {
