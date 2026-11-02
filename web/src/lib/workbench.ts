@@ -24,6 +24,11 @@ export type TabRef =
   | { kind: 'github'; machine: string; cwd: string; item: 'issue' | 'pr'; number: number; title?: string }
   /** O hub do projeto: a conversa nova, a equipe de claudinhos, as pendências e o uso (ver project/hub.tsx). */
   | { kind: 'project'; machine: string; cwd: string }
+  /**
+   * Uma conversa nova, ainda sem sessão (sem `cwd`, na pasta pessoal): a primeira mensagem cria a sessão,
+   * e a aba vira a dela, no mesmo lugar (ver `replaceTab`). Uma por projeto: abrir de novo volta para ela.
+   */
+  | { kind: 'new'; machine: string; cwd?: string }
 
 export type Tab = TabRef & { key: string; preview?: boolean }
 
@@ -53,7 +58,9 @@ export const keyOf = (ref: TabRef) =>
       ? `f:${ref.machine}\n${ref.cwd}\n${ref.path}\n${ref.diff ?? ''}`
       : ref.kind === 'github'
         ? `g:${ref.machine}\n${ref.cwd}\n${ref.item}\n${ref.number}`
-        : `p:${ref.machine}\n${ref.cwd}`
+        : ref.kind === 'new'
+          ? `n:${ref.machine}\n${ref.cwd ?? ''}`
+          : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0
@@ -301,6 +308,35 @@ export function swapChatTab(old: string, id: string): void {
       ...g,
       active: g.active === from ? to : g.active,
       tabs: g.tabs.map((t) => (t.key === from ? { ...t, kind: 'chat', id, key: to, preview: false } : t)),
+    })),
+    focused,
+  )
+}
+
+/**
+ * A aba `from` vira `ref` no mesmo lugar, já fixa: a conversa nova que acabou de ganhar sessão, ou a
+ * conversa nova que trocou de projeto. Com `ref` já aberta em outro lugar, `from` fecha e vai para ela.
+ */
+export function replaceTab(from: string, ref: TabRef): void {
+  const to = keyOf(ref)
+  if (from === to) return
+  const { groups, focused } = useWorkbench.getState()
+  if (find(groups, to)) {
+    const g = find(groups, from)
+    const rest = g ? without(groups, g.id, from) : groups
+    const target = find(rest, to)!
+    set(
+      rest.map((x) => (x.id === target.id ? { ...x, active: to } : x)),
+      target.id,
+    )
+    return
+  }
+  set(
+    groups.map((g) => ({
+      ...g,
+      active: g.active === from ? to : g.active,
+      recent: g.recent?.map((k) => (k === from ? to : k)),
+      tabs: g.tabs.map((t) => (t.key === from ? { ...ref, key: to, preview: false } : t)),
     })),
     focused,
   )
