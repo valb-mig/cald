@@ -1,9 +1,8 @@
-import { createReadStream } from 'node:fs';
-import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { ACTIVITY_FILE, CLAUDE_HOME } from './config.ts';
 import { MODELS, canonical, costOf, type Usage } from './session-cost.ts';
+import { TranscriptTally } from './transcript.ts';
 
 /**
  * Histórico de uso por dia, para a home: conversas (todas e só as pelo Claude Remote), mensagens
@@ -68,47 +67,48 @@ function isPrompt(e: Line): boolean {
 }
 
 /** Um transcript, dia a dia. Subagentes só somam custo e tokens (a conversa é a do pai). */
-async function scan(path: string, subagent: boolean): Promise<Map<string, SessionDay>> {
-  const days = new Map<string, SessionDay>();
+type TranscriptDays = {
+  days: Map<string, SessionDay>;
+  subagent: boolean;
   // O Claude Code grava uma linha por bloco da resposta, todas com o mesmo `usage`.
-  const seen = new Set<string>();
-  for await (const line of createInterface({ input: createReadStream(path), crlfDelay: Infinity })) {
-    // Resultados de ferramentas são a maior parte do arquivo e não dizem nada que a resposta não diga.
-    if (line.includes('"tool_result"') || !line.includes('"timestamp"')) continue;
-    let e: Line;
-    try {
-      e = JSON.parse(line) as Line;
-    } catch {
-      continue;
-    }
-    if ((e.type !== 'user' && e.type !== 'assistant') || !e.timestamp) continue;
-    const when = new Date(e.timestamp);
-    if (Number.isNaN(when.getTime())) continue;
-    const key = dayKey(when);
-    let day = days.get(key);
-    if (!day) days.set(key, (day = { p: 0, c: 0, t: 0 }));
+  seen: Set<string>;
+};
 
-    if (!subagent) {
-      if (e.entrypoint === 'sdk-ts') day.r = 1;
-      if (e.cwd && !day.w) day.w = e.cwd;
-      if (isPrompt(e)) {
-        const h = (day.h ??= {});
-        h[when.getHours()] = (h[when.getHours()] ?? 0) + 1;
-        day.p++;
-      }
-    }
-    const msg = e.message;
-    if (e.type !== 'assistant' || !msg?.usage || !msg.model || msg.model === '<synthetic>') continue;
-    if (msg.id) {
-      if (seen.has(msg.id)) continue;
-      seen.add(msg.id);
-    }
-    const u = msg.usage;
-    day.t += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
-    const price = MODELS[canonical(msg.model)];
-    if (price) day.c += costOf(price, u);
+function addLine(s: TranscriptDays, line: string): void {
+  // Resultados de ferramentas são a maior parte do arquivo e não dizem nada que a resposta não diga.
+  if (line.includes('"tool_result"') || !line.includes('"timestamp"')) return;
+  let e: Line;
+  try {
+    e = JSON.parse(line) as Line;
+  } catch {
+    return;
   }
-  return days;
+  if ((e.type !== 'user' && e.type !== 'assistant') || !e.timestamp) return;
+  const when = new Date(e.timestamp);
+  if (Number.isNaN(when.getTime())) return;
+  const key = dayKey(when);
+  let day = s.days.get(key);
+  if (!day) s.days.set(key, (day = { p: 0, c: 0, t: 0 }));
+
+  if (!s.subagent) {
+    if (e.entrypoint === 'sdk-ts') day.r = 1;
+    if (e.cwd && !day.w) day.w = e.cwd;
+    if (isPrompt(e)) {
+      const h = (day.h ??= {});
+      h[when.getHours()] = (h[when.getHours()] ?? 0) + 1;
+      day.p++;
+    }
+  }
+  const msg = e.message;
+  if (e.type !== 'assistant' || !msg?.usage || !msg.model || msg.model === '<synthetic>') return;
+  if (msg.id) {
+    if (s.seen.has(msg.id)) return;
+    s.seen.add(msg.id);
+  }
+  const u = msg.usage;
+  day.t += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+  const price = MODELS[canonical(msg.model)];
+  if (price) day.c += costOf(price, u);
 }
 
 type Transcript = { path: string; session: string; subagent: boolean };
@@ -134,17 +134,12 @@ async function transcripts(): Promise<Transcript[]> {
   return out;
 }
 
-// Transcript lido fica guardado até o arquivo mudar.
-const scanned = new Map<string, { mtimeMs: number; size: number; days: Promise<Map<string, SessionDay>> }>();
+// O que cada transcript fez fica guardado e, quando ele cresce, só o trecho novo é lido.
+const scanned = new TranscriptTally(addLine);
 
 async function daysOf(t: Transcript): Promise<Map<string, SessionDay>> {
-  const info = await stat(t.path);
-  const hit = scanned.get(t.path);
-  if (hit && hit.mtimeMs === info.mtimeMs && hit.size === info.size) return hit.days;
-  const days = scan(t.path, t.subagent);
-  scanned.set(t.path, { mtimeMs: info.mtimeMs, size: info.size, days });
-  days.catch(() => scanned.delete(t.path));
-  return days;
+  const s = await scanned.read(t.path, (): TranscriptDays => ({ days: new Map(), subagent: t.subagent, seen: new Set() }));
+  return s.days;
 }
 
 let store: Store | null = null;

@@ -1,9 +1,7 @@
-import { createReadStream } from 'node:fs';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { createInterface } from 'node:readline';
 import { HttpError } from './errors.ts';
-import { transcriptPath } from './transcript.ts';
+import { TranscriptTally, transcriptPath } from './transcript.ts';
 
 /**
  * Preço em US$ por milhão de tokens e janela de contexto de cada modelo, da tabela oficial
@@ -101,6 +99,9 @@ type FileSpend = {
   models: Map<string, ModelSpend>;
   subagentsUsd: number;
   last: { model: string; requested?: string; usage: Usage } | null;
+  subagent: boolean;
+  /** Respostas já contadas (ver `addLine`). */
+  seen: Set<string>;
 };
 
 type Entry = {
@@ -111,68 +112,56 @@ type Entry = {
 };
 
 /**
- * Soma o `usage` das respostas de um transcript. O Claude Code grava uma linha por bloco da
+ * Soma o `usage` de uma linha do transcript. O Claude Code grava uma linha por bloco da
  * resposta, todas com o mesmo `usage`: cada mensagem conta uma vez só.
  */
-async function scan(path: string, subagent: boolean): Promise<FileSpend> {
-  const spend: FileSpend = { models: new Map(), subagentsUsd: 0, last: null };
-  const seen = new Set<string>();
-  for await (const line of createInterface({ input: createReadStream(path), crlfDelay: Infinity })) {
-    if (!line.includes('"usage"')) continue;
-    let entry: Entry;
-    try {
-      entry = JSON.parse(line) as Entry;
-    } catch {
-      continue;
-    }
-    const msg = entry.message;
-    // `<synthetic>`: avisos que o próprio Claude Code escreve no lugar de uma resposta.
-    if (entry.type !== 'assistant' || !msg?.usage || !msg.model || msg.model === '<synthetic>') continue;
-    if (msg.id) {
-      if (seen.has(msg.id)) continue;
-      seen.add(msg.id);
-    }
-    const u = msg.usage;
-    const model = canonical(msg.model);
-    const price = MODELS[model];
-    const s = spend.models.get(model) ?? {
-      model,
-      requests: 0,
-      input: 0,
-      output: 0,
-      cacheWrite: 0,
-      cacheRead: 0,
-      costUsd: price ? 0 : null,
-    };
-    s.requests += 1;
-    s.input += u.input_tokens ?? 0;
-    s.output += u.output_tokens ?? 0;
-    s.cacheWrite += u.cache_creation_input_tokens ?? 0;
-    s.cacheRead += u.cache_read_input_tokens ?? 0;
-    if (price) {
-      const usd = costOf(price, u);
-      s.costUsd! += usd;
-      // Transcripts antigos guardavam os subagentes no arquivo da sessão, marcados como `isSidechain`.
-      if (subagent || entry.isSidechain) spend.subagentsUsd += usd;
-    }
-    spend.models.set(model, s);
-    if (!subagent && !entry.isSidechain) spend.last = { model, requested: entry.requestedModel, usage: u };
+function addLine(spend: FileSpend, line: string): void {
+  if (!line.includes('"usage"')) return;
+  let entry: Entry;
+  try {
+    entry = JSON.parse(line) as Entry;
+  } catch {
+    return;
   }
-  return spend;
+  const msg = entry.message;
+  // `<synthetic>`: avisos que o próprio Claude Code escreve no lugar de uma resposta.
+  if (entry.type !== 'assistant' || !msg?.usage || !msg.model || msg.model === '<synthetic>') return;
+  if (msg.id) {
+    if (spend.seen.has(msg.id)) return;
+    spend.seen.add(msg.id);
+  }
+  const u = msg.usage;
+  const model = canonical(msg.model);
+  const price = MODELS[model];
+  const s = spend.models.get(model) ?? {
+    model,
+    requests: 0,
+    input: 0,
+    output: 0,
+    cacheWrite: 0,
+    cacheRead: 0,
+    costUsd: price ? 0 : null,
+  };
+  s.requests += 1;
+  s.input += u.input_tokens ?? 0;
+  s.output += u.output_tokens ?? 0;
+  s.cacheWrite += u.cache_creation_input_tokens ?? 0;
+  s.cacheRead += u.cache_read_input_tokens ?? 0;
+  if (price) {
+    const usd = costOf(price, u);
+    s.costUsd! += usd;
+    // Transcripts antigos guardavam os subagentes no arquivo da sessão, marcados como `isSidechain`.
+    if (spend.subagent || entry.isSidechain) spend.subagentsUsd += usd;
+  }
+  spend.models.set(model, s);
+  if (!spend.subagent && !entry.isSidechain) spend.last = { model, requested: entry.requestedModel, usage: u };
 }
 
-// Transcript lido fica guardado até o arquivo mudar: o da sessão pode passar de 60 MB.
-const cache = new Map<string, { mtimeMs: number; size: number; spend: Promise<FileSpend> }>();
+// A soma de cada transcript fica guardada e, quando ele cresce, só o trecho novo é lido.
+const spends = new TranscriptTally(addLine);
 
-async function fileSpend(path: string, subagent: boolean): Promise<FileSpend> {
-  const info = await stat(path);
-  const hit = cache.get(path);
-  if (hit && hit.mtimeMs === info.mtimeMs && hit.size === info.size) return hit.spend;
-  const spend = scan(path, subagent);
-  cache.set(path, { mtimeMs: info.mtimeMs, size: info.size, spend });
-  spend.catch(() => cache.delete(path));
-  return spend;
-}
+const fileSpend = (path: string, subagent: boolean) =>
+  spends.read(path, (): FileSpend => ({ models: new Map(), subagentsUsd: 0, last: null, subagent, seen: new Set() }));
 
 /** Transcript da sessão e os dos subagentes: ~/.claude/projects/<projeto>/<sessão>.jsonl e <sessão>/subagents/agent-*.jsonl. */
 async function transcripts(sessionId: string): Promise<{ main: string; subagents: string[] } | null> {
