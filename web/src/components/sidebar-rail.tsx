@@ -210,7 +210,8 @@ function useMetrics(): Metric[] {
 function RailMeters() {
   const metrics = useMetrics()
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    // Entram suaves enquanto a lista recolhe, um pouco depois de ela começar a fechar.
+    <div className="chat-enter flex flex-col items-center gap-1.5 [animation-delay:120ms]">
       {metrics.map((m) => (
         <RailMeter key={m.label} {...m} />
       ))}

@@ -6,6 +6,7 @@ import { ProjectBar } from '@/components/project/panel'
 import { ProjectViewer } from '@/components/project/viewer'
 import { ShellPaint } from '@/components/shell-paint'
 import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { BottomPanel, StatusBar } from '@/components/status-bar'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
@@ -173,14 +174,12 @@ function Sidebar() {
     // Isolada: o cabeçalho fixo da lista e o fio de luz não sobem para cima da casca (e do que abre nela).
     <div className="relative isolate flex shrink-0 overflow-hidden rounded-island bg-shell shadow-island-ring">
       <SidebarRail />
-      {!collapsed && (
-        <aside style={{ width }} className="flex shrink-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
-            {view === 'projects' ? <ProjectsPage sidebar /> : <SessionsPage sidebar />}
-          </div>
-          <SidebarMeters />
-        </aside>
-      )}
+      <SlidePanel open={!collapsed} size={width} side="left">
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+          {view === 'projects' ? <ProjectsPage sidebar /> : <SessionsPage sidebar />}
+        </div>
+        <SidebarMeters />
+      </SlidePanel>
       {/* O fio de luz da borda de cima, por cima de tudo: na ilha mesmo, o cabeçalho fixo da lista (com
           fundo próprio) pintava em cima dele, e a borda sumia na parte da lista. */}
       <span aria-hidden className="pointer-events-none absolute inset-0 z-20 rounded-island shadow-island-shine" />
