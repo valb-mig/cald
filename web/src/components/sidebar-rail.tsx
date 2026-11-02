@@ -1,11 +1,12 @@
-import { FolderGit2, House, Monitor, OctagonAlert, PanelLeftClose, PanelLeftOpen, Plus, TriangleAlert } from 'lucide-react'
+import { FolderGit2, House, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
+import { ClaudeMark } from '@/components/chat/claude-spinner'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { setComputerOpen, useComputer } from '@/lib/computer'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
-import { setSidebarCollapsed, useSidebar } from '@/lib/sidebar'
+import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
 import { useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
@@ -51,7 +52,7 @@ function Ring({
           type="button"
           onClick={() => setComputerOpen(true)}
           aria-label={tip}
-          className="flex w-14 flex-col items-center gap-0.5 rounded-lg py-1 hover:bg-muted/60"
+          className="flex w-13 flex-col items-center gap-0.5 rounded-xl py-1 transition-colors hover:bg-foreground/5"
         >
           <span className="relative size-10">
             <svg viewBox="0 0 36 36" className="size-10 -rotate-90" aria-hidden>
@@ -92,31 +93,42 @@ function windowTip(name: string, w: UsageWindow | null | undefined): string {
   return `${name}: ${Math.round(w.utilization)}%${w.resetsAt ? ` · reseta ${resetTime(w.resetsAt)}` : ''}`
 }
 
-/** Ícone da alça, com o nome ao passar o mouse. */
-function RailItem({
+/** Ícone da alça, com o nome ao passar o mouse; serve também à alça da barra do projeto, à direita. */
+export function RailItem({
   label,
   active,
+  shown,
   badge,
+  badgeClassName = 'bg-amber-500 shadow-[0_0_10px_-1px_rgb(245_158_11/0.8)]',
+  side = 'right',
   href,
   onClick,
   children,
 }: {
   label: string
   active?: boolean
+  /** Uma lista da barra lateral à vista: o traço à esquerda, como no VS Code (o fundo fica para a tela aberta). */
+  shown?: boolean
   badge?: number
+  /** Cor do contador, com o brilho dela: âmbar pede atenção; a alça da direita usa azul, para os arquivos alterados. */
+  badgeClassName?: string
+  /** De que lado o nome aparece: o de dentro da tela. */
+  side?: 'left' | 'right'
   href?: string
   onClick?: () => void
   children: React.ReactNode
 }) {
   const className = cn(
-    'relative flex size-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-5',
-    active && 'bg-muted text-foreground',
+    'relative flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [&_svg]:size-5',
+    // O ativo tem a cor da janela, como a aba aberta: um pedaço dela na ilha.
+    active && 'bg-background text-foreground shadow-xs hover:bg-background',
   )
   const content = (
     <>
+      {shown && <span aria-hidden className="absolute top-1/2 -left-2.5 h-5 w-[3px] -translate-y-1/2 rounded-full bg-foreground" />}
       {children}
       {badge ? (
-        <span className="absolute -top-0.5 -right-0.5 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white">
+        <span className={cn('absolute -top-0.5 -right-0.5 min-w-4 rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white', badgeClassName)}>
           {badge}
         </span>
       ) : null}
@@ -135,15 +147,16 @@ function RailItem({
           </button>
         )}
       </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>
   )
 }
 
 /**
- * Alça do PC, sempre à esquerda: as abas e, embaixo, CPU, memória e os limites do Claude em anéis.
- * O botão do topo abre e recolhe a lista de conversas ao lado, como na barra do VS Code, e leva o
- * contador das que precisam de você.
+ * Alça do PC, sempre à esquerda, como a barra de atividades do VS Code: o botão do topo abre e recolhe a
+ * barra lateral; Sessões (com o contador das que precisam de você) e Projetos escolhem o que ela
+ * mostra. Embaixo, o tempo de hoje, CPU, memória e os limites do Claude em anéis e, por último, a
+ * marca do Claude, que abre o painel Computador.
  */
 export function SidebarRail() {
   const [location] = useLocation()
@@ -155,6 +168,7 @@ export function SidebarRail() {
   const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const of = (text: string) => (name ? `${name} · ${text}` : text)
   const collapsed = useSidebar((s) => s.collapsed)
+  const view = useSidebar((s) => s.view)
   const computer = useComputer((s) => s.open)
   const toggle = () => setSidebarCollapsed(!collapsed)
   const coding = useWakatimeToday(machine)
@@ -163,30 +177,25 @@ export function SidebarRail() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <aside className="flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
-        <RailItem
-          label={
-            (collapsed ? 'Abrir a lista de conversas' : 'Recolher a lista de conversas') +
-            (attention ? ` · ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : '')
-          }
-          onClick={toggle}
-          badge={attention}
-        >
+      {/* Na ilha da barra lateral, junto da lista de conversas (ver App.tsx). */}
+      <aside className="flex w-16 shrink-0 flex-col items-center gap-1 py-3">
+        <RailItem label={collapsed ? 'Abrir a barra lateral' : 'Recolher a barra lateral'} onClick={toggle}>
           {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </RailItem>
-        <RailItem label="Nova conversa" href="/nova" active={location === '/nova'}>
-          <Plus />
-        </RailItem>
-        <div className="my-1 h-px w-8 bg-border" />
+        <div className="my-1 h-px w-6 bg-foreground/10" />
         <RailItem label="Início" href="/" active={location === '/'}>
           <House />
         </RailItem>
-        <RailItem label="Projetos" href="/projetos" active={location.startsWith('/projetos')}>
-          <FolderGit2 />
+        <RailItem
+          label={'Sessões' + (attention ? ` · ${attention} ${attention === 1 ? 'precisa' : 'precisam'} de você` : '')}
+          shown={!collapsed && view === 'sessions'}
+          badge={attention}
+          onClick={() => toggleSidebarView('sessions')}
+        >
+          <MessagesSquare />
         </RailItem>
-        {/* Abre por cima, sem tirar você da conversa (ver lib/computer.ts). */}
-        <RailItem label="Computador" onClick={() => setComputerOpen(true)} active={computer}>
-          <Monitor />
+        <RailItem label="Projetos" shown={!collapsed && view === 'projects'} onClick={() => toggleSidebarView('projects')}>
+          <FolderGit2 />
         </RailItem>
 
         <div className="mt-auto flex flex-col items-center gap-1.5">
@@ -211,6 +220,11 @@ export function SidebarRail() {
           />
           <Ring label="5 h" percent={plan?.fiveHour?.utilization ?? null} tip={of(windowTip('Claude · 5 h', plan?.fiveHour))} />
           <Ring label="Semana" percent={plan?.sevenDay?.utilization ?? null} tip={of(windowTip('Claude · semana', plan?.sevenDay))} />
+          {/* O painel Computador: o PC, os limites do Claude e os ajustes deste aparelho. Abre por cima,
+              sem tirar você da conversa (ver lib/computer.ts). */}
+          <RailItem label="Computador: o PC, os limites e os ajustes" onClick={() => setComputerOpen(true)} active={computer}>
+            <ClaudeMark className="text-foreground dark:text-white" />
+          </RailItem>
         </div>
       </aside>
     </TooltipProvider>

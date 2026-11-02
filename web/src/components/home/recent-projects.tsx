@@ -37,7 +37,7 @@ function useGit(projects: Project[]): Record<string, GitStatus | null> {
 }
 
 /** Os projetos das conversas mais recentes: git, última conversa, quanto custaram e conversa nova. */
-export function RecentProjects({ activity }: { activity: Activity | null }) {
+export function RecentProjects({ activity, className }: { activity: Activity | null; className?: string }) {
   const catalog = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)
   const home = useHome(HOME)
@@ -59,6 +59,7 @@ export function RecentProjects({ activity }: { activity: Activity | null }) {
 
   return (
     <HomeCard
+      className={className}
       title="Projetos recentes"
       description="Toque para voltar à última conversa; + começa uma nova no projeto."
       action={

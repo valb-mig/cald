@@ -66,16 +66,23 @@ export function ConnectionBanner() {
   }, [connection])
   if (!show) return null
   return (
-    <div className="flex shrink-0 items-center justify-center gap-2 bg-amber-500/15 px-3 pt-[max(0.375rem,env(safe-area-inset-top))] pb-1.5 text-xs text-amber-800 dark:text-amber-300">
+    // No PC, uma pílula no alto da casca, acima da janela.
+    <div className="flex shrink-0 items-center justify-center gap-2 bg-amber-500/15 px-3 pt-[max(0.375rem,env(safe-area-inset-top))] pb-1.5 text-xs text-amber-800 wide:mb-gap wide:rounded-pane dark:text-amber-300">
       <Loader2 className="size-3 animate-spin" />
       Sem conexão com o PC. Reconectando…
     </div>
   )
 }
 
-export function PageHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+/** `className`: na lista da barra lateral (no PC), o fundo do cabeçalho passa a ser o da ilha dela. */
+export function PageHeader({ title, action, className }: { title: string; action?: React.ReactNode; className?: string }) {
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur compact:py-2">
+    <header
+      className={cn(
+        'sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur compact:py-2',
+        className,
+      )}
+    >
       <h1 className="text-lg font-semibold">{title}</h1>
       {action}
     </header>

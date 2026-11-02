@@ -78,7 +78,7 @@ function DailyCost({ days }: { days: { date: string; costUsd: number; prompts: n
 }
 
 /** Mensagens suas por dia da semana e hora: quando você mais usa. */
-function Hours({ hours }: { hours: number[][] }) {
+function HoursGrid({ hours }: { hours: number[][] }) {
   const [picked, setPicked] = useState<[number, number] | null>(null)
   const max = Math.max(0, ...hours.flat())
   const busiest = useMemo(() => {
@@ -89,7 +89,6 @@ function Hours({ hours }: { hours: number[][] }) {
   const [w, h] = picked ?? busiest
   return (
     <div>
-      <div className="mb-1.5 text-xs font-medium">Quando você usa</div>
       <div
         className="grid grid-cols-[1.75rem_repeat(24,minmax(0,1fr))] gap-[2px] text-[10px] text-muted-foreground"
         onPointerLeave={() => setPicked(null)}
@@ -135,13 +134,12 @@ function Hours({ hours }: { hours: number[][] }) {
 }
 
 /** Os projetos que mais consumiram, em barras deitadas com o valor na ponta. */
-function Projects({ projects }: { projects: Activity['projects'] }) {
+function ProjectBars({ projects }: { projects: Activity['projects'] }) {
   const top = projects.slice(0, 5)
   const max = Math.max(0, ...top.map((p) => p.costUsd))
-  if (!top.length) return null
+  if (!top.length) return <p className="text-xs text-muted-foreground">Nenhum projeto usou o Claude nestes 30 dias.</p>
   return (
     <div>
-      <div className="mb-1.5 text-xs font-medium">Projetos que mais consumiram</div>
       {/* Uma grade só: as barras de todos começam no mesmo ponto e se comparam pelo comprimento. */}
       <div className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 text-xs">
         {top.map((p) => (
@@ -158,8 +156,8 @@ function Projects({ projects }: { projects: Activity['projects'] }) {
   )
 }
 
-/** Os últimos 30 dias: totais, custo por dia, horários e projetos. */
-export function UsageCharts({ activity }: { activity: Activity | null }) {
+/** Os últimos 30 dias: os totais e o custo de cada dia. Os horários e os projetos têm cards próprios, abaixo. */
+export function UsageCharts({ activity, className }: { activity: Activity | null; className?: string }) {
   const today = useToday()
   const days = useMemo(() => {
     if (!activity) return null
@@ -188,6 +186,7 @@ export function UsageCharts({ activity }: { activity: Activity | null }) {
     <HomeCard
       title="Últimos 30 dias"
       description="Custo a preço de tabela da API: no plano de assinatura, o uso conta nos limites e não é cobrado à parte."
+      className={className}
     >
       {!activity || !days || !totals ? (
         <Skeleton className="h-64 w-full" />
@@ -200,10 +199,26 @@ export function UsageCharts({ activity }: { activity: Activity | null }) {
             <Tile label="Tokens" value={compact(totals.tokens)} />
           </div>
           <DailyCost days={days} />
-          <Hours hours={activity.hours} />
-          <Projects projects={activity.projects} />
         </div>
       )}
+    </HomeCard>
+  )
+}
+
+/** Quando você mais usa: suas mensagens dos últimos 30 dias por dia da semana e hora. */
+export function UsageHours({ activity, className }: { activity: Activity | null; className?: string }) {
+  return (
+    <HomeCard title="Quando você usa" description="Suas mensagens dos últimos 30 dias, por dia da semana e hora." className={className}>
+      {activity ? <HoursGrid hours={activity.hours} /> : <Skeleton className="h-36 w-full" />}
+    </HomeCard>
+  )
+}
+
+/** Os projetos que mais consumiram nos últimos 30 dias. */
+export function TopProjects({ activity, className }: { activity: Activity | null; className?: string }) {
+  return (
+    <HomeCard title="Projetos que mais consumiram" description="Custo estimado e mensagens suas nos últimos 30 dias." className={className}>
+      {activity ? <ProjectBars projects={activity.projects} /> : <Skeleton className="h-32 w-full" />}
     </HomeCard>
   )
 }

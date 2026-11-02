@@ -158,9 +158,9 @@ export function Scene({
 }
 
 /** O fundo da conversa, com o tema e a força escolhidos no painel Computador. */
-export function Wallpaper() {
+export function Wallpaper({ className }: { className?: string }) {
   const theme = useWallpaper((s) => s.theme)
   const intensity = useWallpaper((s) => s.intensity)
   if (theme === 'none') return null
-  return <Scene id={theme} className="pointer-events-none absolute inset-0" style={{ opacity: OPACITY[intensity] }} />
+  return <Scene id={theme} className={cn('pointer-events-none absolute inset-0', className)} style={{ opacity: OPACITY[intensity] }} />
 }

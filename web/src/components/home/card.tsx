@@ -16,7 +16,7 @@ export function HomeCard({
   className?: string
 }) {
   return (
-    <section className={cn('min-w-0 rounded-xl border bg-card p-4', className)}>
+    <section className={cn('min-w-0 rounded-2xl border bg-card p-4', className)}>
       <header className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">{title}</h2>

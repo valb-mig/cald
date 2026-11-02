@@ -22,8 +22,9 @@ export function StateBadge({
   const { label, tone } = stateInfo(state, waitingFor)
   return (
     <Badge variant="outline" className={cn('gap-1.5', toneClass[tone], className)}>
-      {tone === 'running' && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
-      {tone === 'attention' && <span className="size-1.5 rounded-full bg-current" />}
+      {/* O ponto brilha na própria cor: trabalhando ou esperando você. */}
+      {tone === 'running' && <span className="size-1.5 animate-pulse rounded-full bg-current shadow-[0_0_6px_currentColor]" />}
+      {tone === 'attention' && <span className="size-1.5 rounded-full bg-current shadow-[0_0_6px_currentColor]" />}
       {label}
     </Badge>
   )
