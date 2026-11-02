@@ -320,6 +320,12 @@ export class Manager extends EventEmitter {
     return session;
   }
 
+  /**
+   * O que acompanha uma mensagem para o Claude sem aparecer no chat: o conteúdo dos `TODO:n` que ela
+   * menciona (ver todos.ts). Posto pelo index.ts, que tem a lista.
+   */
+  todoContext?: (cwd: string, text: string) => Promise<string | null>;
+
   async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string): Promise<void> {
     // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
     if (clientId && this.delivered.has(clientId)) return;
@@ -330,7 +336,8 @@ export class Manager extends EventEmitter {
     }
     try {
       const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
-      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId });
+      const context = (await this.todoContext?.(session.cwd, text).catch(() => null)) ?? undefined;
+      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context });
     } catch (err) {
       if (clientId) this.delivered.delete(clientId);
       throw err;

@@ -28,7 +28,7 @@ import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { openTerminal } from './terminal.ts';
-import { MAX_TODO_TEXT, MAX_TODOS, TodoStore, type Todo } from './todos.ts';
+import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
@@ -39,6 +39,8 @@ await meta.load();
 const todos = new TodoStore();
 await todos.load();
 const manager = new Manager(live, meta);
+// `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
+manager.todoContext = (cwd, text) => todos.context(cwd, text);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
@@ -474,7 +476,18 @@ app.get<{ Querystring: { cwd: string } }>(
 );
 
 // A lista inteira de uma vez: o app manda como ficou depois de cada mudança.
-app.post<{ Body: { cwd: string; items: Todo[] } }>(
+const todoFile = {
+  type: 'object',
+  required: ['id', 'name', 'mediaType', 'size'],
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string', minLength: 1, maxLength: 64 },
+    name: { type: 'string', minLength: 1, maxLength: 300 },
+    mediaType: { type: 'string', maxLength: 200 },
+    size: { type: 'number' },
+  },
+};
+app.post<{ Body: { cwd: string; items: TodoInput[] } }>(
   '/api/todos',
   {
     schema: {
@@ -488,13 +501,17 @@ app.post<{ Body: { cwd: string; items: Todo[] } }>(
             maxItems: MAX_TODOS,
             items: {
               type: 'object',
-              required: ['id', 'text', 'done', 'createdAt'],
+              required: ['id', 'title', 'body', 'done', 'createdAt'],
               additionalProperties: false,
               properties: {
                 id: { type: 'string', minLength: 1, maxLength: 64 },
-                text: { type: 'string', minLength: 1, maxLength: MAX_TODO_TEXT },
+                n: { type: 'integer', minimum: 0 },
+                title: { type: 'string', minLength: 1, maxLength: MAX_TODO_TITLE },
+                body: { type: 'string', maxLength: MAX_TODO_BODY },
                 done: { type: 'boolean' },
                 createdAt: { type: 'number' },
+                updatedAt: { type: 'number' },
+                files: { type: 'array', maxItems: MAX_TODO_FILES, items: todoFile },
               },
             },
           },
@@ -504,6 +521,37 @@ app.post<{ Body: { cwd: string; items: Todo[] } }>(
   },
   async (req) => ({ items: await todos.replace(await manager.knownCwd(req.body.cwd), req.body.items) }),
 );
+
+// Um anexo de um item do TODO (imagem ou documento), em base64 como os do chat; o item leva o que volta.
+app.post<{ Body: { cwd: string; name: string; mediaType: string; data: string } }>(
+  '/api/todos/files',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'name', 'mediaType', 'data'],
+        properties: { cwd: { type: 'string' }, name: { type: 'string', minLength: 1, maxLength: 300 }, mediaType: { type: 'string' }, data: { type: 'string' } },
+      },
+    },
+  },
+  async (req) => {
+    await manager.knownCwd(req.body.cwd);
+    return todos.saveFile(req.body);
+  },
+);
+
+app.get<{ Params: { id: string }; Querystring: { type?: string } }>('/api/todos/files/:id', async (req, reply) => {
+  const path = await todos.filePath(req.params.id);
+  if (!path) throw new HttpError(404, 'todo_file_not_found');
+  // O tipo vem do item (o app manda): o arquivo em si foi gravado só com o nome.
+  const type = req.query.type && /^[\w.+-]+\/[\w.+-]+$/.test(req.query.type) ? req.query.type : 'application/octet-stream';
+  return reply
+    .header('content-type', type)
+    .header('cache-control', 'private, max-age=86400')
+    .header('content-security-policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
+    .send(createReadStream(path));
+});
 
 // Quanto você já codou hoje, para o anel na alça do PC; `null` sem o wakatime-cli instalado.
 app.get('/api/wakatime', async () => ({ today: await wakatimeToday().catch(() => null) }));

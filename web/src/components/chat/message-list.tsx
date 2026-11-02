@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Clock, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { Check, CircleAlert, Clock, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Pause, Play, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
@@ -37,8 +37,8 @@ function Divider({ children, className }: { children: React.ReactNode; className
   )
 }
 
-// Menção a arquivo: "@" no início ou depois de espaço (não pega e-mails).
-const MENTION = /(^|\s)(@[^\s]+)/g
+// Menção a arquivo: "@" no início ou depois de espaço (não pega e-mails); ou a um item do TODO, "TODO:3".
+const MENTION = /(^|\s)(@[^\s]+|TODO:\d+\b)/gi
 
 function FileChip({ name, title, dir }: { name: string; title: string; dir?: boolean }) {
   const Icon = dir ? Folder : FileText
@@ -57,6 +57,16 @@ function withMentions(text: string): React.ReactNode[] {
   for (const m of text.matchAll(MENTION)) {
     const at = m.index + m[1].length
     out.push(text.slice(last, at))
+    if (/^todo:/i.test(m[2])) {
+      out.push(
+        <span key={at} title="Item do TODO do projeto: o Claude recebeu a descrição e os anexos" className="mx-0.5 inline-flex items-center gap-1 rounded bg-primary-foreground/15 px-1.5 align-bottom font-mono text-[0.85em]">
+          <ListTodo className="size-3 shrink-0" />
+          {m[2].toUpperCase()}
+        </span>,
+      )
+      last = at + m[2].length
+      continue
+    }
     const path = m[2].slice(1)
     const dir = path.endsWith('/')
     // Anexos ganham um prefixo de timestamp no PC; ele não interessa aqui.

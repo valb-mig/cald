@@ -1,24 +1,34 @@
-import { CircleDot, FileText, Folder, GitPullRequest, GitPullRequestDraft, Slash } from 'lucide-react'
+import { CircleDot, FileText, Folder, GitPullRequest, GitPullRequestDraft, ListTodo, Slash } from 'lucide-react'
 import { useEffect, useImperativeHandle, useRef, useState, type ComponentProps, type Ref } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { getGithub } from '@/lib/github'
 import { useMachine } from '@/lib/machines'
+import { pastedFiles } from '@/lib/compose'
+import { getTodos } from '@/lib/todos'
 import type { CommandInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-type Token = { kind: '/' | '@' | '#'; query: string; start: number; end: number }
+type Token = { kind: '/' | '@' | '#' | 'todo'; query: string; start: number; end: number }
 type GithubRef = { number: number; title: string; draft: boolean; updatedAt: string }
 type GithubSuggestion = ({ kind: 'issue' } & GithubRef) | ({ kind: 'pr' } & GithubRef)
-type Suggestion = ({ kind: 'command' } & CommandInfo) | { kind: 'file'; path: string } | GithubSuggestion
+type TodoSuggestion = { kind: 'todo'; n: number; title: string; done: boolean }
+type Suggestion = ({ kind: 'command' } & CommandInfo) | { kind: 'file'; path: string } | GithubSuggestion | TodoSuggestion
 
-const suggestionKey = (s: Suggestion) => (s.kind === 'command' ? s.name : s.kind === 'file' ? s.path : `${s.kind}${s.number}`)
+const suggestionKey = (s: Suggestion) =>
+  s.kind === 'command' ? s.name : s.kind === 'file' ? s.path : s.kind === 'todo' ? `todo${s.n}` : `${s.kind}${s.number}`
 
 /**
  * Palavra sob o cursor que dispara sugestões: "/comando" no início da mensagem, "@caminho" e "#issue"
  * ou "#PR" (pelo número ou pelo título) em qualquer lugar.
  */
 function activeToken(text: string, caret: number): Token | null {
+  // "TODO:3": um item do TODO do projeto, que vai inteiro para o Claude (ver server/src/todos.ts).
+  const todo = /(^|\s)TODO:(\d*)$/i.exec(text.slice(0, caret))
+  if (todo) {
+    const rest = /^\d*/.exec(text.slice(caret))![0]
+    return { kind: 'todo', query: todo[2]!, start: caret - 5 - todo[2]!.length, end: caret + rest.length }
+  }
   const m = /(^|\s)([@/#])([^\s]*)$/.exec(text.slice(0, caret))
   if (!m) return null
   const kind = m[2] as Token['kind']
@@ -42,18 +52,25 @@ export function loadCommands(machine: string, cwd: string): Promise<CommandInfo[
   return list
 }
 
-function useSuggestions(cwd: string | undefined, token: Token | null): Suggestion[] {
+/**
+ * As sugestões da palavra sob o cursor e `ready`: a busca dela já respondeu. Sem nada achado, a lista
+ * diz isso em vez de não abrir (ver `EMPTY`): digitar e nada acontecer deixa a dúvida se o atalho existe.
+ */
+function useSuggestions(cwd: string | undefined, token: Token | null): { items: Suggestion[]; ready: boolean } {
   const machine = useMachine()
-  const [items, setItems] = useState<Suggestion[]>([])
+  const [found, setFound] = useState<{ for: string; items: Suggestion[] }>({ for: '', items: [] })
   const kind = token?.kind
   const query = token?.query ?? ''
+  const current = `${kind ?? ''}\n${query}`
 
   useEffect(() => {
     if (!cwd || !kind) {
-      setItems([])
+      setFound({ for: '', items: [] })
       return
     }
     let alive = true
+    // A resposta vale para a palavra que a pediu: uma busca antiga que chega depois não engana.
+    const setItems = (items: Suggestion[]) => setFound({ for: `${kind}\n${query}`, items })
     const q = query.toLowerCase()
     if (kind === '/') {
       loadCommands(machine, cwd).then(
@@ -62,6 +79,26 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
           const matches = list.filter((c) => c.name.toLowerCase().includes(q))
           matches.sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
           setItems(matches.slice(0, 50).map((c) => ({ kind: 'command', ...c })))
+        },
+        () => alive && setItems([]),
+      )
+      return () => {
+        alive = false
+      }
+    }
+    if (kind === 'todo') {
+      // Os do projeto, do mesmo cache da barra do projeto: os que faltam primeiro, pelo número ou pelo título.
+      getTodos(machine, cwd).then(
+        (list) => {
+          if (!alive) return
+          const byNumber = /^\d+$/.test(q)
+          setItems(
+            list
+              .filter((t) => t.n !== undefined && (!q || (byNumber ? String(t.n).startsWith(q) : t.title.toLowerCase().includes(q))))
+              .sort((a, b) => Number(a.done) - Number(b.done) || a.n! - b.n!)
+              .slice(0, 20)
+              .map((t) => ({ kind: 'todo', n: t.n!, title: t.title, done: t.done })),
+          )
         },
         () => alive && setItems([]),
       )
@@ -101,7 +138,16 @@ function useSuggestions(cwd: string | undefined, token: Token | null): Suggestio
     }
   }, [machine, cwd, kind, query])
 
-  return items
+  return { items: found.for === current ? found.items : [], ready: found.for === current }
+}
+
+/** O que a lista diz quando a busca não acha nada. */
+function emptyText(token: Token): string {
+  const q = token.query
+  if (token.kind === '@') return q ? `Nenhum arquivo com "${q}" no projeto.` : 'Nenhum arquivo no projeto.'
+  if (token.kind === '#') return q ? `Nenhuma issue ou PR aberto com "${q}".` : 'Nenhuma issue ou PR aberto neste projeto.'
+  if (token.kind === 'todo') return q ? `Nenhum item do TODO com "${q}".` : 'O TODO deste projeto está vazio.'
+  return q ? `Nenhum comando com "${q}".` : 'Nenhum comando.'
 }
 
 function SuggestionRow({ s }: { s: Suggestion }) {
@@ -115,6 +161,19 @@ function SuggestionRow({ s }: { s: Suggestion }) {
             {s.argumentHint && <span className="ml-1.5 text-muted-foreground">{s.argumentHint}</span>}
           </div>
           {s.description && <div className="line-clamp-2 text-xs text-muted-foreground">{s.description}</div>}
+        </div>
+      </>
+    )
+  }
+  if (s.kind === 'todo') {
+    return (
+      <>
+        <ListTodo className={cn('mt-0.5 size-4 shrink-0', s.done ? 'text-muted-foreground' : 'text-foreground')} />
+        <div className="min-w-0">
+          <div className={cn('truncate text-sm', s.done && 'text-muted-foreground line-through')}>
+            <span className="font-mono text-muted-foreground">TODO:{s.n}</span> {s.title}
+          </div>
+          <div className="text-xs text-muted-foreground">{s.done ? 'Feito' : 'A fazer'} · o Claude recebe a descrição e os anexos</div>
         </div>
       </>
     )
@@ -175,7 +234,7 @@ type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   anchored?: boolean
 }
 
-/** Campo de mensagem com sugestões de "/comando", "@arquivo" e "#issue" ou "#PR". */
+/** Campo de mensagem com sugestões de "/comando", "@arquivo", "#issue" ou "#PR" e "TODO:" (itens do TODO). */
 export function PromptInput({
   cwd,
   value,
@@ -191,8 +250,9 @@ export function PromptInput({
   const ref = useRef<HTMLTextAreaElement>(null)
   const [token, setToken] = useState<Token | null>(null)
   const [highlight, setHighlight] = useState(0)
-  const suggestions = useSuggestions(cwd, token)
-  const open = token !== null && suggestions.length > 0
+  const { items: suggestions, ready } = useSuggestions(cwd, token)
+  const empty = token !== null && ready && suggestions.length === 0
+  const open = token !== null && (suggestions.length > 0 || empty)
   const machine = useMachine()
 
   useEffect(() => {
@@ -240,7 +300,9 @@ export function PromptInput({
           ? s.path.endsWith('/')
             ? `@${s.path}`
             : `@${s.path} `
-          : `${s.kind === 'pr' ? 'PR' : 'issue'} #${s.number} `
+          : s.kind === 'todo'
+            ? `TODO:${s.n} `
+            : `${s.kind === 'pr' ? 'PR' : 'issue'} #${s.number} `
     const next = value.slice(0, token.start) + insert + value.slice(token.end)
     const caret = token.start + insert.length
     onChange(next)
@@ -260,6 +322,7 @@ export function PromptInput({
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
           )}
         >
+          {empty && <p className="px-2 py-2 text-sm text-muted-foreground">{emptyText(token)}</p>}
           {suggestions.map((s, i) => (
             <button
               key={suggestionKey(s)}
@@ -286,7 +349,7 @@ export function PromptInput({
         onSelect={(e) => syncToken(e.currentTarget)}
         onBlur={() => setTimeout(() => setToken(null), 150)}
         onPaste={(e) => {
-          const files = [...e.clipboardData.files]
+          const files = pastedFiles(e.clipboardData)
           if (files.length && onPasteFiles) {
             e.preventDefault()
             onPasteFiles(files)
@@ -294,13 +357,13 @@ export function PromptInput({
         }}
         onKeyDown={(e) => {
           if (open) {
-            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && suggestions.length) {
               e.preventDefault()
               const step = e.key === 'ArrowDown' ? 1 : -1
               setHighlight((h) => (h + step + suggestions.length) % suggestions.length)
               return
             }
-            if (e.key === 'Enter' || e.key === 'Tab') {
+            if ((e.key === 'Enter' || e.key === 'Tab') && suggestions.length) {
               e.preventDefault()
               pick(suggestions[highlight]!)
               return

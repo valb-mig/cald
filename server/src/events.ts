@@ -157,7 +157,11 @@ function taskNotification(text: string): PanelEvent[] {
  * saída de comandos locais, lembretes) viram `notice` ou somem; o resto é prompt real.
  */
 function userTextEvents(raw: string): PanelEvent[] {
-  const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  // O conteúdo dos TODOs mencionados (ver todos.ts) foi para o Claude, não para a tela.
+  const text = raw
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<claude-remote-todo[^>]*>[\s\S]*?<\/claude-remote-todo>/g, '')
+    .trim();
   if (!text || text.startsWith('Caveat:')) return [];
   if (text.startsWith('<task-notification>')) return taskNotification(text);
   const command = tag('command-name', text);

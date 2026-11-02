@@ -18,6 +18,7 @@ import type {
   RunOptions,
   SessionCost,
   Todo,
+  TodoFile,
   TreeEntry,
   UpdateStatus,
   WakaToday,
@@ -57,6 +58,9 @@ const project = (cwd: string, path?: string) =>
 
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
 export const fileRawUrl = (m: string, cwd: string, path: string) => `${at(m)}/file/raw?${project(cwd, path)}`
+/** Um anexo de um item do TODO, para ver (imagem) ou baixar. */
+export const todoFileUrl = (m: string, file: { id: string; mediaType: string }) =>
+  `${at(m)}/todos/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`
 
 export const api = {
   health: (m: string) =>
@@ -123,6 +127,9 @@ export const api = {
   todos: (m: string, cwd: string) => request<{ items: Todo[] }>('GET', `${at(m)}/todos?${project(cwd)}`),
   /** A lista inteira, como ficou depois da mudança. */
   saveTodos: (m: string, cwd: string, items: Todo[]) => post<{ items: Todo[] }>(`${at(m)}/todos`, { cwd, items }),
+  /** Um anexo de um item do TODO; o item leva o que volta. */
+  uploadTodoFile: (m: string, cwd: string, file: { name: string; mediaType: string; data: string }) =>
+    post<TodoFile>(`${at(m)}/todos/files`, { cwd, ...file }),
   update: (m: string) => request<UpdateStatus>('GET', `${at(m)}/update`),
   startUpdate: (m: string) => post<UpdateStatus>(`${at(m)}/update`),
   restartNow: (m: string) => post(`${at(m)}/update/restart`),

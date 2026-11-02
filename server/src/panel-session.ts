@@ -203,11 +203,16 @@ export class PanelSession extends EventEmitter {
 
   // ---- API usada pelo manager ----
 
-  /** Envia um turno; `blocks` (imagens) vão antes do texto, `images` são as miniaturas para o chat. */
-  send(text: string, extra: { blocks?: ContentBlocks; images?: string[]; clientId?: string } = {}): void {
+  /**
+   * Envia um turno; `blocks` (imagens) vão antes do texto, `images` são as miniaturas para o chat.
+   * `context` vai depois, num bloco à parte, para o Claude e não para a tela (o conteúdo dos TODOs).
+   */
+  send(text: string, extra: { blocks?: ContentBlocks; images?: string[]; clientId?: string; context?: string } = {}): void {
     if (this.state === 'exited') throw new HttpError(409, 'session_exited');
     this.record({ kind: 'user', text, images: extra.images?.length ? extra.images : undefined, clientId: extra.clientId });
-    const content = extra.blocks?.length ? [...extra.blocks, ...(text ? [{ type: 'text' as const, text }] : [])] : text;
+    const after = extra.context ? [{ type: 'text' as const, text: extra.context }] : [];
+    const content =
+      extra.blocks?.length || after.length ? [...(extra.blocks ?? []), ...(text ? [{ type: 'text' as const, text }] : []), ...after] : text;
     this.input.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
     if (this.pending.size === 0) this.setState('running');
   }
