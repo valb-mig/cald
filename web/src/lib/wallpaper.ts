@@ -1,16 +1,17 @@
 import { useLocation } from 'wouter'
 import { create } from 'zustand'
 import { themeOf } from '@/components/wallpaper/themes'
+import { isImageId, useWallpaperImages, type ImageId } from './wallpaper-images'
 import { onWorkbench } from './workbench'
 
 /**
  * Fundo animado da conversa: qual tema e com que força ele aparece. É escolha deste aparelho (como
  * os sons), então fica no localStorage e não passa pelo servidor — o celular pode ter o aquário e o
- * PC ficar limpo.
+ * PC ficar limpo. Além dos temas, o fundo pode ser uma imagem sua (ver wallpaper-images.ts).
  */
 // Os temas que existem; o salvo de um que saiu do app (ver `load`) não vale mais.
 const THEME_IDS = ['none', 'ondas'] as const
-export type ThemeId = (typeof THEME_IDS)[number]
+export type ThemeId = (typeof THEME_IDS)[number] | ImageId
 export type Intensity = 'subtle' | 'medium' | 'strong'
 
 export type WallpaperPrefs = { theme: ThemeId; intensity: Intensity }
@@ -43,8 +44,9 @@ export const INTENSITIES: { key: Intensity; label: string }[] = [
 function load(): WallpaperPrefs {
   try {
     const saved = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<WallpaperPrefs>) }
-    // Tema que saiu do app: volta ao sem fundo, senão o vidro ficava ligado sem nada atrás.
-    return (THEME_IDS as readonly string[]).includes(saved.theme) ? saved : { ...saved, theme: 'none' }
+    // Tema que saiu do app: volta ao sem fundo, senão o vidro ficava ligado sem nada atrás. A imagem
+    // só se confere quando o banco abrir (ver abaixo).
+    return (THEME_IDS as readonly string[]).includes(saved.theme) || isImageId(saved.theme) ? saved : { ...saved, theme: 'none' }
   } catch {
     return DEFAULTS
   }
@@ -65,10 +67,15 @@ export function useGlass(): boolean {
   return theme !== 'none' && onWorkbench(location)
 }
 
-/** O véu da coluna de mensagens agora, ou vazio quando não há cena atrás ou o tema dispensa véu. */
+/**
+ * O véu da coluna de mensagens agora, ou vazio quando não há cena atrás ou o tema dispensa véu. A
+ * foto pede véu como uma cena cheia; a imagem em ASCII dispensa, como as Ondas.
+ */
 export function useScrim(): string {
   const intensity = useWallpaper((s) => s.intensity)
-  const veil = useWallpaper((s) => themeOf(s.theme)?.veil ?? false)
+  const theme = useWallpaper((s) => s.theme)
+  const photo = useWallpaperImages((s) => s.items.some((i) => i.id === theme && i.style === 'photo'))
+  const veil = photo || (themeOf(theme)?.veil ?? false)
   return useGlass() && veil ? SCRIM[intensity] : ''
 }
 
@@ -80,3 +87,10 @@ export function setWallpaper(next: Partial<WallpaperPrefs>): void {
     // localStorage indisponível (modo privado): vale só até fechar o app.
   }
 }
+
+// A imagem escolhida saiu (apagada aqui ou com os dados do site): volta ao sem fundo, como um tema que
+// saiu do app.
+useWallpaperImages.subscribe(({ loaded, items }) => {
+  const { theme } = useWallpaper.getState()
+  if (loaded && isImageId(theme) && !items.some((i) => i.id === theme)) setWallpaper({ theme: 'none' })
+})
