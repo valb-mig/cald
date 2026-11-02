@@ -83,7 +83,7 @@ export function SharePage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+      <header className="flex shrink-0 items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2">
         <Button variant="ghost" size="icon" asChild aria-label="Voltar">
           <Link href={backHref()}>
             <ArrowLeft />

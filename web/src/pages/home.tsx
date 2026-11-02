@@ -14,7 +14,7 @@ import { useActivity } from '@/lib/activity'
 export function HomePage() {
   const activity = useActivity()
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-10 compact:pt-3">
+    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 pt-[max(1.5rem,var(--safe-top))] pb-10 compact:pt-3">
       <Greeting />
       <div className="grid gap-4 lg:grid-cols-12">
         <Now className="lg:col-span-5" />

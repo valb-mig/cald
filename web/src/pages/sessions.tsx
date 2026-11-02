@@ -6,8 +6,8 @@ import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
+import { SidebarMeters } from '@/components/sidebar-rail'
 import { MachineFilter } from '@/components/machine-filter'
-import { PcStatus } from '@/components/pc-status'
 import { ProjectPicker } from '@/components/project-picker'
 import { SessionInfo } from '@/components/session-info'
 import { SessionMenu, type MenuAt } from '@/components/session-menu'
@@ -66,8 +66,8 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
           // O claudinho fica embaixo da setinha do grupo, e o título, recuado sob o nome do projeto.
           'mx-2 flex items-start gap-3 rounded-xl py-2.5 pr-3 pl-1.5 transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
           shown && 'bg-foreground/[0.04]',
-          // A em foco tem a cor da janela, como a aba aberta dela.
-          focused && 'bg-background shadow-xs hover:bg-background',
+          // A em foco ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta dela).
+          focused && 'bg-sidebar-accent shadow-xs hover:bg-sidebar-accent',
         )}
       >
         <SessionInfo s={s} grouped />
@@ -206,7 +206,7 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
     <>
       <PageHeader
         title="Sessões"
-        className={sidebar ? 'bg-shell/90' : undefined}
+        className={sidebar ? 'bg-sidebar/90' : undefined}
         action={
           <Button size="sm" onClick={() => setPicker(true)}>
             <Plus /> Nova
@@ -214,15 +214,19 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
         }
       />
       <MachineFilter className="px-4 pb-3" />
-      {!sidebar && <PcStatus machine={filter ?? HOME} />}
+      {/* No celular, as medidas do PC e do Claude no mesmo traço fino da barra lateral, sem cartão. */}
+      {!sidebar && <SidebarMeters className="grid grid-cols-2 gap-x-3 px-2 pt-0" />}
       <div className="px-4 pb-3">
         <Input
           type="search"
           placeholder="Buscar por título ou projeto"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          // Na barra lateral, o campo é um recorte na cor da janela, sem contorno.
-          className={sidebar ? 'h-9 rounded-xl border-transparent bg-background/70 px-3 dark:bg-background/50' : undefined}
+          // Um recorte sem contorno: na barra lateral, no tom do destaque dela; no celular, um pouco mais claro que a janela.
+          className={cn(
+            'h-9 rounded-xl border-transparent px-3',
+            sidebar ? 'bg-sidebar-accent/70' : 'bg-foreground/[0.06] dark:bg-foreground/[0.06]',
+          )}
         />
       </div>
       {!loaded ? (

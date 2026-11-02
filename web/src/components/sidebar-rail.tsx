@@ -136,8 +136,8 @@ export function RailItem({
 }) {
   const className = cn(
     'relative flex size-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground [&_svg]:size-5',
-    // O ativo tem a cor da janela, como a aba aberta: um pedaço dela na ilha.
-    active && 'bg-background text-foreground shadow-xs hover:bg-background',
+    // O ativo ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta).
+    active && 'bg-sidebar-accent text-foreground shadow-xs hover:bg-sidebar-accent',
   )
   const content = (
     <>
@@ -223,11 +223,12 @@ function RailMeters() {
  * Com a lista aberta, as medidas saem da coluna estreita da alça para o pé dela, uma por linha, soltas
  * na ilha como as conversas (ver App.tsx). Recolhida a lista, voltam para a alça, no mesmo traço.
  */
-export function SidebarMeters() {
+/** `className`: no celular, no alto da lista de conversas, as medidas vão em duas colunas. */
+export function SidebarMeters({ className }: { className?: string }) {
   const metrics = useMetrics()
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="shrink-0 px-2 pt-2 pb-3">
+      <div className={cn('shrink-0 px-2 pt-2 pb-3', className)}>
         {metrics.map((m) => (
           <BarRow key={m.label} {...m} />
         ))}

@@ -5,6 +5,7 @@ import {
   Columns2,
   Copy,
   EllipsisVertical,
+  ExternalLink,
   GitFork,
   ListChecks,
   Lock,
@@ -427,7 +428,15 @@ export function ChatPage({ id }: { id: string }) {
   // Mapa mental (components/mindmap): no lugar do chat ou, com espaço, ao lado dele.
   const [display, setDisplay] = useChatDisplay()
   const areaRef = useRef<HTMLDivElement>(null)
-  const roomy = useWidth(areaRef) >= 1000
+  const areaWidth = useWidth(areaRef)
+  const roomy = areaWidth >= 1000
+  // Estreita (o celular em pé, ou várias lado a lado): só o essencial no topo, o resto vai para o menu.
+  const tight = areaWidth < 480
+  const toggleAutoSpeech = () => {
+    setAutoSpeech(id, !autoSpeech)
+    if (autoSpeech) toast('Leitura automática desligada')
+    else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
+  }
   const shown = display === 'both' && !roomy ? 'map' : display
   const stateLabel = stateInfo(shownState, shownWaiting).label
   // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
@@ -530,11 +539,10 @@ export function ChatPage({ id }: { id: string }) {
           }}
           onDragEnd={() => useDraggingChat.setState({ id: null })}
           className={cn(
-            // No PC, sem linha: a aba aberta desce até ele, na mesma cor.
-            'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1 wide:border-b-0',
-            // Com o fundo animado, a borda de baixo esfumaça para a cena, em vez de cortar reto.
-            glass &&
-              'wide:relative wide:z-10 wide:after:pointer-events-none wide:after:absolute wide:after:inset-x-0 wide:after:top-full wide:after:h-6 wide:after:bg-linear-to-b wide:after:from-background wide:after:to-transparent',
+            // Sem linha: no PC, a aba aberta desce até ele, na mesma cor; no celular, ele é o alto da janela.
+            'flex shrink-0 items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2 compact:py-1',
+            // Com o fundo animado, um vidro como a aba aberta (ver .tab-glass em index.css).
+            glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background',
             zen && 'hidden',
             handle && 'cursor-grab active:cursor-grabbing',
             // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
@@ -562,7 +570,8 @@ export function ChatPage({ id }: { id: string }) {
               )}
               <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {/* Corta o que não couber em vez de vazar para baixo dos botões ao lado. */}
+            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
               <span className="shrink-0 font-medium text-foreground/70">{name}</span>
               <span>·</span>
               <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
@@ -577,35 +586,35 @@ export function ChatPage({ id }: { id: string }) {
               <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
             </div>
           </div>
-          {speechSupported && (
+          {speechSupported && !tight && (
             <Button
               variant={autoSpeech ? 'default' : 'ghost'}
               size="icon"
               className={cn(autoSpeech && 'rounded-full')}
-              onClick={() => {
-                setAutoSpeech(id, !autoSpeech)
-                if (autoSpeech) toast('Leitura automática desligada')
-                else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
-              }}
+              onClick={toggleAutoSpeech}
               aria-pressed={autoSpeech}
               aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
             >
               {autoSpeech ? <Volume2 /> : <VolumeOff />}
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
-            <Minimize2 />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
-            aria-pressed={shown !== 'chat'}
-            aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-            title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
-          >
-            {shown === 'chat' ? <Network /> : <MessagesSquare />}
-          </Button>
+          {!tight && (
+            <>
+              <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
+                <Minimize2 />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
+                aria-pressed={shown !== 'chat'}
+                aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+                title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
+              >
+                {shown === 'chat' ? <Network /> : <MessagesSquare />}
+              </Button>
+            </>
+          )}
           {agents.all.length > 0 && (
             <Button
               variant="ghost"
@@ -627,7 +636,7 @@ export function ChatPage({ id }: { id: string }) {
               )}
             </Button>
           )}
-          {project && git.status?.remote && <RepoLink url={git.status.remote} />}
+          {project && git.status?.remote && !tight && <RepoLink url={git.status.remote} />}
           {project && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -636,6 +645,30 @@ export function ChatPage({ id }: { id: string }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-56">
+              {/* Estreita, os botões do topo que não couberam. */}
+              {tight && (
+                <>
+                  {speechSupported && (
+                    <DropdownMenuItem onSelect={toggleAutoSpeech}>
+                      {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
+                    {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setZen(id)}>
+                    <Minimize2 /> Modo zen
+                  </DropdownMenuItem>
+                  {project && git.status?.remote && (
+                    <DropdownMenuItem asChild>
+                      <a href={git.status.remote} target="_blank" rel="noreferrer">
+                        <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
+                      </a>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {owner === 'panel' && (
                 <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
                   <LogOut /> Liberar para o PC
@@ -694,7 +727,7 @@ export function ChatPage({ id }: { id: string }) {
           className={cn(
             'relative flex min-h-0 flex-1',
             // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
-            zen && 'pt-[env(safe-area-inset-top)]',
+            zen && 'pt-[var(--safe-top)]',
             pane.collapsed && 'hidden',
           )}
         >
@@ -746,7 +779,7 @@ export function ChatPage({ id }: { id: string }) {
                 onClick={() => setZen(null)}
                 aria-label="Sair do modo zen"
                 title="Sair do modo zen"
-                className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"
+                className="absolute top-[max(0.75rem,var(--safe-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"
               >
                 <Maximize2 />
               </Button>
@@ -823,7 +856,7 @@ export function ChatPage({ id }: { id: string }) {
             {owner === 'pc' ? (
               <div
                 className={cn(
-                  'shrink-0 space-y-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+                  'shrink-0 space-y-2 px-4 pt-3 pb-[max(0.75rem,var(--safe-bottom))]',
                   glass && 'bg-background/70 backdrop-blur-md',
                 )}
               >

@@ -19,6 +19,7 @@ import { repaintShell } from '@/lib/shell'
 import { PaneContext, parseChats, saveSplitSizes, setSplitWeights, useMaxChats, useSplitSizes } from '@/lib/split'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { useGlass } from '@/lib/wallpaper'
 import {
   activateTab,
   activeTab,
@@ -167,6 +168,7 @@ function TabItem({
   const close = () => closeTab(group.id, tab.key)
   // Aberta agora (não com a janela): cresce no lugar dela e empurra as vizinhas, em vez de surgir.
   const [enter] = useState(fresh)
+  const glass = useGlass()
   return (
     <div
       role="tab"
@@ -204,11 +206,15 @@ function TabItem({
         // Trocar de aba: a que abre sobe até a janela e ganha a cor dela, e a que sai desce, suaves.
         'transition-[background-color,color,height,margin] duration-200 ease-out',
         enter && 'tab-enter',
-        // A aberta tem a cor da janela e brota dela (ver .tab-merge em index.css); as outras são pílulas
-        // soltas acima da janela, no meio do caminho entre a casca e ela.
+        // A aberta tem a cor da janela e brota dela (ver .tab-merge em index.css), com um fio de luz no alto;
+        // as outras são só o texto apagado na casca, e viram pílula ao passar o mouse. Assim a única aba
+        // preenchida é a aberta, mesmo com a cena atrás deixando a cor dela parecida com a da casca.
         active
-          ? 'tab-merge h-8 rounded-t-lg bg-background text-foreground'
-          : 'mb-1 h-7 rounded-lg bg-tab text-muted-foreground hover:bg-background/70 hover:text-foreground',
+          ? cn(
+              'tab-merge h-8 rounded-t-lg text-foreground shadow-[inset_0_1px_0_color-mix(in_oklab,var(--foreground)_12%,transparent)]',
+              glass ? 'tab-glass bg-background/70 backdrop-blur-md' : 'bg-background',
+            )
+          : 'mb-1 h-7 rounded-lg text-muted-foreground hover:bg-tab hover:text-foreground',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
       )}
     >
@@ -422,6 +428,7 @@ function GroupView({
   const tabs = !zenChat
   // A primeira aba aberta fica rente à borda da janela: o canto de cima dela some, e a aba desce reta.
   const flush = tabs && group.tabs[0]?.key === group.active
+  const glass = useGlass()
   // Uma janela a mais ou a menos na casca: o recorte dela muda junto.
   useLayoutEffect(() => {
     repaintShell()
@@ -439,7 +446,8 @@ function GroupView({
       <div
         // O valor muda junto com o canto: é o que avisa a casca para refazer o recorte.
         data-hole={flush ? 'flush' : 'round'}
-        className={cn('relative min-h-0 flex-1 overflow-hidden rounded-pane', flush && 'rounded-tl-none')}
+        // Sem cena atrás, a janela pinta a própria cor: pelo recorte apareceria a margem, que no escuro é mais funda.
+        className={cn('relative min-h-0 flex-1 overflow-hidden rounded-pane', flush && 'rounded-tl-none', !glass && 'bg-background')}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(TAB_DRAG)) return
           const z = zoneOf(e)
@@ -471,7 +479,12 @@ function GroupView({
               inert={!active}
               // Depois de vista, fica fora da pintura mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.
               // A que fica à vista aparece com um fade (a animação recomeça a cada vez que a classe volta).
-              className={cn('absolute inset-0 flex flex-col', active ? 'tab-panel-in' : 'invisible [content-visibility:hidden]')}
+              // Um arquivo tampa a cena: código por cima dela fica ilegível (a conversa tem o véu dela).
+              className={cn(
+                'absolute inset-0 flex flex-col',
+                tab.kind === 'file' && 'bg-background',
+                active ? 'tab-panel-in' : 'invisible [content-visibility:hidden]',
+              )}
             >
               {!seen.has(tab.key) ? null : tab.kind === 'chat' ? (
                 <PaneContext value={{ split, focused: focused && active, collapsed: false }}>

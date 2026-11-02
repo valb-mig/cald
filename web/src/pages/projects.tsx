@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
+import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
 import type { GitSummary } from '@/lib/types'
 import { openProjectHub } from '@/lib/workbench'
@@ -133,7 +134,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
     <>
       <PageHeader
         title="Projetos"
-        className={sidebar ? 'bg-shell/90' : undefined}
+        className={sidebar ? 'bg-sidebar/90' : undefined}
         action={
           checking && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -149,8 +150,11 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
           placeholder="Buscar projeto"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          // Na barra lateral, como o da lista de sessões: um recorte na cor da janela, sem contorno.
-          className={sidebar ? 'h-9 rounded-xl border-transparent bg-background/70 px-3 dark:bg-background/50' : undefined}
+          // Como o da lista de sessões: um recorte sem contorno, no tom do destaque da barra lateral.
+          className={cn(
+            'h-9 rounded-xl border-transparent px-3',
+            sidebar ? 'bg-sidebar-accent/70' : 'bg-foreground/[0.06] dark:bg-foreground/[0.06]',
+          )}
         />
       </div>
       {projects === null ? (

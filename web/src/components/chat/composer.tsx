@@ -181,7 +181,7 @@ export function Composer({
         data-big={big || undefined}
         className={cn(
           // No PC, a caixa flutua solta no pé da janela, com folga em volta.
-          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
+          'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,var(--safe-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
           big
             ? 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]'
             : glass

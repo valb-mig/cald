@@ -73,8 +73,9 @@
 /*
  * As camadas do PC: o fundo (`--background`) aparece na margem em volta de tudo e dentro da janela da
  * conversa; entre os dois fica a casca (`--shell`), com as abas e a barra do projeto. A barra lateral
- * (a alça e a lista de conversas) é outra ilha, na mesma cor, separada da casca pela margem. No claro,
- * a casca é um tom mais escura que a janela; no escuro, um cinza em volta da janela preta. A aba aberta
+ * (a alça e a lista de conversas) é outra ilha, na cor da casca, separada dela pela margem, com o
+ * destaque dela em `--sidebar-accent`. No claro, a casca é um tom mais escura que a janela; no escuro
+ * também: quase preta em volta de uma janela cinza-escura, e os destaques sobem a partir dela. A aba aberta
  * tem a cor da janela, e as outras ficam no meio do caminho entre a casca e ela (`--tab`). Tudo em
  * cinza neutro: a cor fica para o que tem algo a dizer (trabalhando, esperando você, o modo da caixa
  * de mensagem).
@@ -115,30 +116,36 @@
     --island-shine: inset 0 1px 0 0 oklch(1 0 0 / 70%);
     --island-ring: 0 1px 2px 0 oklch(0 0 0 / 6%);
     --island-edge: var(--island-shine), var(--island-ring);
-    --sidebar: oklch(0.985 0 0);
+    /* O recuo do entalhe e da barra de gestos do celular. Dentro da janela (`.framed`) vale 0: a casca
+       em volta já afasta a janela deles, e o recuo dobraria. Folhas e telas cheias ficam no `body`. */
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+    /* A barra lateral e o destaque nela (a conversa em foco, a aba da alça). No claro, a ilha tem a cor
+       da casca e o destaque, a da janela; no escuro, o destaque sobe um tom acima da janela. */
+    --sidebar: var(--shell);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.205 0 0);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent: var(--background);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
+    --background: oklch(0.19 0 0);
     --foreground: oklch(0.96 0 0);
-    --card: oklch(0.185 0 0);
+    --card: oklch(0.22 0 0);
     --card-foreground: oklch(0.96 0 0);
-    --popover: oklch(0.215 0 0);
+    --popover: oklch(0.24 0 0);
     --popover-foreground: oklch(0.96 0 0);
     --primary: oklch(0.93 0 0);
     --primary-foreground: oklch(0.2 0 0);
-    --secondary: oklch(0.255 0 0);
+    --secondary: oklch(0.28 0 0);
     --secondary-foreground: oklch(0.96 0 0);
-    --muted: oklch(0.255 0 0);
+    --muted: oklch(0.28 0 0);
     --muted-foreground: oklch(0.69 0 0);
-    --accent: oklch(0.255 0 0);
+    --accent: oklch(0.28 0 0);
     --accent-foreground: oklch(0.96 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 8%);
@@ -149,14 +156,14 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --shell: oklch(0.2 0 0);
+    --shell: oklch(0.12 0 0);
     --island-shine: inset 0 1px 0 0 oklch(1 0 0 / 6%);
     --island-ring: 0 0 0 1px oklch(1 0 0 / 4%);
-    --sidebar: oklch(0.205 0 0);
+    --sidebar: var(--shell);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: oklch(0.27 0 0);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
@@ -181,6 +188,12 @@
  */
 .tab-merge {
   --curve: 0.5rem;
+  --tab-fill: var(--background);
+}
+/* Com a cena animada, a aba aberta é do mesmo vidro do cabeçalho da conversa (pages/chat.tsx): a cor da
+   janela, translúcida e desfocada, com a cena passando por baixo. */
+.tab-merge.tab-glass {
+  --tab-fill: color-mix(in oklab, var(--background) 70%, transparent);
 }
 .tab-merge::before,
 .tab-merge::after {
@@ -193,11 +206,11 @@
 }
 .tab-merge::before {
   right: 100%;
-  background: radial-gradient(circle at 0 0, transparent calc(var(--curve) - 0.5px), var(--background) var(--curve));
+  background: radial-gradient(circle at 0 0, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
 }
 .tab-merge::after {
   left: 100%;
-  background: radial-gradient(circle at 100% 0, transparent calc(var(--curve) - 0.5px), var(--background) var(--curve));
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
 }
 .tab-merge:first-child::before {
   display: none;
@@ -309,4 +322,10 @@
   .tab-panel-in {
     animation: none;
   }
+}
+
+/* A janela do celular (App.tsx): os entalhes ficam por conta da casca em volta dela. */
+.framed {
+  --safe-top: 0px;
+  --safe-bottom: 0px;
 }
