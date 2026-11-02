@@ -37,6 +37,8 @@ import { Composer } from '@/components/chat/composer'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
+import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
+import { attachInto } from '@/lib/compose'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
@@ -293,6 +295,48 @@ function Veil({ scrim }: { scrim: string }) {
   )
 }
 
+// Os /clear cuja animação já rodou: a conversa remontada (a aba troca para o id novo) não repete.
+const fallen = new Set<string>()
+
+/**
+ * O /clear que acabou de acontecer: o que estava na tela antes dele, para cair na lixeira (ver
+ * `TrashFall`) por menos de um segundo. Só o que chegou agora conta: abrir uma conversa que já foi
+ * limpa não anima nada. A troca de aba para o id novo remonta a tela no meio; a nova recomeça a queda.
+ */
+function useTrashFall(events: Keyed[], cut: number): Item[] | null {
+  const marker = cut >= 0 ? events[cut] : undefined
+  const [falling, setFalling] = useState<Item[] | null>(null)
+  useEffect(() => {
+    if (!marker || fallen.has(marker.key) || !marker.ts || Date.now() - marker.ts > 2500) return
+    const before = events.slice(0, cut).findLastIndex((e) => e.kind === 'cleared')
+    setFalling(buildItems(events.slice(before + 1, cut)))
+    const done = setTimeout(() => {
+      fallen.add(marker.key)
+      setFalling(null)
+    }, 1100)
+    return () => clearTimeout(done)
+    // Só quando chega um marco novo: os eventos seguintes não reiniciam a queda.
+  }, [marker?.key])
+  return falling
+}
+
+/**
+ * O que estava na conversa encolhendo e caindo numa lixeira que aparece no pé dela, e a lixeira dando
+ * um balanço quando recebe. Por cima das mensagens e sem pegar o ponteiro; a conversa segue embaixo.
+ */
+function TrashFall({ items, sessionId, cwd }: { items: Item[]; sessionId: string; cwd?: string }) {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      <div className="chat-trash-fall absolute inset-x-0 bottom-28 mx-auto max-h-full w-full max-w-3xl overflow-hidden">
+        <MessageList items={items.slice(-12)} queued={[]} sessionId={sessionId} actionable={false} working={false} background={[]} uses={new Map()} cwd={cwd} />
+      </div>
+      <div className="chat-trash-can absolute bottom-24 left-1/2 flex size-14 -translate-x-1/2 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-lg ring-1 ring-foreground/10">
+        <Trash2 className="size-6" />
+      </div>
+    </div>
+  )
+}
+
 export function ChatPage({ id }: { id: string }) {
   // Com conversas lado a lado (ver lib/split.ts), cada ação mexe só neste lugar da tela.
   const pane = usePane()
@@ -303,12 +347,15 @@ export function ChatPage({ id }: { id: string }) {
   const [besideOpen, setBesideOpen] = useState(false)
   const view = useStore(selectView(id))
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
+  // Logo depois de um /clear, o catálogo ainda não tem o id novo (chega uns 300 ms depois): até lá, a
+  // pasta é a da conversa de antes, que é a mesma. Sem ela, a barra do projeto sumia e voltava na queda.
+  const cwd = useStore((s) => entry?.cwd ?? s.catalog.find((c) => s.rekeys[c.sessionId] === id)?.cwd)
   // Máquina da conversa (posta pelo ChatSplit, ver machines.ts): tudo desta tela vai para ela.
   const machine = useMachine()
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const rekeyed = useStore((s) => s.rekeys[id])
   // O tempo que você passa nesta conversa conta no WakaTime, como o do Claude (ver lib/wakatime.ts).
-  useActivityPing(machine, entry?.cwd)
+  useActivityPing(machine, cwd)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [confirmTakeover, setConfirmTakeover] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -369,7 +416,10 @@ export function ChatPage({ id }: { id: string }) {
     () => [...saved, ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : [])],
     [saved, panelOpen, view.events, view.runId],
   )
-  const items = useMemo(() => buildItems(events), [events])
+  // Depois de um /clear, a tela mostra só dali para baixo: o que veio antes foi para o lixo.
+  const cut = useMemo(() => events.findLastIndex((e) => e.kind === 'cleared'), [events])
+  const items = useMemo(() => buildItems(cut >= 0 ? events.slice(cut) : events), [events, cut])
+  const trash = useTrashFall(events, cut)
   // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
   const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
   useEffect(() => publishTools(id, tools), [id, tools])
@@ -399,7 +449,7 @@ export function ChatPage({ id }: { id: string }) {
   const turns = useMemo(() => view.events.filter((e) => e.kind === 'result').length, [view.events])
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
-  const project = entry?.cwd && home && entry.cwd !== home ? entry.cwd : undefined
+  const project = cwd && home && cwd !== home ? cwd : undefined
   const git = useGitStatus(machine, project, turns)
   // A barra do projeto, à direita, mostra o da conversa em foco (ver lib/project-panel.ts).
   useShowProject(machine, project, id, pane.focused)
@@ -428,6 +478,10 @@ export function ChatPage({ id }: { id: string }) {
   // Mapa mental (components/mindmap): no lugar do chat ou, com espaço, ao lado dele.
   const [display, setDisplay] = useChatDisplay()
   const areaRef = useRef<HTMLDivElement>(null)
+  // Soltar imagens e documentos em qualquer lugar da conversa anexa todos na caixa de mensagem dela.
+  const drop = useFileDrop((list) => {
+    if (!attachInto(id, list)) toast('Esta conversa não recebe mensagens daqui agora')
+  })
   const areaWidth = useWidth(areaRef)
   const roomy = areaWidth >= 1000
   // Estreita (o celular em pé, ou várias lado a lado): só o essencial no topo, o resto vai para o menu.
@@ -475,7 +529,7 @@ export function ChatPage({ id }: { id: string }) {
   /** A aba desta conversa deixa de ser prévia (no celular não há abas, e não faz nada). */
   const pin = () => pinTab(keyOf({ kind: 'chat', id }))
 
-  const resumeCommand = entry?.cwd ? `cd '${entry.cwd}' && claude --resume ${id}` : `claude --resume ${id}`
+  const resumeCommand = cwd ? `cd '${cwd}' && claude --resume ${id}` : `claude --resume ${id}`
 
   async function run(action: () => Promise<unknown>, success?: string) {
     setBusy(true)
@@ -574,7 +628,7 @@ export function ChatPage({ id }: { id: string }) {
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
               <span className="shrink-0 font-medium text-foreground/70">{name}</span>
               <span>·</span>
-              <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
+              <span className="min-w-0 truncate">{projectName(cwd)}</span>
               {machineLabel && (
                 <span className="flex shrink-0 items-center gap-0.5">
                   <Server className="size-3" />
@@ -724,6 +778,7 @@ export function ChatPage({ id }: { id: string }) {
 
         <div
           ref={areaRef}
+          {...drop.bind}
           className={cn(
             'relative flex min-h-0 flex-1',
             // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
@@ -731,6 +786,8 @@ export function ChatPage({ id }: { id: string }) {
             pane.collapsed && 'hidden',
           )}
         >
+          <DropOverlay show={drop.over} />
+          {trash && <TrashFall items={trash} sessionId={id} cwd={cwd} />}
           {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
               vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
           <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
@@ -741,7 +798,8 @@ export function ChatPage({ id }: { id: string }) {
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
                 {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
-                {history.events === null && !history.error ? (
+                {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da queda. */}
+                {history.events === null && !history.error && cut < 0 ? (
                   <div className="space-y-4 p-4">
                     <Skeleton className="ml-auto h-10 w-2/3" />
                     <Skeleton className="h-24 w-full" />
@@ -761,7 +819,7 @@ export function ChatPage({ id }: { id: string }) {
                       working={working}
                       background={background}
                       uses={uses}
-                      cwd={entry?.cwd}
+                      cwd={cwd}
                       onBranch={branch}
                     />
                   </>
@@ -873,7 +931,7 @@ export function ChatPage({ id }: { id: string }) {
             ) : owner === 'panel' ? (
               <Composer
                 sessionId={id}
-                cwd={entry?.cwd}
+                cwd={cwd}
                 branch={git.status?.branch}
                 working={working || state === 'waiting'}
                 // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
@@ -894,7 +952,7 @@ export function ChatPage({ id }: { id: string }) {
             ) : (
               <Composer
                 sessionId={id}
-                cwd={entry?.cwd}
+                cwd={cwd}
                 branch={git.status?.branch}
                 working={false}
                 hint="Enviar retoma esta conversa aqui pelo celular."
@@ -911,7 +969,7 @@ export function ChatPage({ id }: { id: string }) {
           </div>
         </div>
 
-        <SummarySheet sessionId={id} events={events} cwd={entry?.cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <AgentsSheet
           tree={agents}
           rootLabel={stateInfo(shownState, shownWaiting).label}

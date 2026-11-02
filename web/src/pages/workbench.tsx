@@ -1,4 +1,4 @@
-import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, PencilLine, Pin, X } from 'lucide-react'
+import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
 import { createElement, Fragment, useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
@@ -32,6 +32,7 @@ import {
   moveTab,
   openTab,
   pinTab,
+  replaceTab,
   splitTab,
   useWorkbench,
   WORKBENCH_PATH,
@@ -40,6 +41,7 @@ import {
 } from '@/lib/workbench'
 import { useZen } from '@/lib/zen'
 import { useArrivals } from '@/components/chat/arrival'
+import { NewChatView } from './new-chat'
 import { ChatInMachine } from './split'
 
 /** Tipo do arrasto de uma aba; só ele é aceito pelas barras de abas e pelos grupos. */
@@ -142,7 +144,9 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
       ? `${tab.path}${tab.diff ? ` (${tab.diff === 'staged' ? 'alterações preparadas' : 'alterações'})` : ''}`
       : tab.kind === 'github'
         ? `${tab.item === 'pr' ? 'PR' : 'Issue'} #${tab.number}${tab.title ? `: ${tab.title}` : ''}`
-        : `Projeto ${projectName(tab.cwd)}`
+        : tab.kind === 'new'
+          ? `Nova conversa em ${tab.cwd ? projectName(tab.cwd) : 'sem projeto (~)'}`
+          : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -229,6 +233,12 @@ function TabItem({
           <FileTabLabel tab={tab} />
         ) : tab.kind === 'github' ? (
           <GithubTabLabel tab={tab} />
+        ) : tab.kind === 'new' ? (
+          <>
+            <MessageSquarePlus className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">Nova conversa</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{tab.cwd ? projectName(tab.cwd) : '~'}</span>
+          </>
         ) : (
           <>
             <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -379,6 +389,22 @@ function GithubTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind:
   return <GithubItemView machine={tab.machine} cwd={tab.cwd} kind={tab.item} number={tab.number} title={tab.title} active={visible} />
 }
 
+/**
+ * A conversa nova como aba, para não tirar da tela o que já estava aberto: a primeira mensagem cria a
+ * sessão e a aba vira a dela, no mesmo lugar; trocar o projeto troca a aba pela conversa nova do outro.
+ */
+function NewTabContent({ tab, focused }: { tab: Extract<Tab, { kind: 'new' }>; focused: boolean }) {
+  return (
+    <NewChatView
+      machine={tab.machine}
+      cwd={tab.cwd}
+      showProject={focused}
+      onCreated={(id) => replaceTab(tab.key, { kind: 'chat', id })}
+      onPick={(cwd, machine) => replaceTab(tab.key, { kind: 'new', machine, cwd })}
+    />
+  )
+}
+
 /** O hub do projeto como aba: a barra da direita fica nele, e o que se escreve vai para a caixa do hub. */
 function ProjectTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind: 'project' }>; visible: boolean; focused: boolean }) {
   useShowProject(tab.machine, tab.cwd, `new:${tab.cwd}`, focused)
@@ -515,6 +541,8 @@ function GroupView({
                   <FileTabContent tab={tab} active={focused && active} />
                 ) : tab.kind === 'github' ? (
                   <GithubTabContent tab={tab} visible={active} focused={focused && active} />
+                ) : tab.kind === 'new' ? (
+                  <NewTabContent tab={tab} focused={focused && active} />
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}

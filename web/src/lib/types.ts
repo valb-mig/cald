@@ -32,6 +32,8 @@ export type PanelEvent =
   | { kind: 'tool_use'; id: string; name: string; input: Record<string, unknown>; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   | { kind: 'settings'; model?: string; effort?: string | null; permissionMode?: string }
+  /** Um /clear esvaziou a conversa: o que veio antes sai da tela, e ela segue do zero, com o mesmo claudinho. */
+  | { kind: 'cleared' }
   | { kind: 'init'; model: string; permissionMode: string; cwd: string }
   | { kind: 'status'; status: string }
   | { kind: 'state'; state: SessionState; waitingFor?: string }
@@ -97,6 +99,8 @@ export type CatalogEntry = {
   machine?: string;
   /** O nome que você deu ao claudinho da conversa; sem ele, vale o sorteado (ver lib/claudinho.ts). */
   claudinhoName?: string;
+  /** O id de onde vem o claudinho desta conversa, quando ela continua outra (um /clear). */
+  look?: string;
 };
 
 export type RunOptions = {
@@ -267,10 +271,12 @@ export type GithubInfo =
   | { ok: false; reason: 'no_remote' | 'not_github' | 'no_gh' | 'gh_auth' | 'error'; message?: string; fetchedAt: number }
 
 /** Uma issue ou um PR inteiro, para a aba de análise (ver server/src/github.ts). */
-export type GithubComment = { author: string | null; body: string; createdAt: string; url: string }
+/** `avatar` e `role` (a relação com o repositório) faltam no servidor de antes de reiniciar. */
+export type GithubComment = { author: string | null; avatar?: string | null; role?: string; body: string; createdAt: string; url: string }
 
 export type GithubReview = {
   author: string | null
+  avatar?: string | null
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'
   body: string
   submittedAt: string | null
@@ -280,12 +286,17 @@ export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pendi
 
 export type GithubFile = { path: string; additions: number; deletions: number; change: string }
 
+export type GithubCommit = { sha: string; short: string; headline: string; author: string | null; avatar: string | null; date: string; url: string }
+
 type GithubItemBase = {
   number: number
   title: string
   url: string
   state: 'OPEN' | 'CLOSED' | 'MERGED'
   author: string | null
+  authorAvatar?: string | null
+  /** A relação de quem abriu com o repositório: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR… */
+  authorRole?: string
   /** Quem está logado no `gh` do PC abriu este: o GitHub não deixa aprovar o próprio PR. */
   mine: boolean
   assignees: string[]
@@ -315,6 +326,8 @@ export type GithubPullDetail = GithubItemBase & {
   checks: GithubCheck[]
   files: GithubFile[]
   reviews: GithubReview[]
+  /** Os 50 últimos, do mais antigo ao mais novo. */
+  commits?: GithubCommit[]
   mergeState: string
   crossRepo: boolean
   mergeMethods: MergeMethod[]
@@ -328,6 +341,7 @@ export type GithubItem =
       ok: true
       repo: string
       viewer: string
+      viewerAvatar?: string | null
       repoLabels: GithubLabel[]
       item: GithubIssueDetail | GithubPullDetail
       fetchedAt: number
@@ -348,7 +362,23 @@ export type GithubAction =
   | { type: 'draft'; draft: boolean }
 
 /** Um item do TODO do projeto, a lista simples do próprio Claude Remote (ver server/src/todos.ts). */
-export type Todo = { id: string; text: string; done: boolean; createdAt: number }
+/** Um anexo de um item do TODO, guardado no PC (ver server/src/todos.ts). */
+export type TodoFile = { id: string; name: string; mediaType: string; size: number }
+
+/**
+ * Um item do TODO do projeto. `n` é o número dele no projeto (o `TODO:3` do chat); item novo vai sem
+ * ele, e o PC dá o próximo. A descrição é Markdown, com menções `@caminho` a arquivos do projeto.
+ */
+export type Todo = {
+  id: string
+  n?: number
+  title: string
+  body: string
+  done: boolean
+  createdAt: number
+  updatedAt?: number
+  files: TodoFile[]
+}
 
 /** Quanto você já codou hoje pelo WakaTime (ver server/src/wakatime.ts). */
 export type WakaToday = { seconds: number; text: string; goalHours: number }

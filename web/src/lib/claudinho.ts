@@ -1,3 +1,4 @@
+import { create } from 'zustand'
 /**
  * O claudinho de cada conversa: um bichinho de forma simples, cantos arredondados, numa cor, com dois
  * olhinhos brancos, e um nome de duas sílabas. Os dois saem do id da conversa, sempre os mesmos para
@@ -107,5 +108,14 @@ const NAMES = [
 /** O nome sorteado do claudinho da conversa. */
 export const nameOf = (seed: string) => NAMES[hash(`${seed}:nome`) % NAMES.length]!
 
-/** O nome do claudinho: o que você deu, ou o sorteado. */
-export const claudinhoName = (id: string, custom?: string) => custom || nameOf(id)
+/**
+ * De onde vem o claudinho de cada conversa que continua outra (o /clear dá um id novo à mesma conversa):
+ * o id que ele veste. Vem do PC (ver server/src/meta.ts), no catálogo e no aviso de id novo.
+ */
+export const useLooks = create<Record<string, string>>(() => ({}))
+
+/** O id cujo claudinho a conversa veste: o herdado, ou o dela mesma. */
+export const seedOf = (id: string) => useLooks.getState()[id] ?? id
+
+/** O nome do claudinho: o que você deu, ou o sorteado (pelo claudinho que ela veste). */
+export const claudinhoName = (id: string, custom?: string) => custom || nameOf(seedOf(id))

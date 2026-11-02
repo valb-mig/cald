@@ -39,6 +39,8 @@ export type PanelEvent =
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }
   /** Modelo, esforço e modo de permissão vigentes (no início de cada turno e a cada mudança). */
   | { kind: 'settings'; model?: string; effort?: string | null; permissionMode?: string }
+  /** Um /clear esvaziou a conversa: o que veio antes sai da tela, e ela segue do zero, com o mesmo claudinho. */
+  | { kind: 'cleared' }
   | { kind: 'init'; model: string; permissionMode: string; cwd: string }
   | { kind: 'status'; status: string }
   | { kind: 'state'; state: SessionState; waitingFor?: string }
@@ -155,7 +157,11 @@ function taskNotification(text: string): PanelEvent[] {
  * saída de comandos locais, lembretes) viram `notice` ou somem; o resto é prompt real.
  */
 function userTextEvents(raw: string): PanelEvent[] {
-  const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  // O conteúdo dos TODOs mencionados (ver todos.ts) foi para o Claude, não para a tela.
+  const text = raw
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<claude-remote-todo[^>]*>[\s\S]*?<\/claude-remote-todo>/g, '')
+    .trim();
   if (!text || text.startsWith('Caveat:')) return [];
   if (text.startsWith('<task-notification>')) return taskNotification(text);
   const command = tag('command-name', text);

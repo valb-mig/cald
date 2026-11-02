@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Redirect, Route, Switch, useLocation } from 'wouter'
+import { Redirect, Route, Switch, useLocation, useSearch } from 'wouter'
+import { navigate } from 'wouter/use-browser-location'
 import { ComputerSheet } from '@/components/computer-sheet'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
@@ -12,7 +13,8 @@ import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { setComputerOpen } from '@/lib/computer'
 import { useWide } from '@/lib/hooks'
-import { loadMachines } from '@/lib/machines'
+import { HOME, loadMachines } from '@/lib/machines'
+import { openTab, WORKBENCH_PATH } from '@/lib/workbench'
 import {
   saveSidebarWidth,
   setSidebarCollapsed,
@@ -133,10 +135,15 @@ export default function App() {
             </Route>
             {/* As abas com um arquivo, issue ou PR em foco (ver WORKBENCH_PATH); no celular não há abas. */}
             <Route path="/abas">{wide ? <Workbench /> : <Redirect to="/" />}</Route>
+            {/* No PC, a conversa nova abre numa aba, ao lado do que já estava aberto; no celular, é uma tela. */}
             <Route path="/nova">
-              <Pane>
-                <NewChatPage />
-              </Pane>
+              {wide ? (
+                <NewChatTab />
+              ) : (
+                <Pane>
+                  <NewChatPage />
+                </Pane>
+              )}
             </Route>
             <Route path="/compartilhar">
               <Pane>
@@ -243,6 +250,20 @@ function SidebarHandle() {
       onEnd={saveSidebarWidth}
     />
   )
+}
+
+/**
+ * `/nova` no PC: abre (ou volta para) a aba da conversa nova do projeto da URL e vai para as abas. A
+ * URL é o jeito de todo "Nova conversa" do app pedir, e a aba é onde ela aparece.
+ */
+function NewChatTab() {
+  const search = useSearch()
+  useEffect(() => {
+    const q = new URLSearchParams(search)
+    openTab({ kind: 'new', machine: q.get('maquina') ?? HOME, cwd: q.get('cwd') ?? undefined })
+    navigate(WORKBENCH_PATH, { replace: true })
+  }, [search])
+  return null
 }
 
 /**

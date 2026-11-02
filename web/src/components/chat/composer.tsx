@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload } from '@/lib/attachments'
-import { useInsertTarget } from '@/lib/compose'
+import { useAttachTarget, useInsertTarget } from '@/lib/compose'
 import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation'
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
@@ -62,6 +62,8 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null)
   // De fora do campo também se escreve aqui: mencionar um arquivo pela barra do projeto, por exemplo.
   useInsertTarget(sessionId, (inserted) => input.current?.insert(inserted))
+  // E anexar: soltar arquivos em qualquer lugar da conversa cai aqui (ver `useFileDrop`).
+  useAttachTarget(sessionId, (list) => void files.add(list))
   const models = useModels()
 
   // Ditado: o que é ouvido entra onde estava o cursor e vai sendo corrigido enquanto se fala.

@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Textarea } from '@/components/ui/textarea'
+import { Markdown } from '@/components/markdown'
 import { errorMessage } from '@/lib/api'
 import { actOnGithub } from '@/lib/github'
 import type { GithubAction, GithubIssueDetail, GithubLabel, GithubPullDetail, GithubQuota, MergeMethod } from '@/lib/types'
@@ -33,7 +34,7 @@ const TargetContext = createContext<Target | null>(null)
 export const GithubTarget = TargetContext.Provider
 
 /** Faz a ação, avisa o que aconteceu e diz qual está em andamento, para o botão dela girar. */
-function useAct() {
+export function useGithubAct() {
   const target = use(TargetContext)!
   const [busy, setBusy] = useState<GithubAction['type'] | null>(null)
   const act = async (action: GithubAction, done?: string): Promise<boolean> => {
@@ -58,8 +59,17 @@ function useAct() {
  * Pôr e tirar etiquetas, com as do repositório. As marcadas e desmarcadas vão juntas num pedido só,
  * quando o menu fecha: ir e voltar numa etiqueta não gasta nada da cota.
  */
-export function LabelsEditor({ labels, repoLabels }: { labels: GithubLabel[]; repoLabels: GithubLabel[] }) {
-  const { busy, act } = useAct()
+export function LabelsEditor({
+  labels,
+  repoLabels,
+  trigger,
+}: {
+  labels: GithubLabel[]
+  repoLabels: GithubLabel[]
+  /** O que aparece no botão; sem isso, o ícone e "Etiquetas". */
+  trigger?: React.ReactNode
+}) {
+  const { busy, act } = useGithubAct()
   const [picked, setPicked] = useState<Set<string> | null>(null)
   const current = new Set(labels.map((l) => l.name))
   const shown = picked ?? current
@@ -83,10 +93,12 @@ export function LabelsEditor({ labels, repoLabels }: { labels: GithubLabel[]; re
         <button
           type="button"
           disabled={busy === 'labels'}
+          aria-label="Editar as etiquetas"
+          title="Editar as etiquetas"
           className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         >
-          {busy === 'labels' ? <Loader2 className="size-3 animate-spin" /> : <Tag className="size-3" />}
-          {labels.length ? 'Etiquetas' : 'Pôr etiqueta'}
+          {busy === 'labels' ? <Loader2 className="size-3 animate-spin" /> : (trigger ?? <Tag className="size-3" />)}
+          {!trigger && (labels.length ? 'Etiquetas' : 'Pôr etiqueta')}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-80 w-64 overflow-y-auto">
@@ -119,7 +131,7 @@ export function LabelsEditor({ labels, repoLabels }: { labels: GithubLabel[]; re
 
 /** Fechar e reabrir, se atribuir e, no PR, rascunho e pronto: o que não precisa de mais nada que um clique. */
 export function ItemMenu({ item, viewer }: { item: GithubIssueDetail | GithubPullDetail; viewer: string }) {
-  const { busy, act } = useAct()
+  const { busy, act } = useGithubAct()
   const open = item.state === 'OPEN'
   const pr = item.kind === 'pr'
   const assigned = item.assignees.includes(viewer)
@@ -175,14 +187,14 @@ const MERGE_LABEL: Record<MergeMethod, { label: string; hint: string; verb: stri
 }
 
 /** O que segura o merge, dito pelo GitHub; o resto (`CLEAN`, `HAS_HOOKS`, `UNSTABLE`) deixa passar. */
-function mergeBlock(pr: GithubPullDetail): string | null {
+export function mergeBlock(pr: GithubPullDetail): string | null {
   if (pr.state !== 'OPEN') return pr.state === 'MERGED' ? 'Já entrou.' : 'O PR está fechado.'
   if (pr.draft) return 'É rascunho: marque como pronto para revisão antes.'
   if (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY') return `Tem conflito com ${pr.base}: resolva antes.`
   return null
 }
 
-function mergeWarning(pr: GithubPullDetail): string | null {
+export function mergeWarning(pr: GithubPullDetail): string | null {
   if (pr.mergeState === 'BLOCKED') return 'O GitHub diz que falta algo que o repositório exige (revisão ou check). Pode recusar.'
   if (pr.mergeState === 'BEHIND') return `A branch está atrás de ${pr.base}, e o repositório pode exigir que ela esteja em dia.`
   if (pr.checks.some((c) => c.result === 'failure')) return 'Há checks falhando.'
@@ -195,7 +207,7 @@ function mergeWarning(pr: GithubPullDetail): string | null {
  * O próprio PR só aceita comentário: o GitHub não deixa aprovar nem pedir mudanças no que você abriu.
  */
 function ReviewDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { busy, act } = useAct()
+  const { busy, act } = useGithubAct()
   const [event, setEvent] = useState<'approve' | 'comment' | 'request-changes'>(pr.mine ? 'comment' : 'approve')
   const [body, setBody] = useState('')
   const needsBody = event !== 'approve'
@@ -255,7 +267,7 @@ function ReviewDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: 
  * repositório aceita) e se apaga a branch no GitHub depois (a do PC fica como está).
  */
 function MergeDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { busy, act } = useAct()
+  const { busy, act } = useGithubAct()
   const [method, setMethod] = useState<MergeMethod>(pr.defaultMethod)
   // Branch de PR que já entrou não serve para mais nada: apagar é o normal, e dá para restaurar no GitHub.
   const [deleteBranch, setDeleteBranch] = useState(!pr.crossRepo)
@@ -319,7 +331,6 @@ export function PullActions({ pr }: { pr: GithubPullDetail }) {
         <Button size="sm" variant="secondary" onClick={() => setReview(true)}>
           Revisar
         </Button>
-        {block && <span className="text-xs text-muted-foreground">{block}</span>}
       </div>
       {/* A chave recomeça o diálogo a cada vez, com o jeito e o texto do zero. */}
       {review && <ReviewDialog key="review" pr={pr} open={review} onOpenChange={setReview} />}
@@ -330,30 +341,58 @@ export function PullActions({ pr }: { pr: GithubPullDetail }) {
 
 // ---- comentar ----
 
-/** Responder ali mesmo, no fim dos comentários; Ctrl+Enter envia. */
-export function CommentBox({ kind }: { kind: 'issue' | 'pr' }) {
-  const { busy, act } = useAct()
+/**
+ * Responder ali mesmo, no pé da conversa, como no GitHub: escrever ou ver como fica (o Markdown já
+ * desenhado), com a sua foto ao lado. Ctrl+Enter envia.
+ */
+export function CommentBox({ kind, avatar }: { kind: 'issue' | 'pr'; avatar?: React.ReactNode }) {
+  const { busy, act } = useGithubAct()
   const [body, setBody] = useState('')
+  const [preview, setPreview] = useState(false)
   const submit = async () => {
     if (!body.trim()) return
-    if (await act({ type: 'comment', body }, 'Comentário enviado')) setBody('')
+    if (await act({ type: 'comment', body }, 'Comentário enviado')) {
+      setBody('')
+      setPreview(false)
+    }
   }
+  const tab = (on: boolean) =>
+    cn('rounded-md px-2.5 py-1 text-xs transition-colors', on ? 'bg-background font-medium text-foreground shadow-xs dark:bg-sidebar-accent' : 'text-muted-foreground hover:text-foreground')
   return (
-    <div className="mt-4 space-y-2">
-      <Textarea
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        placeholder={`Comentar ${kind === 'pr' ? 'no PR' : 'na issue'} (Markdown)`}
-        className="min-h-20"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
-        }}
-      />
-      <div className="flex justify-end">
-        <Button size="sm" onClick={() => void submit()} disabled={busy !== null || !body.trim()} title="Ctrl+Enter">
-          {busy && <Loader2 className="animate-spin" />}
-          Comentar
-        </Button>
+    <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3">
+      <div className="pt-0.5">{avatar}</div>
+      <div className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+        <div className="flex items-center gap-1 bg-foreground/[0.03] px-2 py-1.5">
+          <button type="button" className={tab(!preview)} onClick={() => setPreview(false)}>
+            Escrever
+          </button>
+          <button type="button" className={tab(preview)} onClick={() => setPreview(true)}>
+            Ver como fica
+          </button>
+          <span className="ml-auto pr-1 text-[11px] text-muted-foreground">Markdown</span>
+        </div>
+        {preview ? (
+          <div className="min-h-28 px-4 py-3">
+            {body.trim() ? <Markdown text={body} /> : <p className="text-sm text-muted-foreground">Nada para ver ainda.</p>}
+          </div>
+        ) : (
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={`Comentar ${kind === 'pr' ? 'no PR' : 'na issue'}`}
+            className="min-h-28 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
+            }}
+          />
+        )}
+        <div className="flex items-center justify-end gap-2 px-2 pb-2">
+          <span className="text-[11px] text-muted-foreground">Ctrl+Enter envia</span>
+          <Button size="sm" onClick={() => void submit()} disabled={busy !== null || !body.trim()}>
+            {busy && <Loader2 className="animate-spin" />}
+            Comentar
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -126,7 +126,7 @@ function TodoCard({ machine, cwd }: { machine: string; cwd: string }) {
           {pending.slice(0, 3).map((t) => (
             <label key={t.id} className={cn(ROW, 'cursor-pointer items-center')}>
               <Checkbox checked={false} onCheckedChange={() => saveTodos(machine, cwd, items.map((x) => (x.id === t.id ? { ...x, done: true } : x)))} />
-              <span className="line-clamp-2 min-w-0">{t.text}</span>
+              <span className="line-clamp-2 min-w-0">{t.title}</span>
             </label>
           ))}
         </div>
@@ -229,7 +229,13 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
   if (info?.ok)
     for (const i of info.issues.slice(0, 2))
       shortcuts.push({ key: `i${i.number}`, label: `issue #${i.number}: ${i.title}`, act: () => insertInto(composerId, `issue #${i.number} `) })
-  if (todo) shortcuts.push({ key: 'todo', label: `TODO: ${todo.text}`, act: () => insertInto(composerId, `${todo.text} `) })
+  // Com o número, o Claude recebe o item inteiro (descrição e anexos); sem ele (ainda salvando), o título.
+  if (todo)
+    shortcuts.push({
+      key: 'todo',
+      label: todo.n ? `TODO:${todo.n}: ${todo.title}` : `TODO: ${todo.title}`,
+      act: () => insertInto(composerId, todo.n ? `TODO:${todo.n} ` : `${todo.title} `),
+    })
 
   return (
     <div className="absolute inset-0 overflow-y-auto">

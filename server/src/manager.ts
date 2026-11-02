@@ -56,6 +56,8 @@ export type CatalogEntry = {
   pinned?: boolean;
   /** O nome que você deu ao claudinho da conversa; sem ele, o app mostra o sorteado. */
   claudinhoName?: string;
+  /** O id de onde vem o claudinho desta conversa, quando ela continua outra (ver meta.ts). */
+  look?: string;
 };
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
@@ -177,14 +179,31 @@ export class Manager extends EventEmitter {
       byId.set(s.id, entry);
     }
 
+    // Os títulos antes de tirar as esvaziadas: a que continua uma delas pode precisar do título de lá.
+    const titles = new Map([...byId].map(([id, e]) => [id, e.title]));
+    // As esvaziadas por um /clear saem: quem segue é a conversa nova, com o mesmo claudinho.
+    for (const id of byId.keys()) if (this.meta.isCleared(id) && !this.sessions.has(id)) byId.delete(id);
     for (const entry of byId.values()) {
       if (this.meta.isPinned(entry.sessionId)) entry.pinned = true;
+      const look = this.meta.lookOf(entry.sessionId);
+      if (look) {
+        entry.look = look;
+        // Depois de um /clear, a primeira mensagem da conversa nova é o próprio comando, e o título sairia
+        // "/clear": até ela ter um de verdade, fica o da conversa de onde ela veio.
+        const before = titles.get(look);
+        if (/^\/[\w:-]+\s*$/.test(entry.title) && before && !before.startsWith('/')) entry.title = before;
+      }
       const name = this.meta.nameOf(entry.sessionId);
       if (name) entry.claudinhoName = name;
       const fork = this.meta.forkOf(entry.sessionId);
       if (fork) entry.forkedFrom = { sessionId: fork.from, title: byId.get(fork.from)?.title };
     }
     return [...byId.values()].sort((a, b) => b.lastModified - a.lastModified);
+  }
+
+  /** O id de onde vem o claudinho da conversa, para o aviso de id novo levar junto. */
+  lookOf(sessionId: string): string | undefined {
+    return this.meta.lookOf(sessionId);
   }
 
   /** A salinha: cada conversa aberta e o que cada claudinho dela faz agora. */
@@ -301,6 +320,12 @@ export class Manager extends EventEmitter {
     return session;
   }
 
+  /**
+   * O que acompanha uma mensagem para o Claude sem aparecer no chat: o conteúdo dos `TODO:n` que ela
+   * menciona (ver todos.ts). Posto pelo index.ts, que tem a lista.
+   */
+  todoContext?: (cwd: string, text: string) => Promise<string | null>;
+
   async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string): Promise<void> {
     // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
     if (clientId && this.delivered.has(clientId)) return;
@@ -311,7 +336,8 @@ export class Manager extends EventEmitter {
     }
     try {
       const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
-      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId });
+      const context = (await this.todoContext?.(session.cwd, text).catch(() => null)) ?? undefined;
+      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context });
     } catch (err) {
       if (clientId) this.delivered.delete(clientId);
       throw err;
@@ -531,9 +557,16 @@ export class Manager extends EventEmitter {
     session.on('rekey', (from: string, to: string) => {
       this.sessions.delete(from);
       this.sessions.set(to, session);
-      // A bifurcação só ganha ID aqui; antes disso não havia a quem amarrar a origem.
+      // A bifurcação só ganha ID aqui; antes disso não havia a quem amarrar a origem. Ela é outra
+      // conversa, com outro claudinho; qualquer outro id novo (o /clear, uma sessão retomada) é a mesma
+      // conversa seguindo, e veste o mesmo claudinho.
       if (session.origin) void this.meta.setFork(to, { from: session.origin, at: session.resumeAt });
+      else void this.meta.inherit(to, from);
       this.emit('rekey', from, to);
+      this.emit('catalog');
+    });
+    session.on('cleared', (from: string, to: string) => {
+      void this.meta.setCleared(from, to);
       this.emit('catalog');
     });
     session.on('event', (ev: LoggedEvent) => this.emit('event', session.id, ev, session.runId));

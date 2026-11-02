@@ -1,4 +1,4 @@
-import { lookOf, phaseOf, type Eyes, type Look } from '@/lib/claudinho'
+import { lookOf, phaseOf, useLooks, type Eyes, type Look } from '@/lib/claudinho'
 import type { CatalogState, SessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -75,7 +75,9 @@ export function Claudinho({
   status?: boolean
   className?: string
 }) {
-  const look = lookOf(seed)
+  // A conversa que continua outra (um /clear) veste o claudinho de lá: o mesmo personagem.
+  const worn = useLooks((s) => s[seed]) ?? seed
+  const look = lookOf(worn)
   const running = state === 'running' || state === 'starting'
   const waiting = state === 'waiting'
   const half = look.gap / 2
@@ -94,7 +96,7 @@ export function Claudinho({
         <Body look={look} />
         <g
           className={running ? 'claudinho-blink' : undefined}
-          style={running ? { animationDelay: `${(-phaseOf(seed) * 4).toFixed(2)}s` } : undefined}
+          style={running ? { animationDelay: `${(-phaseOf(worn) * 4).toFixed(2)}s` } : undefined}
           transform={waiting ? 'translate(0 -1.6)' : undefined}
         >
           <Eye x={16 - half} y={look.eyeY} s={look.eyeScale} kind={look.eyes} side={-1} />
