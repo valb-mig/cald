@@ -1,5 +1,6 @@
 import { useLocation } from 'wouter'
 import { create } from 'zustand'
+import { themeOf } from '@/components/wallpaper/themes'
 import { onWorkbench } from './workbench'
 
 /**
@@ -8,23 +9,7 @@ import { onWorkbench } from './workbench'
  * PC ficar limpo.
  */
 // Os temas que existem; o salvo de um que saiu do app (ver `load`) não vale mais.
-const THEME_IDS = [
-  'none',
-  'aquarium',
-  'jellyfish',
-  'fireflies',
-  'codigo',
-  'aurora',
-  'galaxia',
-  'luar',
-  'chuva',
-  'sakura',
-  'nuvens',
-  'lagoa',
-  'carpas',
-  'barquinhos',
-  'som',
-] as const
+const THEME_IDS = ['none', 'ondas'] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 export type Intensity = 'subtle' | 'medium' | 'strong'
 
@@ -80,10 +65,11 @@ export function useGlass(): boolean {
   return theme !== 'none' && onWorkbench(location)
 }
 
-/** O véu da coluna de mensagens agora, ou vazio quando não há cena atrás. */
+/** O véu da coluna de mensagens agora, ou vazio quando não há cena atrás ou o tema dispensa véu. */
 export function useScrim(): string {
   const intensity = useWallpaper((s) => s.intensity)
-  return useGlass() ? SCRIM[intensity] : ''
+  const veil = useWallpaper((s) => themeOf(s.theme)?.veil ?? false)
+  return useGlass() && veil ? SCRIM[intensity] : ''
 }
 
 export function setWallpaper(next: Partial<WallpaperPrefs>): void {

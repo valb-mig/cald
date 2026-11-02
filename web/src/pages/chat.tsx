@@ -831,7 +831,7 @@ export function ChatPage({ id }: { id: string }) {
         <div className={cn('relative flex shrink-0 flex-col', pane.collapsed && 'hidden')}>
           {/* O véu continua atrás da barra de texto até o fim da tela; sem isto ele parava no topo dela,
               e em volta da barra a cena aparecia sem escurecer. */}
-          {glass && <Veil scrim={scrim} />}
+          {scrim && <Veil scrim={scrim} />}
           {/* Posicionado para ficar por cima do véu, que é absoluto. */}
           <div className="relative flex flex-col">
             {shown === 'map' && owner === 'panel' && requests.length > 0 && (
