@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from './api'
-import type { GithubInfo, GithubItem } from './types'
+import type { GithubAction, GithubInfo, GithubItem } from './types'
 
 /**
  * PRs e issues do GitHub por projeto: uma busca só para as duas abas da barra do projeto e para os
@@ -91,7 +91,15 @@ function loadItem(machine: string, cwd: string, kind: 'issue' | 'pr', number: nu
   request = api
     .githubItem(machine, cwd, kind, number, refresh)
     .then(
-      (item) => useItemCache.setState({ [key]: { item, loading: false, error: null } }),
+      (item) =>
+        useItemCache.setState({
+          // O servidor ainda não reiniciado responde no formato antigo, sem `viewer` (nem etiquetas do repositório,
+          // nem responsáveis no PR): desenhar com isso quebra a aba, então vira o aviso de reiniciar.
+          [key]:
+            item.ok && item.viewer === undefined
+              ? { item: current?.item ?? null, loading: false, error: OUTDATED_SERVER }
+              : { item, loading: false, error: null },
+        }),
       (err) =>
         useItemCache.setState({
           [key]: { item: current?.item ?? null, loading: false, error: isOutdatedServer(err) ? OUTDATED_SERVER : errorMessage(err) },
@@ -114,4 +122,16 @@ export function useGithubItem(machine: string, cwd: string, kind: 'issue' | 'pr'
     error: entry?.error ?? null,
     refresh: () => void loadItem(machine, cwd, kind, number, true),
   }
+}
+
+/**
+ * Faz uma ação no GitHub (comentar, etiquetas, fechar, revisar, merge…) e põe na tela o item como ficou,
+ * que o servidor já devolve: sem outra busca do item. Erro sobe para quem chamou mostrar.
+ */
+export async function actOnGithub(machine: string, cwd: string, kind: 'issue' | 'pr', number: number, action: GithubAction): Promise<void> {
+  const item = await api.githubAct(machine, cwd, kind, number, action)
+  useItemCache.setState({ [`${keyOf(machine, cwd)}\n${kind}\n${number}`]: { item, loading: false, error: null } })
+  // A lista, se já tinha sido buscada: estado, etiquetas e revisão aparecem nela. Comentar não muda nada
+  // que ela mostre além do contador, então não gasta outra consulta por isso.
+  if (action.type !== 'comment' && useGithubCache.getState()[keyOf(machine, cwd)]?.info) void loadGithub(machine, cwd, true)
 }

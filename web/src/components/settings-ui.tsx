@@ -49,7 +49,7 @@ export function Segmented<T extends string>({
   className,
 }: {
   value: T
-  options: { key: T; label: string; icon?: React.ReactNode }[]
+  options: { key: T; label: string; icon?: React.ReactNode; disabled?: boolean; title?: string }[]
   onChange: (value: T) => void
   className?: string
 }) {
@@ -60,8 +60,10 @@ export function Segmented<T extends string>({
           key={o.key}
           type="button"
           aria-pressed={value === o.key}
+          disabled={o.disabled}
+          title={o.title}
           onClick={() => onChange(o.key)}
-          className="flex items-center justify-center gap-1.5 rounded-md py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs dark:aria-pressed:bg-sidebar-accent [&_svg]:size-4"
+          className="flex items-center justify-center gap-1.5 rounded-md py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs dark:aria-pressed:bg-sidebar-accent [&_svg]:size-4"
         >
           {o.icon}
           {o.label}

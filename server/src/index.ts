@@ -13,7 +13,7 @@ import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
 import { gitCommit, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
-import { githubInfo, githubItem } from './github.ts';
+import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
@@ -428,6 +428,43 @@ app.get<{ Querystring: { cwd: string; kind: 'issue' | 'pr'; number: number; refr
     },
   },
   async (req) => githubItem(await manager.knownCwd(req.query.cwd), req.query.kind, req.query.number, req.query.refresh === '1'),
+);
+
+// Uma ação numa issue ou num PR (comentar, etiquetas, fechar, revisar, merge…), pelo `gh` deste PC.
+// Só no clique de quem usa: nada aqui roda sozinho, e cada uma gasta poucas chamadas da cota.
+app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: GithubAction } }>(
+  '/api/github/action',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'kind', 'number', 'action'],
+        properties: {
+          cwd: { type: 'string' },
+          kind: { type: 'string', enum: ['issue', 'pr'] },
+          number: { type: 'integer', minimum: 1 },
+          action: {
+            type: 'object',
+            required: ['type'],
+            properties: {
+              type: { type: 'string', enum: ['comment', 'labels', 'state', 'assign', 'review', 'merge', 'draft'] },
+              body: { type: 'string', maxLength: 65_000 },
+              add: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+              remove: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+              open: { type: 'boolean' },
+              reason: { type: 'string', enum: ['completed', 'not planned'] },
+              me: { type: 'boolean' },
+              event: { type: 'string', enum: ['approve', 'request-changes', 'comment'] },
+              method: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
+              deleteBranch: { type: 'boolean' },
+              draft: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => githubAct(await manager.knownCwd(req.body.cwd), req.body.kind, req.body.number, req.body.action),
 );
 
 app.get<{ Querystring: { cwd: string } }>(
