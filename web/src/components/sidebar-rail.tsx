@@ -23,28 +23,32 @@ const RING = {
 const R = 15
 const CIRCUMFERENCE = 2 * Math.PI * R
 
-/**
- * Anel de progresso com a porcentagem no meio; alerta e crítico vêm com ícone, para não depender
- * só da cor. `text` troca o que vai no meio e `level` desliga a escala de severidade, para o anel
- * em que encher não é problema nenhum.
- */
-function Ring({
-  label,
-  percent,
-  tip,
-  text,
-  level: fixed,
-}: {
+type Level = keyof typeof RING
+type Metric = {
   label: string
   percent: number | null
   tip: string
+  /** O que vai no lugar da porcentagem. */
   text?: string
-  level?: keyof typeof RING
-}) {
-  const known = percent !== null
-  const level = fixed ?? (known ? severityOf(percent) : 'normal')
+  /** Fixo: desliga a escala de severidade, para a medida em que encher não é problema nenhum. */
+  level?: Level
+}
+
+const levelOf = ({ percent, level }: Metric): Level => level ?? (percent !== null ? severityOf(percent) : 'normal')
+const valueOf = ({ percent, text }: Metric) => text ?? (percent !== null ? `${Math.round(percent)}%` : '—')
+const clamp = (percent: number | null) => (percent === null ? 0 : Math.min(100, Math.max(0, percent)))
+
+function AlertIcon({ level }: { level: Level }) {
   const Icon = level === 'critical' ? OctagonAlert : level === 'warning' ? TriangleAlert : null
-  const fill = known ? Math.min(100, Math.max(0, percent)) : 0
+  if (!Icon) return null
+  return <Icon className={cn('size-2.5 shrink-0', level === 'critical' ? 'text-[#d03b3b]' : 'text-[#c98a00] dark:text-[#fab219]')} aria-hidden />
+}
+
+/** Anel de progresso com o valor no meio; alerta e crítico vêm com ícone, para não depender só da cor. */
+function Ring(metric: Metric) {
+  const { label, percent, tip } = metric
+  const known = percent !== null
+  const level = levelOf(metric)
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -66,20 +70,57 @@ function Ring({
                   strokeWidth="3.5"
                   strokeLinecap="round"
                   strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={CIRCUMFERENCE * (1 - fill / 100)}
+                  strokeDashoffset={CIRCUMFERENCE * (1 - clamp(percent) / 100)}
                   className={cn('transition-[stroke-dashoffset] duration-500', RING[level].stroke)}
                 />
               )}
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums">
-              {text ?? (known ? `${Math.round(percent)}%` : '—')}
-            </span>
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums">{valueOf(metric)}</span>
           </span>
           <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-            {Icon && (
-              <Icon className={cn('size-2.5', level === 'critical' ? 'text-[#d03b3b]' : 'text-[#c98a00] dark:text-[#fab219]')} aria-hidden />
-            )}
+            <AlertIcon level={level} />
             {label}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{tip}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+// As barras ficam no cinza da ilha: a cor é só para o alerta e para a meta de horas batida.
+const BAR = {
+  normal: { fill: 'bg-foreground/40', text: 'text-foreground' },
+  warning: { fill: 'bg-[#fab219]', text: 'text-[#c98a00] dark:text-[#fab219]' },
+  critical: { fill: 'bg-[#d03b3b]', text: 'text-[#d03b3b]' },
+  done: { fill: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+}
+
+/** Uma medida numa linha: nome, traço fino e valor. */
+function BarRow(metric: Metric) {
+  const { label, percent, tip } = metric
+  const level = levelOf(metric)
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setComputerOpen(true)}
+          aria-label={tip}
+          className="grid w-full grid-cols-[3.75rem_1fr_2.5rem] items-center gap-2 rounded-lg px-2 py-1 text-[11px] transition-colors hover:bg-foreground/5"
+        >
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <AlertIcon level={level} />
+            {label}
+          </span>
+          <span className="h-1 overflow-hidden rounded-full bg-foreground/10">
+            <span
+              className={cn('block h-full rounded-full transition-[width] duration-500', BAR[level].fill)}
+              style={{ width: `${clamp(percent)}%` }}
+            />
+          </span>
+          <span className={cn('text-right font-medium tabular-nums', percent !== null ? BAR[level].text : 'text-muted-foreground')}>
+            {valueOf(metric)}
           </span>
         </button>
       </TooltipTrigger>
@@ -152,28 +193,86 @@ export function RailItem({
   )
 }
 
+/** O tempo de hoje, CPU, memória e os limites do Claude, da máquina do filtro das Sessões. */
+function useMetrics(): Metric[] {
+  const machine = useMachineFilter() ?? HOME
+  const system = useStore((s) => s.systems[machine])
+  const usage = useStore((s) => s.usages[machine])
+  // Com várias máquinas, as medidas dizem de qual é (a do filtro das Sessões).
+  const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
+  const of = (text: string) => (name ? `${name} · ${text}` : text)
+  const coding = useWakatimeToday(machine)
+  const plan = usage?.plan?.available ? usage.plan : null
+  const goal = coding ? coding.goalHours * 3600 : 0
+  return [
+    ...(coding
+      ? [
+          {
+            label: 'Hoje',
+            percent: (coding.seconds / goal) * 100,
+            level: coding.seconds >= goal ? ('done' as const) : ('normal' as const),
+            text: shortDuration(coding.seconds),
+            tip: of(`Codando hoje: ${coding.text} · meta de ${coding.goalHours} h (WakaTime)`),
+          },
+        ]
+      : []),
+    {
+      label: 'CPU',
+      percent: system ? system.cpu.percent : null,
+      tip: of(system ? `CPU: ${Math.round(system.cpu.percent)}% · carga ${system.cpu.load[0].toLocaleString('pt-BR')}` : 'CPU: carregando'),
+    },
+    {
+      label: 'Mem.',
+      percent: system ? (system.memory.used / system.memory.total) * 100 : null,
+      tip: of(system ? `Memória: ${bytes(system.memory.used)} de ${bytes(system.memory.total)}` : 'Memória: carregando'),
+    },
+    { label: '5 h', percent: plan?.fiveHour?.utilization ?? null, tip: of(windowTip('Claude · 5 h', plan?.fiveHour)) },
+    { label: 'Semana', percent: plan?.sevenDay?.utilization ?? null, tip: of(windowTip('Claude · semana', plan?.sevenDay)) },
+  ]
+}
+
+/** Na alça (com a lista recolhida), as medidas em anéis empilhados; tocar em um abre o painel Computador. */
+function RailMeters() {
+  const metrics = useMetrics()
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      {metrics.map((m) => (
+        <Ring key={m.label} {...m} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Com a lista aberta, as medidas saem da coluna estreita da alça para o pé dela, uma por linha, soltas
+ * na ilha como as conversas (ver App.tsx). Recolhida a lista, voltam para a alça em anéis.
+ */
+export function SidebarMeters() {
+  const metrics = useMetrics()
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div className="shrink-0 px-2 pt-2 pb-3">
+        {metrics.map((m) => (
+          <BarRow key={m.label} {...m} />
+        ))}
+      </div>
+    </TooltipProvider>
+  )
+}
+
 /**
  * Alça do PC, sempre à esquerda, como a barra de atividades do VS Code: o botão do topo abre e recolhe a
  * barra lateral; Sessões (com o contador das que precisam de você) e Projetos escolhem o que ela
- * mostra. Embaixo, o tempo de hoje, CPU, memória e os limites do Claude em anéis e, por último, a
- * marca do Claude, que abre o painel Computador.
+ * mostra. Embaixo, com a lista recolhida, os anéis (com ela aberta, eles ficam no pé dela) e, por
+ * último, a marca do Claude, que abre o painel Computador.
  */
 export function SidebarRail() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
-  const machine = useMachineFilter() ?? HOME
-  const system = useStore((s) => s.systems[machine])
-  const usage = useStore((s) => s.usages[machine])
-  // Com várias máquinas, os anéis dizem de qual é (a do filtro das Sessões).
-  const name = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
-  const of = (text: string) => (name ? `${name} · ${text}` : text)
   const collapsed = useSidebar((s) => s.collapsed)
   const view = useSidebar((s) => s.view)
   const computer = useComputer((s) => s.open)
   const toggle = () => setSidebarCollapsed(!collapsed)
-  const coding = useWakatimeToday(machine)
-  const plan = usage?.plan?.available ? usage.plan : null
-  const memory = system ? (system.memory.used / system.memory.total) * 100 : null
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -199,27 +298,7 @@ export function SidebarRail() {
         </RailItem>
 
         <div className="mt-auto flex flex-col items-center gap-1.5">
-          {coding && (
-            <Ring
-              label="Hoje"
-              percent={(coding.seconds / (coding.goalHours * 3600)) * 100}
-              level={coding.seconds >= coding.goalHours * 3600 ? 'done' : 'normal'}
-              text={shortDuration(coding.seconds)}
-              tip={of(`Codando hoje: ${coding.text} · meta de ${coding.goalHours} h (WakaTime)`)}
-            />
-          )}
-          <Ring
-            label="CPU"
-            percent={system ? system.cpu.percent : null}
-            tip={of(system ? `CPU: ${Math.round(system.cpu.percent)}% · carga ${system.cpu.load[0].toLocaleString('pt-BR')}` : 'CPU: carregando')}
-          />
-          <Ring
-            label="Mem."
-            percent={memory}
-            tip={of(system ? `Memória: ${bytes(system.memory.used)} de ${bytes(system.memory.total)}` : 'Memória: carregando')}
-          />
-          <Ring label="5 h" percent={plan?.fiveHour?.utilization ?? null} tip={of(windowTip('Claude · 5 h', plan?.fiveHour))} />
-          <Ring label="Semana" percent={plan?.sevenDay?.utilization ?? null} tip={of(windowTip('Claude · semana', plan?.sevenDay))} />
+          {collapsed && <RailMeters />}
           {/* O painel Computador: o PC, os limites do Claude e os ajustes deste aparelho. Abre por cima,
               sem tirar você da conversa (ver lib/computer.ts). */}
           <RailItem label="Computador: o PC, os limites e os ajustes" onClick={() => setComputerOpen(true)} active={computer}>

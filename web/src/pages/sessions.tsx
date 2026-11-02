@@ -174,7 +174,7 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
   )
 }
 
-/** `sidebar`: na barra lateral do PC, só a lista; as métricas e as abas ficam na alça (ver sidebar-rail.tsx). */
+/** `sidebar`: na barra lateral do PC, só a lista; as abas ficam na alça e as métricas no pé da barra (ver sidebar-rail.tsx). */
 export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const all = useStore((s) => s.catalog)
   const loaded = useStore((s) => s.catalogLoaded)

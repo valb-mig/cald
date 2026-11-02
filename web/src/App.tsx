@@ -5,7 +5,7 @@ import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
 import { ProjectViewer } from '@/components/project/viewer'
 import { ShellPaint } from '@/components/shell-paint'
-import { SidebarRail } from '@/components/sidebar-rail'
+import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
 import { BottomPanel, StatusBar } from '@/components/status-bar'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
@@ -156,8 +156,8 @@ export default function App() {
 
 /**
  * PC e tablet deitado: a barra lateral, uma ilha só com a alça (abas e métricas) e, ao lado dela, a
- * lista escolhida na alça (conversas ou projetos), que recolhe pelo botão do topo dela. Recolhida, a
- * ilha fica só com a alça.
+ * lista escolhida na alça (conversas ou projetos), que recolhe pelo botão do topo dela, com as
+ * métricas no pé. Recolhida, a ilha fica só com a alça, e as métricas voltam para ela.
  */
 function Sidebar() {
   const collapsed = useSidebar((s) => s.collapsed)
@@ -171,6 +171,7 @@ function Sidebar() {
           <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
             {view === 'projects' ? <ProjectsPage sidebar /> : <SessionsPage sidebar />}
           </div>
+          <SidebarMeters />
         </aside>
       )}
       {/* O fio de luz da borda de cima, por cima de tudo: na ilha mesmo, o cabeçalho fixo da lista (com
