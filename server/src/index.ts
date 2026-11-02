@@ -12,7 +12,8 @@ import type { Attachment } from './attachments.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
-import { gitDiff, gitStatus, gitSummaries } from './git.ts';
+import { gitCommit, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
+import { githubInfo, githubItem } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
@@ -26,6 +27,8 @@ import { sessionCost } from './session-cost.ts';
 import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
+import { openTerminal } from './terminal.ts';
+import { MAX_TODO_TEXT, MAX_TODOS, TodoStore, type Todo } from './todos.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
@@ -33,6 +36,8 @@ await mkdir(UPLOADS_DIR, { recursive: true });
 const live = new LiveRegistry();
 const meta = new MetaStore();
 await meta.load();
+const todos = new TodoStore();
+await todos.load();
 const manager = new Manager(live, meta);
 const monitor = new SystemMonitor(() => manager.planUsage());
 const audio = new AudioMonitor();
@@ -104,7 +109,12 @@ app.get('/api/sessions', async () => manager.catalog());
 app.get('/api/system', async () => ({ system: monitor.system, usage: monitor.usage }));
 
 // Uso por dia, para a home: grid do ano, gráficos e projetos (ver activity.ts).
-app.get('/api/activity', async () => activity());
+// Com `cwd`, só o uso daquele projeto (o hub do projeto).
+app.get<{ Querystring: { cwd?: string } }>(
+  '/api/activity',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
+  async (req) => activity(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
+);
 
 // A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
 app.get('/api/office', async () => manager.office());
@@ -221,6 +231,20 @@ app.post<{ Params: IdParams; Body: { pinned: boolean } }>(
   },
 );
 
+// O nome do claudinho da conversa (o app sorteia um; este é o que você deu). `null` volta ao sorteado.
+app.post<{ Params: IdParams; Body: { name: string | null } }>(
+  '/api/sessions/:id/claudinho',
+  {
+    schema: {
+      body: { type: 'object', required: ['name'], properties: { name: { type: ['string', 'null'], maxLength: 24 } } },
+    },
+  },
+  async (req) => {
+    await manager.setClaudinhoName(req.params.id, req.body.name);
+    return { ok: true };
+  },
+);
+
 app.post<{ Params: IdParams; Body: { title: string } }>(
   '/api/sessions/:id/rename',
   {
@@ -286,10 +310,14 @@ app.post<{ Params: IdParams }>('/api/sessions/:id/delete', async (req) => {
 
 // ---- explorador (só leitura) e git do projeto ----
 
-type ProjectQuery = { Querystring: { cwd: string; path?: string } };
+type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide } };
 const projectQuery = {
   schema: {
-    querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, path: { type: 'string' } } },
+    querystring: {
+      type: 'object',
+      required: ['cwd'],
+      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged'] } },
+    },
   },
 };
 
@@ -320,8 +348,125 @@ app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
 app.get<ProjectQuery>('/api/git', projectQuery, async (req) => gitStatus(await manager.knownCwd(req.query.cwd)));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
-  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
+  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
 }));
+
+// Controle de código-fonte pelo painel: preparar, tirar do stage, commit e sincronizar. Descartar
+// alterações fica de fora de propósito: é a única ação daqui que não teria volta.
+type GitPathsBody = { Body: { cwd: string; paths: string[] } };
+const gitPathsBody = {
+  schema: {
+    body: {
+      type: 'object',
+      required: ['cwd', 'paths'],
+      properties: { cwd: { type: 'string' }, paths: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5000 } },
+    },
+  },
+};
+
+app.post<GitPathsBody>('/api/git/stage', gitPathsBody, async (req) => {
+  await gitStage(await manager.knownCwd(req.body.cwd), req.body.paths);
+  return { ok: true };
+});
+
+app.post<GitPathsBody>('/api/git/unstage', gitPathsBody, async (req) => {
+  await gitUnstage(await manager.knownCwd(req.body.cwd), req.body.paths);
+  return { ok: true };
+});
+
+app.post<{ Body: { cwd: string; message: string; all?: boolean } }>(
+  '/api/git/commit',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'message'],
+        properties: { cwd: { type: 'string' }, message: { type: 'string', maxLength: 20_000 }, all: { type: 'boolean' } },
+      },
+    },
+  },
+  async (req) => gitCommit(await manager.knownCwd(req.body.cwd), req.body.message, req.body.all ?? false),
+);
+
+app.post<{ Body: { cwd: string } }>(
+  '/api/git/sync',
+  { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
+  async (req) => {
+    await gitSync(await manager.knownCwd(req.body.cwd));
+    return { ok: true };
+  },
+);
+
+// ---- GitHub e TODO do projeto (abas da barra do projeto) ----
+
+// PRs e issues abertos, pelo `gh` deste PC, com cache para não gastar a cota da API (ver github.ts).
+app.get<{ Querystring: { cwd: string; refresh?: string } }>(
+  '/api/github',
+  {
+    schema: {
+      querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, refresh: { type: 'string' } } },
+    },
+  },
+  async (req) => githubInfo(await manager.knownCwd(req.query.cwd), req.query.refresh === '1'),
+);
+
+// Uma issue ou um PR inteiro, para a aba de análise no meio da tela (mesmo cache).
+app.get<{ Querystring: { cwd: string; kind: 'issue' | 'pr'; number: number; refresh?: string } }>(
+  '/api/github/item',
+  {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['cwd', 'kind', 'number'],
+        properties: {
+          cwd: { type: 'string' },
+          kind: { type: 'string', enum: ['issue', 'pr'] },
+          number: { type: 'integer', minimum: 1 },
+          refresh: { type: 'string' },
+        },
+      },
+    },
+  },
+  async (req) => githubItem(await manager.knownCwd(req.query.cwd), req.query.kind, req.query.number, req.query.refresh === '1'),
+);
+
+app.get<{ Querystring: { cwd: string } }>(
+  '/api/todos',
+  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
+  async (req) => ({ items: todos.list(await manager.knownCwd(req.query.cwd)) }),
+);
+
+// A lista inteira de uma vez: o app manda como ficou depois de cada mudança.
+app.post<{ Body: { cwd: string; items: Todo[] } }>(
+  '/api/todos',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'items'],
+        properties: {
+          cwd: { type: 'string' },
+          items: {
+            type: 'array',
+            maxItems: MAX_TODOS,
+            items: {
+              type: 'object',
+              required: ['id', 'text', 'done', 'createdAt'],
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', minLength: 1, maxLength: 64 },
+                text: { type: 'string', minLength: 1, maxLength: MAX_TODO_TEXT },
+                done: { type: 'boolean' },
+                createdAt: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => ({ items: await todos.replace(await manager.knownCwd(req.body.cwd), req.body.items) }),
+);
 
 // Quanto você já codou hoje, para o anel na alça do PC; `null` sem o wakatime-cli instalado.
 app.get('/api/wakatime', async () => ({ today: await wakatimeToday().catch(() => null) }));
@@ -551,6 +696,26 @@ function subscribe(socket: WebSocket, sessionId: string, sinceSeq: number, runId
     events,
   });
 }
+
+/**
+ * Terminal do painel, na pasta de um projeto conhecido (ver terminal.ts). A proteção de acesso vale
+ * aqui como no resto: só a origem do app abre (um site qualquer no navegador, não), e só pela tailnet
+ * do dono. O que chega antes de a pasta ser conferida (o tamanho da tela) fica guardado e vai depois.
+ */
+app.get<{ Querystring: { cwd?: string } }>('/ws/terminal', { websocket: true }, (socket, req) => {
+  const early: Buffer[] = [];
+  const hold = (raw: Buffer) => early.push(raw);
+  socket.on('message', hold);
+  manager.knownCwd(req.query.cwd ?? '').then(
+    (dir) => {
+      socket.off('message', hold);
+      if (socket.readyState !== socket.OPEN) return;
+      openTerminal(socket, dir);
+      for (const raw of early) socket.emit('message', raw, false);
+    },
+    () => socket.close(1008, 'unknown_project'),
+  );
+});
 
 app.get('/ws', { websocket: true }, (socket) => {
   clients.set(socket, new Set());

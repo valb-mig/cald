@@ -5,7 +5,6 @@ import {
   Columns2,
   Copy,
   EllipsisVertical,
-  GitBranch,
   GitFork,
   ListChecks,
   Lock,
@@ -13,7 +12,6 @@ import {
   Maximize2,
   Minimize2,
   LogOut,
-  Menu,
   MessagesSquare,
   Monitor,
   Network,
@@ -41,12 +39,14 @@ import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { StickyPrompt } from '@/components/chat/sticky-prompt'
 import { SummarySheet } from '@/components/chat/summary-sheet'
+import { toolsIn } from '@/components/chat/turn'
+import { Claudinho } from '@/components/claudinho'
+import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
-import { ExplorerSheet } from '@/components/explorer'
-import { GitSheet } from '@/components/git-panel'
 import { MindMap } from '@/components/mindmap/mind-map'
 import { mindTree } from '@/components/mindmap/model'
 import { MapPane } from '@/components/mindmap/pane'
+import { ProjectPanelButton } from '@/components/project/panel'
 import { useChatDisplay } from '@/components/mindmap/view'
 import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
@@ -73,9 +73,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
+import { dropTools, publishTools } from '@/lib/chat-tools'
+import { claudinhoName } from '@/lib/claudinho'
 import { projectName, stateInfo } from '@/lib/format'
-import { useGitStatus, useHome, useWidth } from '@/lib/hooks'
+import { useGitStatus, useHome, usePressMenu, useWide, useWidth } from '@/lib/hooks'
 import { useBackToClose } from '@/lib/back-close'
+import { useShowProject } from '@/lib/project-panel'
+import { keyOf, pinTab } from '@/lib/workbench'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { setZen, useZen } from '@/lib/zen'
 import { putDraft } from '@/lib/drafts'
@@ -266,6 +270,9 @@ function Veil({ scrim }: { scrim: string }) {
 export function ChatPage({ id }: { id: string }) {
   // Com conversas lado a lado (ver lib/split.ts), cada ação mexe só neste lugar da tela.
   const pane = usePane()
+  // No PC as conversas ficam em abas (ver lib/workbench.ts): a aba é que se arrasta, fecha e marca o foco.
+  const tabs = useWide()
+  const handle = pane.split && !tabs
   const split = useSplit()
   const [besideOpen, setBesideOpen] = useState(false)
   const view = useStore(selectView(id))
@@ -279,9 +286,11 @@ export function ChatPage({ id }: { id: string }) {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [confirmTakeover, setConfirmTakeover] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
+  // O nome do claudinho: botão direito (ou o dedo segurado) no claudinho do cabeçalho.
+  const [naming, setNaming] = useState(false)
+  const nameMenu = usePressMenu(() => setNaming(true))
+  const name = claudinhoName(id, entry?.claudinhoName)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [explorerOpen, setExplorerOpen] = useState(false)
-  const [gitOpen, setGitOpen] = useState(false)
   const [agentsOpen, setAgentsOpen] = useState(false)
   const [agentId, setAgentId] = useState<string | null>(null)
   const home = useHome(machine)
@@ -337,6 +346,10 @@ export function ChatPage({ id }: { id: string }) {
     [history.events, panelOpen, view.events, view.runId],
   )
   const items = useMemo(() => buildItems(events), [events])
+  // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
+  const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
+  useEffect(() => publishTools(id, tools), [id, tools])
+  useEffect(() => () => dropTools(id), [id])
   // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
   const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId }), [agents])
@@ -364,6 +377,8 @@ export function ChatPage({ id }: { id: string }) {
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
   const project = entry?.cwd && home && entry.cwd !== home ? entry.cwd : undefined
   const git = useGitStatus(machine, project, turns)
+  // A barra do projeto, à direita, mostra o da conversa em foco (ver lib/project-panel.ts).
+  useShowProject(machine, project, id, pane.focused)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
   // Texto da mensagem bifurcada, esperando o ID que o rekey vai trazer.
@@ -418,6 +433,9 @@ export function ChatPage({ id }: { id: string }) {
     })
   }
   const openRequest = (key: string) => (shown === 'map' ? flash(dockRef.current) : jumpTo(key))
+
+  /** A aba desta conversa deixa de ser prévia (no celular não há abas, e não faz nada). */
+  const pin = () => pinTab(keyOf({ kind: 'chat', id }))
 
   const resumeCommand = entry?.cwd ? `cd '${entry.cwd}' && claude --resume ${id}` : `claude --resume ${id}`
 
@@ -475,7 +493,7 @@ export function ChatPage({ id }: { id: string }) {
       <div className="flex min-h-0 flex-1 flex-col">
         <header
           // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
-          draggable={pane.split}
+          draggable={handle}
           onDragStart={(e) => {
             e.dataTransfer.setData(CHAT_DRAG, id)
             e.dataTransfer.effectAllowed = 'move'
@@ -483,11 +501,15 @@ export function ChatPage({ id }: { id: string }) {
           }}
           onDragEnd={() => useDraggingChat.setState({ id: null })}
           className={cn(
-            'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1',
+            // No PC, sem linha: a aba aberta desce até ele, na mesma cor.
+            'flex shrink-0 items-center gap-1 border-b bg-background px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1 wide:border-b-0',
+            // Com o fundo animado, a borda de baixo esfumaça para a cena, em vez de cortar reto.
+            glass &&
+              'wide:relative wide:z-10 wide:after:pointer-events-none wide:after:absolute wide:after:inset-x-0 wide:after:top-full wide:after:h-6 wide:after:bg-linear-to-b wide:after:from-background wide:after:to-transparent',
             zen && 'hidden',
-            pane.split && 'cursor-grab active:cursor-grabbing',
+            handle && 'cursor-grab active:cursor-grabbing',
             // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
-            pane.split && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
+            handle && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
           )}
         >
           {/* No PC a lista de conversas já está ao lado. */}
@@ -496,11 +518,9 @@ export function ChatPage({ id }: { id: string }) {
               <ArrowLeft />
             </Link>
           </Button>
-          {project && (
-            <Button variant="ghost" size="icon" onClick={() => setExplorerOpen(true)} aria-label="Arquivos do projeto">
-              <Menu />
-            </Button>
-          )}
+          <span {...nameMenu} className="mx-1 flex shrink-0 select-none [-webkit-touch-callout:none]">
+            <Claudinho seed={id} name={name} state={shownState} size={30} />
+          </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               {/* No cabeçalho porque é o único lugar sempre à vista: a tarja lá embaixo fica no topo
@@ -514,6 +534,8 @@ export function ChatPage({ id }: { id: string }) {
               <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="shrink-0 font-medium text-foreground/70">{name}</span>
+              <span>·</span>
               <span className="min-w-0 truncate">{projectName(entry?.cwd)}</span>
               {machineLabel && (
                 <span className="flex shrink-0 items-center gap-0.5">
@@ -577,25 +599,7 @@ export function ChatPage({ id }: { id: string }) {
             </Button>
           )}
           {project && git.status?.remote && <RepoLink url={git.status.remote} />}
-          {project && git.status && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative"
-              onClick={() => {
-                git.reload()
-                setGitOpen(true)
-              }}
-              aria-label={`Git: ${git.status.files.length} arquivos alterados`}
-            >
-              <GitBranch />
-              {git.status.files.length > 0 && (
-                <span className="absolute top-0.5 right-0 min-w-4 rounded-full bg-sky-600 px-1 text-center text-[9px] leading-4 font-semibold text-white">
-                  {git.status.files.length > 99 ? '99+' : git.status.files.length}
-                </span>
-              )}
-            </Button>
-          )}
+          {project && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Mais ações">
@@ -649,7 +653,7 @@ export function ChatPage({ id }: { id: string }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          {pane.split && (
+          {handle && (
             <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
               <X />
             </Button>
@@ -815,7 +819,12 @@ export function ChatPage({ id }: { id: string }) {
                   await api.settings(id, patch)
                 }}
                 onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
-                onSend={(text, attachments) => enqueue(id, text, attachments)}
+                // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
+                onEdit={pin}
+                onSend={(text, attachments) => {
+                  pin()
+                  return enqueue(id, text, attachments)
+                }}
                 onInterrupt={() => api.interrupt(id).then(() => undefined)}
               />
             ) : (
@@ -828,7 +837,11 @@ export function ChatPage({ id }: { id: string }) {
                 settings={pending}
                 context={null}
                 onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-                onSend={(text, attachments) => enqueue(id, text, attachments, pending)}
+                onEdit={pin}
+                onSend={(text, attachments) => {
+                  pin()
+                  return enqueue(id, text, attachments, pending)
+                }}
               />
             )}
           </div>
@@ -876,12 +889,8 @@ export function ChatPage({ id }: { id: string }) {
           </DialogContent>
         </Dialog>
 
-        {project && <ExplorerSheet cwd={project} open={explorerOpen} onOpenChange={setExplorerOpen} />}
-        {project && git.status && (
-          <GitSheet cwd={project} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />
-        )}
-
         <DeleteSessionDialog sessionId={id} open={confirmDelete} onOpenChange={setConfirmDelete} />
+        <ClaudinhoNameDialog session={entry ?? { sessionId: id }} open={naming} onOpenChange={setNaming} />
 
         <AlertDialog open={confirmTakeover} onOpenChange={setConfirmTakeover}>
           <AlertDialogContent>

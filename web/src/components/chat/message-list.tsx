@@ -1,4 +1,5 @@
-import { CircleAlert, Clock, FilePen, FileText, Folder, GitFork, Info, Link2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { Check, CircleAlert, Clock, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, Pause, Play, SquareTerminal } from 'lucide-react'
+import { toast } from 'sonner'
 import { useEffect, useMemo, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
@@ -14,7 +15,7 @@ import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/
 import { useStore } from '@/lib/store'
 import type { BackgroundTask, PanelEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { Activity } from './activity'
+import { Activity, LineCounts } from './activity'
 import { ApprovalCard } from './approval-card'
 import { BackgroundTasks } from './background-tasks'
 import { ClaudeSpinner } from './claude-spinner'
@@ -175,6 +176,7 @@ function TurnShortcuts({ turn, cwd }: { turn: TurnInfo; cwd?: string }) {
       {turn.files.length > 0 && (
         <Button variant="outline" size="sm" className={chip} onClick={() => show('files')}>
           <FilePen /> {plural(turn.files.length, 'arquivo', 'arquivos')}
+          <LineCounts added={turn.files.reduce((n, f) => n + f.added, 0)} removed={turn.files.reduce((n, f) => n + f.removed, 0)} />
         </Button>
       )}
       {turn.commands.length > 0 && (
@@ -192,10 +194,38 @@ function TurnShortcuts({ turn, cwd }: { turn: TurnInfo; cwd?: string }) {
   )
 }
 
+/** Copia a resposta como o Claude escreveu, em Markdown, para colar num issue, num doc ou em outro chat. */
+function CopyMarkdown({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [copied])
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className="rounded-full pr-3.5"
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(
+          () => setCopied(true),
+          () => toast.error('Não deu para copiar: o navegador não liberou a área de transferência.'),
+        )
+      }
+      aria-label="Copiar a resposta em Markdown"
+      title="Copiar a resposta em Markdown"
+    >
+      {copied ? <Check /> : <Copy />}
+      {copied ? 'Copiado' : 'Copiar'}
+    </Button>
+  )
+}
+
 /**
- * Resposta do Claude, com **Ouvir** embaixo: lê o texto em voz alta com a voz do aparelho, e o
- * trecho sendo lido fica em destaque (a barra de controle fica em cima da caixa de mensagem). Na
- * última resposta de cada turno, os atalhos do que o turno fez.
+ * Resposta do Claude, com **Ouvir** e **Copiar** (em Markdown) embaixo: Ouvir lê o texto em voz alta
+ * com a voz do aparelho, e o trecho sendo lido fica em destaque (a barra de controle fica em cima da
+ * caixa de mensagem). Na última resposta de cada turno, os atalhos do que o turno fez.
  */
 function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; turn?: TurnInfo; cwd?: string }) {
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
@@ -205,17 +235,16 @@ function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; t
       <ReadingLine value={line}>
         <Markdown text={text} />
       </ReadingLine>
-      {(speechSupported || turn) && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {speechSupported && (
-            <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
-              {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-              {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
-            </Button>
-          )}
-          {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {speechSupported && (
+          <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
+            {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+            {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
+          </Button>
+        )}
+        <CopyMarkdown text={text} />
+        {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
+      </div>
     </div>
   )
 }
