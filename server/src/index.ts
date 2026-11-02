@@ -39,7 +39,7 @@ await meta.load();
 const todos = new TodoStore();
 await todos.load();
 const manager = new Manager(live, meta);
-const monitor = new SystemMonitor(() => manager.planUsage());
+const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();

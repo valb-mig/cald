@@ -349,6 +349,11 @@ export class Manager extends EventEmitter {
     return open ? open.planUsage() : withProbe(homedir(), readPlanUsage);
   }
 
+  /** Sem conversa aberta no painel, consultar o uso do plano sobe um Claude Code inteiro (a sonda). */
+  planNeedsProbe(): boolean {
+    return this.sessions.size === 0;
+  }
+
   /** Arquivos do projeto para o autocompletar do "@". */
   async files(cwd: string, query: string): Promise<string[]> {
     return searchProjectFiles(await this.knownCwd(cwd), query);
