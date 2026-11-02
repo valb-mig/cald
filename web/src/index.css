@@ -309,6 +309,59 @@
 .tab-enter {
   animation: tab-enter 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
+/* A barra de esforço do seletor de modelo (composer-controls.tsx). As cores do degradê são registradas
+   para a troca de nível deslizar de uma cor à outra, em vez de pular. Dentro do preenchimento, brilhos
+   correm para a direita e um reflexo passa. */
+@property --fx-from {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #4f46e5;
+}
+@property --fx-to {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #818cf8;
+}
+@keyframes effort-spark {
+  0% {
+    transform: translateX(-6px) scale(0.4);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(24px) scale(1);
+    opacity: 0;
+  }
+}
+.effort-spark {
+  animation: effort-spark 2s linear infinite;
+}
+@keyframes effort-shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -60% 0;
+  }
+}
+.effort-shimmer {
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.25) 50%, transparent 65%);
+  background-size: 250% 100%;
+  animation: effort-shimmer 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .effort-spark {
+    animation: none;
+    opacity: 0.5;
+  }
+  .effort-shimmer {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 @keyframes tab-panel-in {
   from {
     opacity: 0;

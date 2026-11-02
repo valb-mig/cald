@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
 import { AttachmentTray, useAttachments } from './attachment-tray'
-import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, findModel, footerButton, useModels } from './composer-controls'
+import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
 import { VoiceWave } from './voice-wave'
 
@@ -139,7 +139,6 @@ export function Composer({
   const showStop = working && empty && Boolean(onInterrupt)
   const mode = settings.permissionMode ?? 'default'
   const tone = MODE_TONE[mode] ?? MODE_TONE.default!
-  const efforts = findModel(models, settings.model)?.efforts ?? []
 
   async function submit() {
     if (empty || sending || files.reading) return
@@ -266,7 +265,7 @@ export function Composer({
                 {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
                 <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
                 <div className="flex-1" />
-                <ModeMenu settings={settings} efforts={efforts} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+                <ModeMenu settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
               </>
             )}
             {canDictate && (
