@@ -1,83 +1,83 @@
-import { ArrowDown, ArrowUp, GitBranch, House, Loader2, Plus } from 'lucide-react'
+import { GitBranch, House, Loader2, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
+import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
+import { useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
 import { useStore } from '@/lib/store'
 import type { GitSummary } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { openProjectHub } from '@/lib/workbench'
 
 type Stats = { count: number; last: number }
 
 const pending = (g: GitSummary | undefined) => Boolean(g && (g.changed > 0 || g.ahead > 0 || g.behind > 0))
 
-const BADGE = 'flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-medium'
+const ROW = 'mx-2 flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-foreground/[0.04] active:bg-foreground/[0.07]'
 
-/** Arquivos alterados, commits a enviar (↑) e commits novos no remoto (↓). */
-function GitBadges({ g }: { g: GitSummary }) {
+/** No PC, a linha abre o hub do projeto, e o + começa uma conversa nele; no celular, a linha toda começa. */
+function ProjectRow(props: { cwd: string; machine: string; stats?: Stats; git?: GitSummary }) {
+  const wide = useWide()
+  if (!wide) {
+    return (
+      <Link href={newChatUrl(props.cwd, props.machine)} className={ROW}>
+        <ProjectInfo {...props} />
+        <Plus className="size-4 shrink-0 text-muted-foreground" />
+      </Link>
+    )
+  }
   return (
-    <>
-      {g.changed > 0 && (
-        <span className={cn(BADGE, 'bg-sky-500/15 text-sky-700 dark:text-sky-300')}>
-          {g.changed} {g.changed === 1 ? 'alterado' : 'alterados'}
-        </span>
-      )}
-      {g.ahead > 0 && (
-        <span
-          className={cn(BADGE, 'bg-amber-500/15 text-amber-700 dark:text-amber-300')}
-          title={`${g.ahead} ${g.ahead === 1 ? 'commit para enviar' : 'commits para enviar'}`}
-        >
-          <ArrowUp className="size-3" />
-          {g.ahead}
-        </span>
-      )}
-      {g.behind > 0 && (
-        <span
-          className={cn(BADGE, 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}
-          title={`${g.behind} ${g.behind === 1 ? 'commit novo' : 'commits novos'} em ${g.upstream}`}
-        >
-          <ArrowDown className="size-3" />
-          {g.behind}
-        </span>
-      )}
-    </>
+    <div className="mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors hover:bg-foreground/[0.04]">
+      <button
+        type="button"
+        onClick={() => openProjectHub(props.machine, props.cwd)}
+        title="Abrir o hub do projeto"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2.5 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ProjectInfo {...props} />
+      </button>
+      <Button variant="ghost" size="icon-sm" asChild>
+        <Link href={newChatUrl(props.cwd, props.machine)} aria-label={`Nova conversa em ${projectName(props.cwd)}`} title="Nova conversa neste projeto">
+          <Plus />
+        </Link>
+      </Button>
+    </div>
   )
 }
 
-function ProjectRow({ cwd, machine, stats, git }: { cwd: string; machine: string; stats?: Stats; git?: GitSummary }) {
+function ProjectInfo({ cwd, stats, git }: { cwd: string; stats?: Stats; git?: GitSummary }) {
   const changes = pending(git)
   return (
-    <Link href={newChatUrl(cwd, machine)} className="flex items-center gap-3 px-4 py-3 active:bg-muted">
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-medium">{projectName(cwd)}</span>
-          {git && <GitBadges g={git} />}
-        </div>
-        <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-          {changes && git?.branch && (
-            <>
-              <GitBranch className="size-3 shrink-0" />
-              <span className="max-w-[40%] shrink-0 truncate">{git.branch}</span>
-              <span className="shrink-0">·</span>
-            </>
-          )}
-          <span className="truncate">
-            {stats ? `${stats.count} ${stats.count === 1 ? 'sessão' : 'sessões'} · ${relativeTime(stats.last)}` : shortPath(cwd)}
-          </span>
-        </div>
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate text-sm font-medium">{projectName(cwd)}</span>
+        {git && <GitBadges g={git} />}
       </div>
-      <Plus className="size-4 shrink-0 text-muted-foreground" />
-    </Link>
+      <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        {changes && git?.branch && (
+          <>
+            <GitBranch className="size-3 shrink-0" />
+            <span className="max-w-[40%] shrink-0 truncate">{git.branch}</span>
+            <span className="shrink-0">·</span>
+          </>
+        )}
+        <span className="truncate">
+          {stats ? `${stats.count} ${stats.count === 1 ? 'sessão' : 'sessões'} · ${relativeTime(stats.last)}` : shortPath(cwd)}
+        </span>
+      </div>
+    </div>
   )
 }
 
-export function ProjectsPage() {
+/** `sidebar`: na barra lateral do PC (ver App.tsx), escolhida pelo ícone de Projetos da alça. */
+export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const catalog = useStore((s) => s.catalog)
   // Com várias máquinas, os projetos são os da máquina do filtro do topo (sem "Todas").
   const machine = useMachineFilter() ?? HOME
@@ -133,6 +133,7 @@ export function ProjectsPage() {
     <>
       <PageHeader
         title="Projetos"
+        className={sidebar ? 'bg-shell/90' : undefined}
         action={
           checking && (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -143,7 +144,14 @@ export function ProjectsPage() {
       />
       <MachineFilter all={false} className="px-4 pb-3" />
       <div className="px-4 pb-3">
-        <Input type="search" placeholder="Buscar projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Input
+          type="search"
+          placeholder="Buscar projeto"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          // Na barra lateral, como o da lista de sessões: um recorte na cor da janela, sem contorno.
+          className={sidebar ? 'h-9 rounded-xl border-transparent bg-background/70 px-3 dark:bg-background/50' : undefined}
+        />
       </div>
       {projects === null ? (
         <div className="space-y-3 px-4">
@@ -155,8 +163,8 @@ export function ProjectsPage() {
         <>
           {changed.length > 0 && (
             <section className="mb-4">
-              <h2 className="px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Com mudanças</h2>
-              <div className="divide-y">
+              <h2 className="px-5 pb-1.5 text-xs font-medium text-muted-foreground">Com mudanças</h2>
+              <div className="space-y-0.5">
                 {changed.map((p) => (
                   <ProjectRow key={p} cwd={p} machine={machine} stats={stats.get(p)} git={git[p]} />
                 ))}
@@ -165,11 +173,11 @@ export function ProjectsPage() {
           )}
           <section className="pb-4">
             {changed.length > 0 && (
-              <h2 className="px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Outros projetos</h2>
+              <h2 className="px-5 pb-1.5 text-xs font-medium text-muted-foreground">Outros projetos</h2>
             )}
-            <div className="divide-y">
+            <div className="space-y-0.5">
               {!query.trim() && (
-                <Link href={newChatUrl(undefined, machine)} className="flex items-center gap-3 px-4 py-3 active:bg-muted">
+                <Link href={newChatUrl(undefined, machine)} className={ROW}>
                   <House className="size-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">Sem projeto</div>

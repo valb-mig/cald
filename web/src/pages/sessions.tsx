@@ -1,8 +1,10 @@
-import { Columns2, Plus } from 'lucide-react'
+import { ChevronRight, Columns2, Plus, Server } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
+import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
+import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
 import { PcStatus } from '@/components/pc-status'
@@ -14,13 +16,13 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { projectName } from '@/lib/format'
 import { usePressMenu, useWide } from '@/lib/hooks'
-import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
+import { HOME, newChatUrl, useMachineFilter, useMachines } from '@/lib/machines'
+import { groupByProject, shownSessions, toggleProject, useClosedProjects, useProjectsGit, type ProjectGroup } from '@/lib/project-groups'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
+import { keyOf, openProjectHub, pinTab, revealChat } from '@/lib/workbench'
 import { useStore } from '@/lib/store'
-import type { CatalogEntry } from '@/lib/types'
+import type { CatalogEntry, GitSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
-
-const RECENT_LIMIT = 30
 
 type OnMenu = (s: CatalogEntry, x: number, y: number) => void
 
@@ -33,23 +35,42 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
   const shown = split.ids.includes(s.sessionId)
   const focused = split.focused === s.sessionId
   return (
-    <div className="group relative">
+    <div
+      className="group relative"
+      // Ctrl/⌘ + clique, como no explorador do VSCode: abre ao lado, num grupo novo. Na captura, antes do
+      // link: com a tecla, o Link do wouter deixa o navegador abrir outra aba e nem chama o onClick.
+      onClickCapture={(e) => {
+        if (!wide || !(e.ctrlKey || e.metaKey)) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (shown) revealChat(s.sessionId)
+        else if (split.canAdd) openBeside(s.sessionId)
+        else toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+      }}
+    >
       <Link
         href={split.hrefFor(s.sessionId)}
         onClick={(e) => {
           focusChat(s.sessionId)
-          if (shown) e.preventDefault()
+          if (!shown) return
+          e.preventDefault()
+          // No PC, já à vista noutro grupo: o grupo dela ganha o foco.
+          if (wide) revealChat(s.sessionId)
         }}
+        // No PC o clique abre numa aba de prévia; dois cliques a deixam aberta; Ctrl/⌘ abre ao lado.
+        onDoubleClick={() => wide && pinTab(keyOf({ kind: 'chat', id: s.sessionId }))}
         aria-current={focused ? 'page' : undefined}
         {...press}
         className={cn(
           // Segurar o dedo não seleciona o texto nem abre o menu de link do iPhone.
-          'flex items-start gap-3 px-4 py-3 select-none [-webkit-touch-callout:none] hover:bg-muted/50 active:bg-muted',
-          shown && 'bg-muted/50',
-          focused && 'bg-muted hover:bg-muted',
+          // O claudinho fica embaixo da setinha do grupo, e o título, recuado sob o nome do projeto.
+          'mx-2 flex items-start gap-3 rounded-xl py-2.5 pr-3 pl-1.5 transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
+          shown && 'bg-foreground/[0.04]',
+          // A em foco tem a cor da janela, como a aba aberta dela.
+          focused && 'bg-background shadow-xs hover:bg-background',
         )}
       >
-        <SessionInfo s={s} />
+        <SessionInfo s={s} grouped />
       </Link>
       {wide && split.ids.length > 0 && !shown && (
         <Button
@@ -60,7 +81,7 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
           }
           aria-label="Abrir ao lado"
           title="Abrir ao lado"
-          className="absolute top-1/2 right-3 -translate-y-1/2 border opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+          className="absolute top-1/2 right-4 -translate-y-1/2 border opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
         >
           <Columns2 />
         </Button>
@@ -69,16 +90,86 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
   )
 }
 
-function Group({ title, sessions, onMenu }: { title: string; sessions: CatalogEntry[]; onMenu: OnMenu }) {
-  if (sessions.length === 0) return null
+/**
+ * Um projeto na lista: o cabeçalho (a setinha recolhe e abre o grupo; no PC, o nome abre o hub do
+ * projeto; o git dele; o + começa uma conversa nele) e as conversas embaixo. `searching`: com busca,
+ * aparece tudo o que achou, recolhido ou não.
+ */
+function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup; git?: GitSummary; searching: boolean; onMenu: OnMenu }) {
+  const closed = useClosedProjects((s) => s.keys.includes(group.key)) && !searching
+  const [all, setAll] = useState(false)
+  // Com várias máquinas, o projeto diz de qual é.
+  const machine = useMachines((m) => (m.machines.length > 1 ? m.machines.find((x) => x.id === group.machine)?.name : undefined))
+  const wide = useWide()
+  const shown = searching ? group.sessions : shownSessions(group, closed, all)
+  const hidden = group.sessions.length - shownSessions(group, false, false).length
   return (
-    <section className="mb-4">
-      <h2 className="px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h2>
-      <div className="divide-y">
-        {sessions.map((s) => (
-          <SessionRow key={s.sessionId} s={s} onMenu={onMenu} />
-        ))}
+    <section className="mb-1.5">
+      <div className="group/project mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors hover:bg-foreground/[0.04]">
+        <button
+          type="button"
+          onClick={() => toggleProject(group.key)}
+          aria-expanded={!closed}
+          aria-label={closed ? `Mostrar as conversas de ${group.name}` : `Recolher ${group.name}`}
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ChevronRight className={cn('size-3.5 transition-transform duration-150', !closed && 'rotate-90')} />
+        </button>
+        <button
+          type="button"
+          // No PC, o nome abre o hub do projeto; no celular (sem abas), recolhe e abre, como a setinha.
+          onClick={() => (wide && group.cwd ? openProjectHub(group.machine, group.cwd) : toggleProject(group.key))}
+          title={wide && group.cwd ? `Abrir o hub de ${group.name}` : group.cwd}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-xl py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="truncate text-[13px] font-medium">{group.name}</span>
+          {machine && (
+            <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
+              <Server className="size-3" />
+              {machine}
+            </span>
+          )}
+          {git && <GitBadges g={git} />}
+        </button>
+        {group.waiting > 0 && (
+          <span
+            className="min-w-4 shrink-0 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white shadow-[0_0_10px_-1px_rgb(245_158_11/0.8)]"
+            title={`${group.waiting} ${group.waiting === 1 ? 'conversa espera' : 'conversas esperam'} você`}
+          >
+            {group.waiting}
+          </span>
+        )}
+        {/* O total some ao passar o mouse, e o + entra no lugar. */}
+        <span className="shrink-0 px-1 text-xs text-muted-foreground tabular-nums group-hover/project:hidden pointer-coarse:hidden">
+          {group.sessions.length}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          asChild
+          className="hidden group-hover/project:inline-flex focus-visible:inline-flex pointer-coarse:inline-flex"
+        >
+          <Link href={newChatUrl(group.cwd, group.machine)} aria-label={`Nova conversa em ${group.name}`} title="Nova conversa neste projeto">
+            <Plus />
+          </Link>
+        </Button>
       </div>
+      {shown.length > 0 && (
+        <div className="mt-0.5 space-y-0.5">
+          {shown.map((s) => (
+            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} />
+          ))}
+        </div>
+      )}
+      {!closed && !searching && hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setAll(!all)}
+          className="mx-2 mt-0.5 rounded-lg py-1 pr-3 pl-7 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {all ? 'Mostrar menos' : `Mostrar mais ${hidden}`}
+        </button>
+      )}
     </section>
   )
 }
@@ -90,7 +181,6 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const filter = useMachineFilter()
   const catalog = useMemo(() => (filter === null ? all : all.filter((c) => (c.machine ?? HOME) === filter)), [all, filter])
   const [query, setQuery] = useState('')
-  const [showAll, setShowAll] = useState(false)
   const [picker, setPicker] = useState(false)
   const [, navigate] = useLocation()
   // Menu e confirmação ficam com a última conversa enquanto fecham, para não esvaziar na animação.
@@ -98,27 +188,25 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleting, setDeleting] = useState<CatalogEntry | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [naming, setNaming] = useState<CatalogEntry | null>(null)
+  const [namingOpen, setNamingOpen] = useState(false)
   const onMenu: OnMenu = (session, x, y) => {
     setMenu({ session, x, y })
     setMenuOpen(true)
   }
 
-  const { attention, pinned, open, recent } = useMemo(() => {
+  const searching = query.trim() !== ''
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const list = q ? catalog.filter((c) => `${c.title} ${projectName(c.cwd)}`.toLowerCase().includes(q)) : catalog
-    const rest = list.filter((c) => c.state !== 'waiting' && !c.pinned)
-    return {
-      attention: list.filter((c) => c.state === 'waiting'),
-      pinned: list.filter((c) => c.pinned && c.state !== 'waiting'),
-      open: rest.filter((c) => c.owner),
-      recent: rest.filter((c) => !c.owner),
-    }
+    return groupByProject(q ? catalog.filter((c) => `${c.title} ${projectName(c.cwd)}`.toLowerCase().includes(q)) : catalog)
   }, [catalog, query])
+  const git = useProjectsGit(groups.map((g) => g.machine))
 
   return (
     <>
       <PageHeader
         title="Sessões"
+        className={sidebar ? 'bg-shell/90' : undefined}
         action={
           <Button size="sm" onClick={() => setPicker(true)}>
             <Plus /> Nova
@@ -128,7 +216,14 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
       <MachineFilter className="px-4 pb-3" />
       {!sidebar && <PcStatus machine={filter ?? HOME} />}
       <div className="px-4 pb-3">
-        <Input type="search" placeholder="Buscar por título ou projeto" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Input
+          type="search"
+          placeholder="Buscar por título ou projeto"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          // Na barra lateral, o campo é um recorte na cor da janela, sem contorno.
+          className={sidebar ? 'h-9 rounded-xl border-transparent bg-background/70 px-3 dark:bg-background/50' : undefined}
+        />
       </div>
       {!loaded ? (
         <div className="space-y-3 px-4">
@@ -138,20 +233,12 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
         </div>
       ) : (
         <>
-          <Group title="Precisam de você" sessions={attention} onMenu={onMenu} />
-          <Group title="Fixadas" sessions={pinned} onMenu={onMenu} />
-          <Group title="Abertas agora" sessions={open} onMenu={onMenu} />
-          <Group title="Recentes" sessions={showAll ? recent : recent.slice(0, RECENT_LIMIT)} onMenu={onMenu} />
-          {recent.length > RECENT_LIMIT && !showAll && (
-            <div className="px-4 pb-6">
-              <Button variant="ghost" className="w-full" onClick={() => setShowAll(true)}>
-                Mostrar todas ({recent.length})
-              </Button>
-            </div>
-          )}
-          {catalog.length > 0 && attention.length + pinned.length + open.length + recent.length === 0 && (
-            <p className="px-4 text-sm text-muted-foreground">Nada encontrado para “{query}”.</p>
-          )}
+          <div className="pb-6">
+            {groups.map((g) => (
+              <ProjectSection key={g.key} group={g} git={git[g.key]} searching={searching} onMenu={onMenu} />
+            ))}
+          </div>
+          {catalog.length > 0 && groups.length === 0 && <p className="px-4 text-sm text-muted-foreground">Nada encontrado para “{query}”.</p>}
         </>
       )}
       <SessionMenu
@@ -162,7 +249,12 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
           setDeleting(session)
           setConfirmOpen(true)
         }}
+        onRename={(session) => {
+          setNaming(session)
+          setNamingOpen(true)
+        }}
       />
+      <ClaudinhoNameDialog session={naming} open={namingOpen} onOpenChange={setNamingOpen} />
       {deleting && (
         <DeleteSessionDialog sessionId={deleting.sessionId} title={deleting.title} open={confirmOpen} onOpenChange={setConfirmOpen} />
       )}

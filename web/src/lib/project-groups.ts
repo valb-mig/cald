@@ -1,0 +1,132 @@
+import { useEffect, useState } from 'react'
+import { create } from 'zustand'
+import { api } from './api'
+import { projectName } from './format'
+import { HOME } from './machines'
+import type { CatalogEntry, GitSummary } from './types'
+
+/**
+ * As conversas agrupadas por projeto: a pasta onde o Claude roda, em cada máquina (a mesma pasta em
+ * outra máquina é outro projeto). A lista de conversas mostra os projetos e, dentro de cada um, as
+ * conversas dele.
+ */
+export type ProjectGroup = {
+  key: string
+  machine: string
+  cwd?: string
+  name: string
+  /** Fixadas primeiro, depois da mais recente para a mais antiga. */
+  sessions: CatalogEntry[]
+  /** A conversa mais recente: os projetos vêm nesta ordem. */
+  last: number
+  /** Quantas esperam você. */
+  waiting: number
+}
+
+export const projectKey = (machine: string, cwd?: string) => `${machine}\n${cwd ?? ''}`
+
+const bySession = (a: CatalogEntry, b: CatalogEntry) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastModified - a.lastModified
+
+export function groupByProject(list: CatalogEntry[]): ProjectGroup[] {
+  const groups = new Map<string, ProjectGroup>()
+  for (const s of list) {
+    const machine = s.machine ?? HOME
+    const key = projectKey(machine, s.cwd)
+    let group = groups.get(key)
+    if (!group) {
+      group = { key, machine, cwd: s.cwd, name: s.cwd ? projectName(s.cwd) : 'Sem projeto', sessions: [], last: 0, waiting: 0 }
+      groups.set(key, group)
+    }
+    group.sessions.push(s)
+    group.last = Math.max(group.last, s.lastModified)
+    if (s.state === 'waiting') group.waiting++
+  }
+  const result = [...groups.values()]
+  for (const g of result) g.sessions.sort(bySession)
+  return result.sort((a, b) => b.last - a.last)
+}
+
+/** Quantas conversas um projeto aberto mostra antes do "mostrar mais". */
+const SHOWN = 4
+
+/** Fixada, esperando você, trabalhando ou aberta no painel ou no PC: aparece sempre, mesmo além das primeiras. */
+const live = (s: CatalogEntry) => Boolean(s.pinned || s.owner) || s.state === 'waiting' || s.state === 'running'
+
+/**
+ * O que um projeto mostra: as mais recentes e as vivas; com `all`, todas. Recolhido, só as que esperam
+ * você — essas não podem ficar escondidas.
+ */
+export function shownSessions(group: ProjectGroup, closed: boolean, all: boolean): CatalogEntry[] {
+  if (closed) return group.sessions.filter((s) => s.state === 'waiting')
+  if (all) return group.sessions
+  return group.sessions.filter((s, i) => i < SHOWN || live(s))
+}
+
+// ---- projetos recolhidos ----
+
+const CLOSED_KEY = 'cr:closed-projects'
+
+function loadClosed(): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? '[]')
+    return Array.isArray(saved) ? saved.filter((k): k is string => typeof k === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** Os projetos recolhidos na lista; escolha deste aparelho, como a lista recolhida (ver lib/sidebar.ts). */
+export const useClosedProjects = create<{ keys: string[] }>(() => ({ keys: loadClosed() }))
+
+export function toggleProject(key: string): void {
+  const keys = useClosedProjects.getState().keys
+  const next = keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]
+  useClosedProjects.setState({ keys: next })
+  try {
+    localStorage.setItem(CLOSED_KEY, JSON.stringify(next))
+  } catch {
+    // localStorage indisponível (modo privado): vale só até fechar o app.
+  }
+}
+
+// ---- git dos projetos ----
+
+/** De quanto em quanto tempo a lista relê o git: as conversas mexem nos arquivos enquanto ela está aberta. */
+const GIT_EVERY_MS = 60_000
+
+/**
+ * O git dos projetos das máquinas da lista, por `projectKey`, para as etiquetas dos grupos. Só o git
+ * local: consultar o remoto (git fetch) fica com a página de Projetos.
+ */
+export function useProjectsGit(machines: string[]): Record<string, GitSummary> {
+  const [git, setGit] = useState<Record<string, GitSummary>>({})
+  const list = [...new Set(machines)].sort().join(',')
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      for (const machine of list.split(',')) {
+        api
+          .projectsGit(machine)
+          .then((byCwd) => {
+            if (!alive) return
+            setGit((old) => {
+              const next = { ...old }
+              for (const [cwd, summary] of Object.entries(byCwd)) next[projectKey(machine, cwd)] = summary
+              return next
+            })
+          })
+          // Máquina com servidor antigo, sem a rota: os grupos dela seguem sem as etiquetas.
+          .catch(() => {})
+      }
+    }
+    load()
+    const timer = setInterval(load, GIT_EVERY_MS)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [list])
+
+  return git
+}

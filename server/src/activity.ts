@@ -245,7 +245,8 @@ async function refresh(): Promise<Store> {
   return s;
 }
 
-function summarize(s: Store): Activity {
+/** O resumo do uso; com `cwd`, só o das conversas daquele projeto (o hub do projeto, no app). */
+function summarize(s: Store, cwd?: string): Activity {
   const since = new Date();
   since.setDate(since.getDate() - 29);
   const recent = dayKey(since);
@@ -254,8 +255,10 @@ function summarize(s: Store): Activity {
 
   const days = Object.keys(s.days)
     .sort()
-    .map((date): ActivityDay => {
-      const sessions = Object.entries(s.days[date]);
+    .flatMap((date): ActivityDay[] => {
+      const sessions = Object.entries(s.days[date]).filter(([, d]) => !cwd || d.w === cwd);
+      // Só os dias com alguma atividade: filtrado por projeto, muitos ficam vazios.
+      if (!sessions.length) return [];
       const day: ActivityDay = { date, sessions: sessions.length, remote: 0, prompts: 0, costUsd: 0, tokens: 0 };
       // Meio-dia: o dia da semana não muda com horário de verão.
       const weekday = new Date(`${date}T12:00:00`).getDay();
@@ -275,7 +278,7 @@ function summarize(s: Store): Activity {
         projects.set(cwd, p);
       }
       day.costUsd = Math.round(day.costUsd * 100) / 100;
-      return day;
+      return [day];
     });
 
   return {
@@ -288,14 +291,17 @@ function summarize(s: Store): Activity {
   };
 }
 
-// A home pede de novo a cada abertura: dentro de meio minuto, vale a última leitura.
+// A home e o hub de cada projeto pedem de novo a cada abertura: dentro de meio minuto, vale a última
+// leitura dos transcripts; o resumo (de tudo ou de um projeto) sai dela na hora.
 const FRESH_MS = 30_000;
-let last: { at: number; activity: Promise<Activity> } | null = null;
+let last: { at: number; store: Promise<Store> } | null = null;
 
-export function activity(): Promise<Activity> {
-  if (last && Date.now() - last.at < FRESH_MS) return last.activity;
-  const next = refresh().then(summarize);
-  last = { at: Date.now(), activity: next };
-  next.catch(() => (last = null));
-  return next;
+/** O uso do app inteiro ou, com `cwd`, só o das conversas daquele projeto. */
+export async function activity(cwd?: string): Promise<Activity> {
+  if (!last || Date.now() - last.at >= FRESH_MS) {
+    const store = refresh();
+    last = { at: Date.now(), store };
+    store.catch(() => (last = null));
+  }
+  return summarize(await last.store, cwd);
 }
