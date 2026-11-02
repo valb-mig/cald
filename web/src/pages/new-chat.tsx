@@ -1,18 +1,19 @@
-import { ArrowLeft, ChevronDown, GitBranch, Menu, MessageSquarePlus } from 'lucide-react'
+import { ArrowLeft, ChevronDown, MessageSquarePlus } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
 import { Composer } from '@/components/chat/composer'
-import { ExplorerSheet } from '@/components/explorer'
-import { GitSheet } from '@/components/git-panel'
+import { ProjectPanelButton } from '@/components/project/panel'
 import { ProjectPicker } from '@/components/project-picker'
 import { RepoLink } from '@/components/repo-link'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { projectName } from '@/lib/format'
-import { useGitStatus, useHome } from '@/lib/hooks'
+import { useGitStatus, useHome, WIDE_QUERY } from '@/lib/hooks'
 import { HOME, MachineContext, newChatUrl, noteSession, useMachines } from '@/lib/machines'
+import { useShowProject } from '@/lib/project-panel'
 import type { RunOptions } from '@/lib/types'
 import { backHref } from '@/lib/tabs'
+import { openTab } from '@/lib/workbench'
 
 /** A nova conversa com a máquina escolhida (`?maquina=`) no contexto: `@`, comandos e arquivos vêm de lá. */
 export function NewChatPage() {
@@ -36,26 +37,20 @@ function NewChat({ machine }: { machine: string }) {
   const [, navigate] = useLocation()
   const [pending, setPending] = useState<RunOptions>({})
   const [picker, setPicker] = useState(false)
-  const [explorer, setExplorer] = useState(false)
-  const [gitOpen, setGitOpen] = useState(false)
   const git = useGitStatus(machine, cwd, null)
+  useShowProject(machine, cwd, `new:${cwd ?? '~'}`, true)
   const project = cwd ? projectName(cwd) : 'Sem projeto (~)'
   const label = machineLabel ? `${project} · ${machineLabel}` : project
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1">
+      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 compact:py-1 wide:border-b-0">
         {/* No PC a lista de conversas já está ao lado. */}
         <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
           <Link href={backHref()}>
             <ArrowLeft />
           </Link>
         </Button>
-        {cwd && (
-          <Button variant="ghost" size="icon" onClick={() => setExplorer(true)} aria-label="Arquivos do projeto">
-            <Menu />
-          </Button>
-        )}
         <button type="button" onClick={() => setPicker(true)} className="min-w-0 flex-1 text-left">
           <div className="text-sm font-medium">Nova conversa</div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -64,11 +59,7 @@ function NewChat({ machine }: { machine: string }) {
           </div>
         </button>
         {cwd && git.status?.remote && <RepoLink url={git.status.remote} />}
-        {cwd && git.status && (
-          <Button variant="ghost" size="icon" onClick={() => (git.reload(), setGitOpen(true))} aria-label="Git">
-            <GitBranch />
-          </Button>
-        )}
+        {cwd && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
@@ -77,7 +68,7 @@ function NewChat({ machine }: { machine: string }) {
           Nova conversa em <span className="font-medium">{label}</span>
         </p>
         <p className="text-xs text-muted-foreground">
-          Escolha modelo e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos e + para anexar.
+          Escolha modelo e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos, # para issues e PRs e + para anexar.
         </p>
         <Button variant="outline" size="sm" onClick={() => setPicker(true)}>
           Trocar projeto
@@ -97,6 +88,9 @@ function NewChat({ machine }: { machine: string }) {
           const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, ...pending })
           // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
           noteSession(sessionId, machine)
+          // No PC, a conversa nova já nasce aba fixa, como um arquivo novo no VSCode: o próximo clique na
+          // lista não a troca. A URL só leva até ela.
+          if (matchMedia(WIDE_QUERY).matches) openTab({ kind: 'chat', id: sessionId })
           navigate(`/s/${sessionId}`, { replace: true })
         }}
       />
@@ -107,8 +101,6 @@ function NewChat({ machine }: { machine: string }) {
         machine={machine}
         onPick={(dir, m) => navigate(newChatUrl(dir, m), { replace: true })}
       />
-      {cwd && <ExplorerSheet cwd={cwd} open={explorer} onOpenChange={setExplorer} />}
-      {cwd && git.status && <GitSheet cwd={cwd} status={git.status} open={gitOpen} onOpenChange={setGitOpen} onRefresh={git.reload} />}
     </div>
   )
 }
