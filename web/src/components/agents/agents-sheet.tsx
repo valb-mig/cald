@@ -1,11 +1,13 @@
 import { CornerDownRight, List, Network } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
-import { AgentGraph } from './agent-graph'
 import type { AgentNode, AgentTree } from './model'
 import { agentMeta, countLine, useNow } from './status'
 import { AgentStatusIcon } from './status-icon'
+
+// O grafo só aparece com a folha aberta na aba dele: chega quando for desenhado.
+const AgentGraph = lazy(() => import('./agent-graph').then((m) => ({ default: m.AgentGraph })))
 
 type View = 'graph' | 'list'
 // Grafo ou lista: a última escolha vale para todas as conversas.
@@ -112,7 +114,9 @@ export function AgentsSheet({
                 {tab('list', 'Lista', List)}
               </div>
               {view === 'graph' ? (
-                <AgentGraph tree={tree} rootLabel={rootLabel} onOpen={onOpenAgent} />
+                <Suspense>
+                  <AgentGraph tree={tree} rootLabel={rootLabel} onOpen={onOpenAgent} />
+                </Suspense>
               ) : (
                 <ul className="space-y-1.5">
                   {tree.all.map((node) => (

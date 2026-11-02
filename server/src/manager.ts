@@ -23,9 +23,9 @@ import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from
 import { searchProjectFiles } from './project-files.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
-import { transcriptCwd } from './transcript.ts';
+import { transcriptCwd, transcriptFile } from './transcript.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
-import type { MetaStore } from './meta.ts';
+import type { Fork, MetaStore } from './meta.ts';
 import type { ResumeEntry } from './updater.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
@@ -60,9 +60,14 @@ export type CatalogEntry = {
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
 
+/** Sem `at`: a leitura ainda está em andamento. */
+type SavedCache = { at?: number; rows: Promise<SDKSessionInfo[]> };
+
 const SAVED_CACHE_MS = 5_000;
 const COMMANDS_CACHE_MS = 10 * 60_000;
 const DELIVERED_MAX = 500;
+// Históricos já convertidos em eventos (~300 KB cada), dos mais recentes.
+const HISTORY_CACHE_MAX = 12;
 
 export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean };
 export type ModelOption = { value: string; resolvedModel?: string; displayName: string; efforts: string[] };
@@ -86,7 +91,10 @@ function filterCommands(list: SlashCommand[]): CommandInfo[] {
 
 export class Manager extends EventEmitter {
   private readonly sessions = new Map<string, PanelSession>();
-  private savedCache?: { at: number; rows: SDKSessionInfo[] };
+  private savedCache?: SavedCache;
+  /** Em ordem de uso: a primeira é a que sai quando passa do limite. */
+  private readonly historyCache = new Map<string, { version: string; events: Promise<readonly LoggedEvent[]> }>();
+  private readonly imageReloads = new Map<string, Promise<unknown>>();
   private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
   private modelsCache?: { at: number; list: Promise<ModelOption[]> };
   /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
@@ -197,27 +205,64 @@ export class Manager extends EventEmitter {
     );
   }
 
-  /**
-   * Histórico salvo. Com a sessão aberta no painel, só o que existia antes do processo:
-   * o restante o cliente recebe pelo log de eventos, sem duplicar.
-   */
   /** As mensagens que a bifurcação herdou: as da origem até o ponto do corte, inclusive. */
-  private async inherited(fork: { from: string; at?: string }): Promise<Awaited<ReturnType<typeof getSessionMessages>>> {
+  private async inherited(fork: Fork): Promise<Awaited<ReturnType<typeof getSessionMessages>>> {
     const origin = await getSessionMessages(fork.from);
     if (!fork.at) return origin;
     const cut = origin.findIndex((m) => m.uuid === fork.at);
     return cut < 0 ? origin : origin.slice(0, cut + 1);
   }
 
-  async history(sessionId: string, limit = 300): Promise<LoggedEvent[]> {
-    let messages = await getSessionMessages(sessionId);
+  /**
+   * Histórico salvo. Com a sessão aberta no painel, só o que existia antes do processo:
+   * o restante o cliente recebe pelo log de eventos, sem duplicar.
+   *
+   * Ler um transcript grande leva ~1 s, e o app pede o histórico a cada conversa aberta (e de 4 em
+   * 4 s enquanto ela trabalha no PC): o resultado fica guardado até mudar, e pedidos iguais ao mesmo
+   * tempo esperam a mesma leitura. É compartilhado entre quem pede, por isso só leitura.
+   */
+  async history(sessionId: string, limit = 300): Promise<readonly LoggedEvent[]> {
     const open = this.sessions.get(sessionId);
+    const fork = this.meta.forkOf(sessionId);
+    // O `runId`: reaberta no painel, o corte em `priorMessages` é outro.
+    const key = [sessionId, limit, open?.runId ?? '', fork ? `${fork.from}@${fork.at ?? ''}` : ''].join('|');
+    const version = await this.historyVersion(sessionId, Boolean(open), fork);
+    const hit = this.historyCache.get(key);
+    this.historyCache.delete(key);
+    if (hit?.version === version) {
+      // Reinserida no fim: a mais recente é a última a sair.
+      this.historyCache.set(key, hit);
+      return hit.events;
+    }
+    const events = this.readHistory(sessionId, limit, open?.priorMessages, fork);
+    this.historyCache.set(key, { version, events });
+    if (this.historyCache.size > HISTORY_CACHE_MAX) this.historyCache.delete(this.historyCache.keys().next().value!);
+    events.catch(() => {
+      if (this.historyCache.get(key)?.events === events) this.historyCache.delete(key);
+    });
+    return events;
+  }
+
+  /**
+   * Quando o histórico guardado deixa de valer. Aberta no painel, ele é o que existia antes do
+   * processo e não muda enquanto ele vive, embora o arquivo cresça a cada turno: vale até ela fechar
+   * (a chave leva o `runId`). Fechada ou no PC, vale enquanto o transcript tiver o mesmo tamanho e
+   * data. Numa bifurcação contam também os da origem, de onde ela tira o histórico até ter turno próprio.
+   */
+  private async historyVersion(sessionId: string, open: boolean, fork?: Fork): Promise<string> {
+    if (open && !fork) return '';
+    const files = await Promise.all([sessionId, ...(fork ? [fork.from] : [])].map(transcriptFile));
+    return files.map((f) => (f ? `${f.size}:${f.mtimeMs}` : '-')).join('|');
+  }
+
+  /** Lê o transcript e converte em eventos; as imagens achadas vão para o cache de imagens. */
+  private async readHistory(sessionId: string, limit: number, prior?: number, fork?: Fork): Promise<LoggedEvent[]> {
+    let messages = await getSessionMessages(sessionId);
     // Bifurcação sem turno próprio: o Claude Code só grava o log dela na primeira mensagem, então
     // até lá o que se mostra é o histórico herdado da origem, cortado no ponto da bifurcação. Vem
     // do meta, e não da sessão viva, para continuar valendo depois que ela é fechada.
-    const fork = messages.length === 0 ? this.meta.forkOf(sessionId) : undefined;
-    if (fork) messages = await this.inherited(fork);
-    else if (open) messages = messages.slice(0, open.priorMessages);
+    if (messages.length === 0 && fork) messages = await this.inherited(fork);
+    else if (prior !== undefined) messages = messages.slice(0, prior);
     const events = messages
       .slice(-limit)
       .flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid)).map((e) => ({ ...e, uuid: m.uuid })));
@@ -304,6 +349,11 @@ export class Manager extends EventEmitter {
     return open ? open.planUsage() : withProbe(homedir(), readPlanUsage);
   }
 
+  /** Sem conversa aberta no painel, consultar o uso do plano sobe um Claude Code inteiro (a sonda). */
+  planNeedsProbe(): boolean {
+    return this.sessions.size === 0;
+  }
+
   /** Arquivos do projeto para o autocompletar do "@". */
   async files(cwd: string, query: string): Promise<string[]> {
     return searchProjectFiles(await this.knownCwd(cwd), query);
@@ -351,11 +401,27 @@ export class Manager extends EventEmitter {
   async image(sessionId: string, key: string): Promise<StoredImage> {
     let image = imageStore.get(sessionId, key);
     if (!image) {
-      await this.history(sessionId, 5_000).catch(() => []);
+      await this.reloadImages(sessionId);
       image = imageStore.get(sessionId, key);
     }
     if (!image) throw new HttpError(404, 'image_not_found');
     return image;
+  }
+
+  /**
+   * Relê o transcript só para devolver as imagens ao cache, por fora do cache do histórico (que
+   * guarda os eventos, não as imagens). As que faltam ao mesmo tempo esperam a mesma leitura.
+   */
+  private reloadImages(sessionId: string): Promise<unknown> {
+    let reload = this.imageReloads.get(sessionId);
+    if (!reload) {
+      const open = this.sessions.get(sessionId);
+      reload = this.readHistory(sessionId, 5_000, open?.priorMessages, this.meta.forkOf(sessionId))
+        .catch(() => [])
+        .finally(() => this.imageReloads.delete(sessionId));
+      this.imageReloads.set(sessionId, reload);
+    }
+    return reload;
   }
 
   async updateSettings(
@@ -477,14 +543,27 @@ export class Manager extends EventEmitter {
     return session;
   }
 
-  private async saved(): Promise<SDKSessionInfo[]> {
-    if (this.savedCache && Date.now() - this.savedCache.at < SAVED_CACHE_MS) return this.savedCache.rows;
-    const rows = await listSessions();
-    // O SDK não achou o `cwd` (primeira mensagem com imagem, ver transcriptCwd): lê do transcript.
-    await Promise.all(rows.filter((r) => !r.cwd).map(async (r) => (r.cwd = await transcriptCwd(r.sessionId))));
-    this.savedCache = { at: Date.now(), rows };
-    return rows;
+  /** Conversas salvas, com cache curto; quem pede enquanto a leitura anda espera a mesma. */
+  private saved(): Promise<SDKSessionInfo[]> {
+    const hit = this.savedCache;
+    if (hit && (hit.at === undefined || Date.now() - hit.at < SAVED_CACHE_MS)) return hit.rows;
+    const entry: SavedCache = { rows: listSaved() };
+    this.savedCache = entry;
+    entry.rows.then(
+      () => (entry.at = Date.now()),
+      () => {
+        if (this.savedCache === entry) this.savedCache = undefined;
+      },
+    );
+    return entry.rows;
   }
+}
+
+async function listSaved(): Promise<SDKSessionInfo[]> {
+  const rows = await listSessions();
+  // O SDK não achou o `cwd` (primeira mensagem com imagem, ver transcriptCwd): lê do transcript.
+  await Promise.all(rows.filter((r) => !r.cwd).map(async (r) => (r.cwd = await transcriptCwd(r.sessionId))));
+  return rows;
 }
 
 /** Raízes de projetos e a pasta pessoal em si (não as subpastas dela). */

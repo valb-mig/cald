@@ -397,6 +397,10 @@ function GroupView({
 }) {
   const dragging = useDraggingTab()
   const [zone, setZone] = useState<Zone | null>(null)
+  // Só monta a aba que já esteve à vista, como no VSCode: as guardadas da última vez esperam a vez,
+  // senão cada conversa restaurada pediria histórico, eventos e git ao mesmo tempo ao abrir o app.
+  const [seen, setSeen] = useState(() => new Set(group.active ? [group.active] : []))
+  if (group.active && !seen.has(group.active)) setSeen(new Set(seen).add(group.active))
   const zoneOf = (e: React.DragEvent<HTMLElement>): Zone => {
     const r = e.currentTarget.getBoundingClientRect()
     const x = (e.clientX - r.left) / r.width
@@ -455,10 +459,10 @@ function GroupView({
               key={tab.key}
               role="tabpanel"
               inert={!active}
-              // Fora da pintura, mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.
+              // Depois de vista, fica fora da pintura mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.
               className={cn('absolute inset-0 flex flex-col', !active && 'invisible [content-visibility:hidden]')}
             >
-              {tab.kind === 'chat' ? (
+              {!seen.has(tab.key) ? null : tab.kind === 'chat' ? (
                 <PaneContext value={{ split, focused: focused && active, collapsed: false }}>
                   <ChatInMachine id={tab.id} />
                 </PaneContext>

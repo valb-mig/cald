@@ -39,7 +39,7 @@ await meta.load();
 const todos = new TodoStore();
 await todos.load();
 const manager = new Manager(live, meta);
-const monitor = new SystemMonitor(() => manager.planUsage());
+const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
@@ -676,7 +676,17 @@ function listenAudio(socket: WebSocket, on: boolean): void {
 const clients = new Map<WebSocket, Set<string>>();
 
 function send(socket: WebSocket, payload: unknown): void {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
+  sendRaw(socket, JSON.stringify(payload));
+}
+
+function sendRaw(socket: WebSocket, data: string): void {
+  if (socket.readyState === socket.OPEN) socket.send(data);
+}
+
+/** Manda a mesma mensagem a vários: serializada uma vez só, e só se houver alguém para receber. */
+function sendEach(sockets: Iterable<WebSocket>, payload: unknown): void {
+  let data: string | undefined;
+  for (const socket of sockets) sendRaw(socket, (data ??= JSON.stringify(payload)));
 }
 
 function subscribe(socket: WebSocket, sessionId: string, sinceSeq: number, runId?: string): void {
@@ -757,7 +767,8 @@ app.get('/ws', { websocket: true }, (socket) => {
 });
 
 function broadcast(sessionId: string, payload: unknown): void {
-  for (const [socket, subs] of clients) if (subs.has(sessionId)) send(socket, payload);
+  let data: string | undefined;
+  for (const [socket, subs] of clients) if (subs.has(sessionId)) sendRaw(socket, (data ??= JSON.stringify(payload)));
 }
 
 manager.on('event', (sessionId: string, event: LoggedEvent, runId: string) =>
@@ -774,12 +785,10 @@ manager.on('rekey', (from: string, to: string) => {
 });
 
 function broadcastAll(payload: unknown): void {
-  for (const socket of clients.keys()) send(socket, payload);
+  sendEach(clients.keys(), payload);
 }
 monitor.on('system', (system) => broadcastAll({ type: 'system', system }));
-audio.on('spectrum', (spectrum: unknown) => {
-  for (const socket of listening) send(socket, { type: 'audio', spectrum });
-});
+audio.on('spectrum', (spectrum: unknown) => sendEach(listening, { type: 'audio', spectrum }));
 monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
@@ -787,7 +796,7 @@ manager.on('catalog', () => {
   clearTimeout(catalogTimer);
   catalogTimer = setTimeout(async () => {
     const sessions = await manager.catalog().catch(() => null);
-    if (sessions) for (const socket of clients.keys()) send(socket, { type: 'catalog', sessions });
+    if (sessions) broadcastAll({ type: 'catalog', sessions });
   }, 300);
 });
 
@@ -796,8 +805,11 @@ manager.on('catalog', () => {
 if (existsSync(WEB_DIST)) {
   await app.register(fastifyStatic, {
     root: WEB_DIST,
+    // Usa o .br/.gz gerado no build (ver web/scripts/compress.mjs) quando o navegador aceita.
+    preCompressed: true,
     setHeaders: (res, path) => {
       // Arquivos com hash no nome nunca mudam; o resto precisa revalidar para a PWA atualizar.
+      // `path` é o do arquivo enviado, comprimido ou não: a regra vale igual para os dois.
       const immutable = path.includes('/assets/');
       res.header('cache-control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
     },

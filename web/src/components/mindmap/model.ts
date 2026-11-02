@@ -354,7 +354,7 @@ export function mindTree({
   rootMeta: string
   /** O processo do painel está no meio de um turno. */
   working: boolean
-  /** Texto que o Claude está escrevendo agora. */
+  /** Texto que o Claude está escrevendo agora; basta o começo (só a primeira frase aparece). */
   streaming: string
   agents: AgentTree
 }): MindNode {

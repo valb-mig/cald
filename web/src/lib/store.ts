@@ -12,8 +12,6 @@ export type LiveView = {
   lastSeq: number
   state?: SessionState
   waitingFor?: string
-  /** Texto parcial do turno em andamento. */
-  streaming: string
   /** Processo do painel ativo? `null` enquanto não se sabe. */
   open: boolean | null
   /** Modelo, esforço e modo vigentes (último evento `settings`). */
@@ -29,6 +27,11 @@ type Store = {
   catalog: CatalogEntry[]
   catalogLoaded: boolean
   live: Record<string, LiveView>
+  /**
+   * Texto parcial do turno em andamento, por sessão. Fica fora do LiveView de propósito: cada pedaço
+   * que chega re-renderiza só quem mostra o texto, e não a conversa inteira.
+   */
+  streams: Record<string, string>
   /** Sessões bifurcadas que ganharam ID novo: antigo → novo. */
   rekeys: Record<string, string>
   /** CPU, memória e processos do Claude em cada máquina (a cada ~3 s). */
@@ -43,12 +46,13 @@ export const useStore = create<Store>(() => ({
   catalog: [],
   catalogLoaded: false,
   live: {},
+  streams: {},
   rekeys: {},
   systems: {},
   usages: {},
 }))
 
-const emptyView = (): LiveView => ({ events: [], lastSeq: 0, streaming: '', open: null, settings: {} })
+const emptyView = (): LiveView => ({ events: [], lastSeq: 0, open: null, settings: {} })
 
 const settingsOf = (events: LoggedEvent[], fallback: SessionSettings): SessionSettings => {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -64,6 +68,37 @@ const EMPTY = emptyView()
 function patchView(id: string, fn: (v: LiveView) => LiveView): void {
   useStore.setState((s) => ({ live: { ...s.live, [id]: fn(s.live[id] ?? emptyView()) } }))
 }
+
+// Pedaços do streaming ainda não gravados: chegam às dezenas por segundo, então vão para o store
+// juntos, uma vez por quadro.
+const pendingDeltas = new Map<string, string>()
+let deltaFrame = 0
+
+function flushDeltas(): void {
+  cancelAnimationFrame(deltaFrame)
+  deltaFrame = 0
+  if (!pendingDeltas.size) return
+  const chunks = [...pendingDeltas]
+  pendingDeltas.clear()
+  useStore.setState((s) => {
+    const streams = { ...s.streams }
+    for (const [id, text] of chunks) streams[id] = (streams[id] ?? '') + text
+    return { streams }
+  })
+}
+
+function clearStream(id: string): void {
+  pendingDeltas.delete(id)
+  if (!useStore.getState().streams[id]) return
+  useStore.setState((s) => {
+    const { [id]: _, ...streams } = s.streams
+    return { streams }
+  })
+}
+
+/** Eventos que encerram o texto parcial: a resposta completa chegou ou o turno acabou. */
+const endsStream = (e: LoggedEvent) =>
+  (e.kind === 'state' && e.state !== 'running') || (e.kind === 'assistant' && !e.parentToolUseId) || e.kind === 'exit'
 
 // ---------------------------------------------------------------------------
 // Conexões WebSocket, uma por máquina (ver machines.ts): reconectam sozinhas e retomam cada
@@ -288,6 +323,8 @@ export function onLiveEvent(listener: LiveListener): () => void {
 }
 
 function handle(machine: string, m: ServerMsg): void {
+  // O que chega de uma sessão vem depois dos pedaços já recebidos dela: grava-os antes, na ordem.
+  if (m.type === 'snapshot' || m.type === 'not_open' || m.type === 'event' || m.type === 'rekey') flushDeltas()
   switch (m.type) {
     case 'catalog':
       return onCatalog(machine, m.sessions)
@@ -300,6 +337,7 @@ function handle(machine: string, m: ServerMsg): void {
     case 'usage':
       return useStore.setState((s) => ({ usages: { ...s.usages, [machine]: m.usage } }))
     case 'snapshot':
+      if (m.state !== 'running') clearStream(m.sessionId)
       return patchView(m.sessionId, (v) => {
         const sameRun = v.runId === m.runId && !m.reset
         const base = sameRun ? v.events : []
@@ -313,17 +351,20 @@ function handle(machine: string, m: ServerMsg): void {
           state: m.state,
           waitingFor: m.waitingFor,
           open: m.state !== 'exited',
-          streaming: m.state === 'running' ? v.streaming : '',
           settings: settingsOf(events, sameRun ? v.settings : {}),
         }
       })
     case 'not_open':
-      return patchView(m.sessionId, (v) => ({ ...v, open: false, streaming: '' }))
+      clearStream(m.sessionId)
+      return patchView(m.sessionId, (v) => ({ ...v, open: false }))
     case 'event': {
       const before = useStore.getState().live[m.sessionId]
-      patchView(m.sessionId, (v) => applyEvent(v, m.runId, m.event))
       // Repetido (já veio no snapshot ou num reenvio): não é novidade.
-      if (before?.runId !== m.runId || m.event.seq > before.lastSeq) {
+      const fresh = before?.runId !== m.runId || m.event.seq > before.lastSeq
+      // Processo novo da mesma conversa começa do zero, sem o texto parcial do anterior.
+      if (before?.runId !== m.runId || (fresh && endsStream(m.event))) clearStream(m.sessionId)
+      patchView(m.sessionId, (v) => applyEvent(v, m.runId, m.event))
+      if (fresh) {
         for (const listener of liveListeners) listener(m.sessionId, m.runId, m.event)
       }
       if (before?.runId === m.runId) {
@@ -336,11 +377,18 @@ function handle(machine: string, m: ServerMsg): void {
       return
     }
     case 'delta':
-      return patchView(m.sessionId, (v) => ({ ...v, streaming: v.streaming + m.text }))
+      pendingDeltas.set(m.sessionId, (pendingDeltas.get(m.sessionId) ?? '') + m.text)
+      deltaFrame ||= requestAnimationFrame(flushDeltas)
+      return
     case 'rekey':
       useStore.setState((s) => {
         const { [m.from]: moved, ...rest } = s.live
-        return { live: moved ? { ...rest, [m.to]: moved } : rest, rekeys: { ...s.rekeys, [m.from]: m.to } }
+        const { [m.from]: text, ...streams } = s.streams
+        return {
+          live: moved ? { ...rest, [m.to]: moved } : rest,
+          streams: text ? { ...streams, [m.to]: text } : streams,
+          rekeys: { ...s.rekeys, [m.from]: m.to },
+        }
       })
       noteSession(m.to, machine)
       if (subscribed.delete(m.from)) subscribed.set(m.to, machine)
@@ -356,14 +404,9 @@ function applyEvent(view: LiveView, runId: string, e: LoggedEvent): LiveView {
   if (e.kind === 'state') {
     next.state = e.state
     next.waitingFor = e.waitingFor
-    if (e.state !== 'running') next.streaming = ''
   }
-  if (e.kind === 'assistant' && !e.parentToolUseId) next.streaming = ''
   if (e.kind === 'settings') next.settings = { model: e.model, effort: e.effort, permissionMode: e.permissionMode }
-  if (e.kind === 'exit') {
-    next.open = false
-    next.streaming = ''
-  }
+  if (e.kind === 'exit') next.open = false
   return next
 }
 
@@ -374,15 +417,27 @@ function mergeCatalogs(): void {
     .flat()
     .filter((s) => !seen.has(s.sessionId) && seen.add(s.sessionId))
     .sort((a, b) => b.lastModified - a.lastModified)
+  const current = useStore.getState().catalog
+  if (catalog.length === current.length && catalog.every((s, i) => s === current[i])) return
   useStore.setState({ catalog })
 }
 
 function onCatalog(machine: string, sessions: CatalogEntry[]): void {
-  const before = new Map(useStore.getState().catalog.map((s) => [s.sessionId, s.owner]))
-  catalogs.set(machine, sessions.map((s) => ({ ...s, machine })))
+  const previous = new Map(useStore.getState().catalog.map((s) => [s.sessionId, s]))
+  const before = new Map([...previous].map(([id, s]) => [id, s.owner]))
+  // O catálogo chega inteiro a cada mudança; a entrada que não mudou continua o mesmo objeto, senão
+  // toda tela que lê uma conversa renderizaria de novo por causa de outra.
+  catalogs.set(
+    machine,
+    sessions.map((s) => {
+      const next = { ...s, machine }
+      const old = previous.get(s.sessionId)
+      return old && JSON.stringify(old) === JSON.stringify(next) ? old : next
+    }),
+  )
   noteSessions(machine, sessions.map((s) => s.sessionId))
   mergeCatalogs()
-  useStore.setState({ catalogLoaded: true })
+  if (!useStore.getState().catalogLoaded) useStore.setState({ catalogLoaded: true })
   for (const s of sessions) {
     const at = subscribed.get(s.sessionId)
     if (at === undefined) continue

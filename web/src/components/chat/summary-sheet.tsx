@@ -247,8 +247,6 @@ export function SummarySheet({
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
-  const s = useMemo(() => summarize(events), [events])
-  const turns = useMemo(() => events.filter((e) => e.kind === 'result').length, [events])
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto lg:mx-auto lg:max-w-2xl lg:rounded-t-xl lg:border-x">
@@ -256,53 +254,74 @@ export function SummarySheet({
           <SheetTitle>Resumo da sessão</SheetTitle>
           <SheetDescription>Com base nas mensagens carregadas.</SheetDescription>
         </SheetHeader>
-        <div className="space-y-6 px-4 pb-6">
-          <Usage sessionId={sessionId} open={open} turns={turns} live={context} />
-          <Section title="Mídia" count={s.media.mine.length + s.media.claude.length} className="space-y-3">
-            <MediaGroup sessionId={sessionId} title="Enviadas por você" from="Você" keys={s.media.mine} />
-            <MediaGroup sessionId={sessionId} title="Do Claude" from="Claude" keys={s.media.claude} />
-          </Section>
-          <Section title="Arquivos alterados" count={s.files.length}>
-            {s.files.map((f) => {
-              const rel = cwd && f.path.startsWith(`${cwd}/`) ? f.path.slice(cwd.length + 1) : shortPath(f.path)
-              const slash = rel.lastIndexOf('/')
-              return (
-                <li key={f.path} className="flex items-start justify-between gap-2 text-xs">
-                  <div className="min-w-0">
-                    <div className="truncate font-mono font-medium">{rel.slice(slash + 1)}</div>
-                    {slash > 0 && <div className="truncate font-mono text-muted-foreground">{rel.slice(0, slash)}</div>}
-                  </div>
-                  <span className="shrink-0 text-muted-foreground">{f.edits}×</span>
-                </li>
-              )
-            })}
-          </Section>
-          <Section title="Testes" count={s.tests.length}>
-            {s.tests.map((t, i) => (
-              <li key={i} className="flex items-start gap-2 font-mono text-xs">
-                <Status failed={t.failed} />
-                <span className="line-clamp-3 break-all">{t.command}</span>
-              </li>
-            ))}
-          </Section>
-          <Section title="Erros" count={s.errors.length}>
-            {s.errors.map((e, i) => (
-              <li key={i} className="text-xs">
-                <span className="font-medium">{e.tool}: </span>
-                <span className="text-red-700 dark:text-red-300">{e.text}</span>
-              </li>
-            ))}
-          </Section>
-          <Section title="Comandos" count={s.commands.length}>
-            {s.commands.map((c, i) => (
-              <li key={i} className="flex items-start gap-2 font-mono text-xs">
-                <Status failed={c.failed} />
-                <span className="line-clamp-3 break-all">{c.command}</span>
-              </li>
-            ))}
-          </Section>
-        </div>
+        <SummaryBody sessionId={sessionId} events={events} cwd={cwd} context={context} open={open} />
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** O resumo em si: montado só com a folha aberta, para não refazer as contas a cada evento da conversa. */
+function SummaryBody({
+  sessionId,
+  events,
+  cwd,
+  context,
+  open,
+}: {
+  sessionId: string
+  events: Keyed[]
+  cwd?: string
+  context?: ContextUsage | null
+  open: boolean
+}) {
+  const s = useMemo(() => summarize(events), [events])
+  const turns = useMemo(() => events.filter((e) => e.kind === 'result').length, [events])
+  return (
+    <div className="space-y-6 px-4 pb-6">
+      <Usage sessionId={sessionId} open={open} turns={turns} live={context} />
+      <Section title="Mídia" count={s.media.mine.length + s.media.claude.length} className="space-y-3">
+        <MediaGroup sessionId={sessionId} title="Enviadas por você" from="Você" keys={s.media.mine} />
+        <MediaGroup sessionId={sessionId} title="Do Claude" from="Claude" keys={s.media.claude} />
+      </Section>
+      <Section title="Arquivos alterados" count={s.files.length}>
+        {s.files.map((f) => {
+          const rel = cwd && f.path.startsWith(`${cwd}/`) ? f.path.slice(cwd.length + 1) : shortPath(f.path)
+          const slash = rel.lastIndexOf('/')
+          return (
+            <li key={f.path} className="flex items-start justify-between gap-2 text-xs">
+              <div className="min-w-0">
+                <div className="truncate font-mono font-medium">{rel.slice(slash + 1)}</div>
+                {slash > 0 && <div className="truncate font-mono text-muted-foreground">{rel.slice(0, slash)}</div>}
+              </div>
+              <span className="shrink-0 text-muted-foreground">{f.edits}×</span>
+            </li>
+          )
+        })}
+      </Section>
+      <Section title="Testes" count={s.tests.length}>
+        {s.tests.map((t, i) => (
+          <li key={i} className="flex items-start gap-2 font-mono text-xs">
+            <Status failed={t.failed} />
+            <span className="line-clamp-3 break-all">{t.command}</span>
+          </li>
+        ))}
+      </Section>
+      <Section title="Erros" count={s.errors.length}>
+        {s.errors.map((e, i) => (
+          <li key={i} className="text-xs">
+            <span className="font-medium">{e.tool}: </span>
+            <span className="text-red-700 dark:text-red-300">{e.text}</span>
+          </li>
+        ))}
+      </Section>
+      <Section title="Comandos" count={s.commands.length}>
+        {s.commands.map((c, i) => (
+          <li key={i} className="flex items-start gap-2 font-mono text-xs">
+            <Status failed={c.failed} />
+            <span className="line-clamp-3 break-all">{c.command}</span>
+          </li>
+        ))}
+      </Section>
+    </div>
   )
 }

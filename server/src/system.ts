@@ -4,6 +4,8 @@ import { cpus } from 'node:os';
 
 const SAMPLE_MS = 3_000;
 const PLAN_TTL_MS = 90_000;
+// Sem conversa aberta no painel, cada consulta sobe um Claude Code inteiro só para isso.
+const PLAN_PROBE_TTL_MS = 10 * 60_000;
 
 export type SystemSnapshot = {
   at: number;
@@ -90,10 +92,12 @@ export class SystemMonitor extends EventEmitter {
   private prevCpu?: CpuTimes;
   private planBusy = false;
   private readonly fetchPlan: () => Promise<PlanUsage>;
+  private readonly planNeedsProbe: () => boolean;
 
-  constructor(fetchPlan: () => Promise<PlanUsage>) {
+  constructor(fetchPlan: () => Promise<PlanUsage>, planNeedsProbe: () => boolean) {
     super();
     this.fetchPlan = fetchPlan;
+    this.planNeedsProbe = planNeedsProbe;
   }
 
   addClient(): void {
@@ -140,7 +144,8 @@ export class SystemMonitor extends EventEmitter {
 
   private refreshUsageIfStale(): void {
     const now = Date.now();
-    if (!this.planBusy && now - (this.usage.planAt ?? 0) > PLAN_TTL_MS) void this.refreshPlan();
+    const ttl = this.planNeedsProbe() ? PLAN_PROBE_TTL_MS : PLAN_TTL_MS;
+    if (!this.planBusy && now - (this.usage.planAt ?? 0) > ttl) void this.refreshPlan();
   }
 
   private async refreshPlan(): Promise<void> {

@@ -242,7 +242,7 @@ Conversas lado a lado (split): **Abrir outra ao lado**, no menu ⋮ do chat, esc
 - **Abrir:** clicar numa conversa da lista (ou um link para ela, da home, da salinha ou de uma notificação) abre numa **aba de prévia** do grupo em foco, com o título em itálico, que o próximo clique troca; se a conversa já está aberta, só vai para a aba dela. A prévia vira aba fixa ao mandar uma mensagem nela ou com dois cliques (na aba ou na conversa da lista). Arquivos funcionam igual: um clique na árvore ou na aba Git abre como prévia, dois cliques deixam a aba.
 - **Na aba:** o ícone diz a situação da conversa (girando quando o Claude trabalha, a bolinha âmbar quando espera você); o **×** e o botão do meio fecham; o botão direito tem **Fechar**, **Fechar as outras**, **Fechar as da direita**, **Manter aberta** (na prévia) e **Abrir ao lado**, que leva a aba para um grupo novo à direita.
 - **Arrastar uma aba** muda a ordem na barra, a leva para a barra de outro grupo ou, solta na borda esquerda ou direita de um grupo, abre um grupo novo daquele lado (o meio leva para aquele grupo). Grupo que fica sem abas some. Cabem tantos grupos quanto conversas lado a lado.
-- O grupo em foco tem a faixa na aba ativa, e os outros ficam atrás do véu. As abas que não estão à vista continuam abertas por baixo, sem custar pintura: voltar a uma mantém a rolagem, o rascunho e o que ela mostrava.
+- O grupo em foco tem a faixa na aba ativa, e os outros ficam atrás do véu. Ao abrir o app, só as abas à vista carregam; as outras esperam até aparecer pela primeira vez. Depois disso continuam abertas por baixo, sem custar pintura: voltar a uma mantém a rolagem, o rascunho e o que ela mostrava.
 - A URL diz a conversa em foco, e as abas ficam salvas neste aparelho: recarregar, ir à home e voltar mantém tudo como estava. Fechar a última aba volta para a home. Em modo zen, só a conversa dele fica, sem as abas.
 
 Notificações, mesmo com o app fechado, depois de ativadas no painel Computador:
@@ -363,7 +363,7 @@ Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no pa
 
 ```sh
 pnpm install
-pnpm build        # gera web/dist, que o backend serve; basta recarregar a página
+pnpm build        # gera web/dist (com .br e .gz de cada arquivo), que o backend serve; basta recarregar a página
 pnpm dev:web      # Vite em http://localhost:5173 com proxy para o serviço na 7337
 pnpm check        # tipos do server e do web
 ```

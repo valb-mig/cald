@@ -25,7 +25,7 @@ import {
   VolumeOff,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { AgentSheet } from '@/components/agents/agent-sheet'
@@ -43,8 +43,7 @@ import { toolsIn } from '@/components/chat/turn'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
-import { MindMap } from '@/components/mindmap/mind-map'
-import { mindTree } from '@/components/mindmap/model'
+import { firstSentence, mindTree } from '@/components/mindmap/model'
 import { MapPane } from '@/components/mindmap/pane'
 import { ProjectPanelButton } from '@/components/project/panel'
 import { useChatDisplay } from '@/components/mindmap/view'
@@ -94,6 +93,9 @@ import { backHref } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 import { useActivityPing } from '@/lib/wakatime'
 
+// O desenho do mapa mental só chega quando ele for aberto; a árvore (model.ts) é leve e fica aqui.
+const MindMap = lazy(() => import('@/components/mindmap/mind-map').then((m) => ({ default: m.MindMap })))
+
 /**
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
  * existia antes do processo (o resto vem ao vivo). Aberta no PC, atualiza periodicamente.
@@ -108,7 +110,8 @@ function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: bo
     try {
       const result = await api.history(id)
       if (ticket === latest.current) {
-        setEvents(result)
+        // A atualização periódica quase sempre traz o mesmo histórico: sem trocar o array, nada renderiza.
+        setEvents((current) => (current && sameHistory(current, result) ? current : result))
         setError(null)
       }
     } catch (err) {
@@ -123,11 +126,33 @@ function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: bo
 
   useEffect(() => {
     if (!pcOwned) return
-    const timer = setInterval(load, pcWorking ? 4_000 : 15_000)
+    const timer = setInterval(() => document.visibilityState === 'visible' && void load(), pcWorking ? 4_000 : 15_000)
     return () => clearInterval(timer)
   }, [load, pcOwned, pcWorking])
 
   return { events, error }
+}
+
+// O histórico salvo só cresce no fim (e a janela das últimas mensagens desliza): bastam as pontas e o tamanho.
+function sameHistory(a: LoggedEvent[], b: LoggedEvent[]): boolean {
+  if (a.length !== b.length) return false
+  if (!a.length) return true
+  return a[0]!.uuid === b[0]!.uuid && JSON.stringify(a.at(-1)) === JSON.stringify(b.at(-1))
+}
+
+/**
+ * Chave de cada evento do histórico: pela mensagem de onde ele veio, não pela posição. A lista são as
+ * últimas mensagens, então a posição de todas muda quando chega uma nova, e cada item renderizaria
+ * do zero (e o que estava aberto pularia para outro).
+ */
+function historyKeys(events: LoggedEvent[]): Keyed[] {
+  const seen = new Map<string, number>()
+  return events.map((e, i) => {
+    if (!e.uuid) return { ...e, key: `h${i}` }
+    const n = seen.get(e.uuid) ?? 0
+    seen.set(e.uuid, n + 1)
+    return { ...e, key: `h${e.uuid}-${n}` }
+  })
 }
 
 /** Ocupação do contexto da sessão aberta no painel; relida a cada turno concluído. */
@@ -338,12 +363,10 @@ export function ChatPage({ id }: { id: string }) {
 
   const history = useHistory(id, machine, panelOpen, owner === 'pc', entry?.state === 'running')
 
+  const saved = useMemo(() => historyKeys(history.events ?? []), [history.events])
   const events: Keyed[] = useMemo(
-    () => [
-      ...(history.events ?? []).map((e, i) => ({ ...e, key: `h${i}` })),
-      ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : []),
-    ],
-    [history.events, panelOpen, view.events, view.runId],
+    () => [...saved, ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : [])],
+    [saved, panelOpen, view.events, view.runId],
   )
   const items = useMemo(() => buildItems(events), [events])
   // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
@@ -394,10 +417,10 @@ export function ChatPage({ id }: { id: string }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [zen])
+  // O texto do streaming crescendo não entra aqui: o ResizeObserver do conteúdo já acompanha.
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
     items.length,
     queued.length,
-    view.streaming,
     history.events === null,
   ])
 
@@ -407,9 +430,15 @@ export function ChatPage({ id }: { id: string }) {
   const roomy = useWidth(areaRef) >= 1000
   const shown = display === 'both' && !roomy ? 'map' : display
   const stateLabel = stateInfo(shownState, shownWaiting).label
+  // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
+  // refaria a árvore e o layout a cada delta.
+  const streamHead = useStore((s) => {
+    const text = shown === 'chat' ? '' : s.streams[id]
+    return text ? firstSentence(text) || 'Escrevendo…' : ''
+  })
   const mapRoot = useMemo(
-    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: view.streaming, agents })),
-    [shown, items, entry?.title, stateLabel, working, view.streaming, agents],
+    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: streamHead, agents })),
+    [shown, items, entry?.title, stateLabel, working, streamHead, agents],
   )
   // Aprovações e perguntas esperando: com só o mapa na tela, ficam acima do campo de mensagem.
   const requests = useMemo(
@@ -697,7 +726,6 @@ export function ChatPage({ id }: { id: string }) {
                       queued={queued}
                       sessionId={id}
                       actionable={panelOpen}
-                      streaming={view.streaming}
                       working={working}
                       background={background}
                       uses={uses}
@@ -752,14 +780,16 @@ export function ChatPage({ id }: { id: string }) {
           </div>
           {mapRoot && (
             <MapPane beside={shown === 'both'}>
-              <MindMap
-                root={mapRoot}
-                title={entry?.title ?? 'Conversa'}
-                onJump={jumpTo}
-                onAgent={setAgentId}
-                onRequest={openRequest}
-                side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
-              />
+              <Suspense>
+                <MindMap
+                  root={mapRoot}
+                  title={entry?.title ?? 'Conversa'}
+                  onJump={jumpTo}
+                  onAgent={setAgentId}
+                  onRequest={openRequest}
+                  side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
+                />
+              </Suspense>
             </MapPane>
           )}
         </div>
