@@ -108,7 +108,9 @@ export default function App() {
         </>
       )}
       {/* A casca (ver index.css): as conversas e a barra do projeto numa ilha só. No celular não há casca. */}
-      <div className="relative isolate flex min-w-0 flex-1 wide:overflow-hidden wide:rounded-island wide:shadow-island">
+      {/* Com o composer expandido, a casca sobe acima da barra lateral e da alça entre as ilhas, para o
+          escurecido dele (preso no `isolate` daqui) cobrir a tela toda. */}
+      <div className="relative isolate flex min-w-0 flex-1 has-[[data-big]]:z-30 wide:overflow-hidden wide:rounded-island wide:shadow-island">
         {wide && <ShellPaint />}
         {/* Relativo para o arquivo aberto pela barra do projeto cobrir só a área das conversas. */}
         <div className={cn('relative flex min-w-0 flex-1 flex-col', wide ? 'p-gap' : 'mx-auto max-w-2xl compact:max-w-none')}>
@@ -168,7 +170,8 @@ function Sidebar() {
   const width = useSidebar((s) => s.width)
   const view = useSidebar((s) => s.view)
   return (
-    <div className="relative flex shrink-0 overflow-hidden rounded-island bg-shell shadow-island-ring">
+    // Isolada: o cabeçalho fixo da lista e o fio de luz não sobem para cima da casca (e do que abre nela).
+    <div className="relative isolate flex shrink-0 overflow-hidden rounded-island bg-shell shadow-island-ring">
       <SidebarRail />
       {!collapsed && (
         <aside style={{ width }} className="flex shrink-0 flex-col">
