@@ -283,20 +283,111 @@ export function ModeMenu({
         {efforts.length > 0 && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Esforço</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={settings.effort ?? ''}
-              onValueChange={(effort) => onChange({ effort: effort as RunOptions['effort'] })}
-            >
-              {efforts.map((e) => (
-                <DropdownMenuRadioItem key={e} value={e}>
-                  {EFFORTS[e] ?? e}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+            <EffortBar efforts={efforts} value={settings.effort} onChange={(effort) => onChange({ effort: effort as RunOptions['effort'] })} />
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+// Desliza com um leve passo além da parada e volta, como uma mola.
+const SPRING = 'duration-300 ease-[cubic-bezier(0.34,1.4,0.64,1)] motion-reduce:transition-none'
+
+/**
+ * O esforço numa barra com uma parada por nível, como no ChatGPT: clicar ou arrastar escolhe, e o
+ * preenchimento e o pino deslizam até a parada. Pelo teclado, as setas para os lados mudam o nível.
+ * O menu fica aberto, para dar para ir e voltar.
+ */
+function EffortBar({
+  efforts,
+  value,
+  onChange,
+}: {
+  efforts: string[]
+  value: string | null | undefined
+  onChange: (effort: string) => void
+}) {
+  // Enquanto arrasta, só a barra acompanha; o nível vai para a sessão ao soltar.
+  const [drag, setDrag] = useState<number | null>(null)
+  // O pedido vale na barra até a sessão responder com o ajuste novo, para o pino não voltar no meio.
+  const [asked, setAsked] = useState<{ effort: string; over: string | null | undefined } | null>(null)
+  const current = asked && asked.over === value ? asked.effort : value
+  const index = drag ?? (current ? efforts.indexOf(current) : -1)
+  const last = efforts.length - 1
+  const at = (i: number) => `${(i / Math.max(1, last)) * 100}%`
+  const label = index < 0 ? 'Padrão' : (EFFORTS[efforts[index]!] ?? efforts[index]!)
+
+  const pick = (e: React.PointerEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    return Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * last)
+  }
+  const choose = (i: number) => {
+    const effort = efforts[Math.min(last, Math.max(0, i))]!
+    if (effort === current) return
+    setAsked({ effort, over: value })
+    onChange(effort)
+  }
+
+  return (
+    <DropdownMenuItem
+      aria-label={`Esforço: ${label}`}
+      className="flex-col items-stretch gap-1 focus:bg-transparent"
+      onSelect={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+        e.preventDefault()
+        choose(index < 0 ? 0 : index + (e.key === 'ArrowRight' ? 1 : -1))
+      }}
+    >
+      <div className="flex items-center justify-between text-xs font-medium">
+        <span className="text-muted-foreground">Esforço</span>
+        {/* A chave refaz a entrada a cada nível, e o nome novo sobe no lugar do antigo. */}
+        <span key={label} className="animate-in duration-200 fade-in-0 slide-in-from-bottom-1 motion-reduce:animate-none">
+          {label}
+        </span>
+      </div>
+      <div
+        className="relative mx-2 h-6 cursor-pointer touch-none"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          setDrag(pick(e))
+        }}
+        onPointerMove={(e) => drag !== null && setDrag(pick(e))}
+        onPointerUp={() => {
+          if (drag === null) return
+          choose(drag)
+          setDrag(null)
+        }}
+        onPointerCancel={() => setDrag(null)}
+      >
+        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/10" />
+        <span
+          className={cn('absolute top-1/2 left-0 h-1 -translate-y-1/2 rounded-full bg-foreground/80 transition-[width]', SPRING)}
+          style={{ width: index < 0 ? 0 : at(index) }}
+        />
+        {efforts.map((e, i) => (
+          <span
+            key={e}
+            className={cn(
+              'absolute top-1/2 size-1.5 -translate-1/2 rounded-full transition-colors duration-300',
+              i <= index ? 'bg-background/80' : 'bg-foreground/25',
+            )}
+            style={{ left: at(i) }}
+          />
+        ))}
+        <span
+          className={cn(
+            'absolute top-1/2 size-4 -translate-1/2 rounded-full bg-foreground shadow-[0_1px_4px_rgb(0_0_0/0.35)] ring-ring/50 transition-[left,scale,opacity]',
+            'group-focus-visible/dropdown-menu-item:ring-[3px]',
+            SPRING,
+            drag !== null && 'scale-125',
+            index < 0 && 'scale-50 opacity-0',
+          )}
+          style={{ left: at(Math.max(0, index)) }}
+        />
+      </div>
+    </DropdownMenuItem>
   )
 }
