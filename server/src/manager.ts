@@ -23,7 +23,7 @@ import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from
 import { searchProjectFiles } from './project-files.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
-import { transcriptCwd, transcriptFile } from './transcript.ts';
+import { transcriptCwd, transcriptEfforts, transcriptFile } from './transcript.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
 import type { Fork, MetaStore } from './meta.ts';
 import type { ResumeEntry } from './updater.ts';
@@ -258,14 +258,19 @@ export class Manager extends EventEmitter {
   /** Lê o transcript e converte em eventos; as imagens achadas vão para o cache de imagens. */
   private async readHistory(sessionId: string, limit: number, prior?: number, fork?: Fork): Promise<LoggedEvent[]> {
     let messages = await getSessionMessages(sessionId);
+    // De qual transcript sai o esforço de cada resposta: o da própria conversa, ou o da origem enquanto ela herda.
+    let source = sessionId;
     // Bifurcação sem turno próprio: o Claude Code só grava o log dela na primeira mensagem, então
     // até lá o que se mostra é o histórico herdado da origem, cortado no ponto da bifurcação. Vem
     // do meta, e não da sessão viva, para continuar valendo depois que ela é fechada.
-    if (messages.length === 0 && fork) messages = await this.inherited(fork);
-    else if (prior !== undefined) messages = messages.slice(0, prior);
+    if (messages.length === 0 && fork) {
+      messages = await this.inherited(fork);
+      source = fork.from;
+    } else if (prior !== undefined) messages = messages.slice(0, prior);
+    const efforts = await transcriptEfforts(source);
     const events = messages
       .slice(-limit)
-      .flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid)).map((e) => ({ ...e, uuid: m.uuid })));
+      .flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid), efforts.get(m.uuid)).map((e) => ({ ...e, uuid: m.uuid })));
     // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
     return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
   }

@@ -26,7 +26,8 @@ export type PanelEvent =
   /** `images`: chaves das imagens no PC (GET /api/sessions/:id/images/:key); `clientId`: ID na fila do celular. */
   | { kind: 'user'; text: string; images?: string[]; clientId?: string }
   | { kind: 'notice'; text: string }
-  | { kind: 'assistant'; text: string; parentToolUseId?: string | null }
+  /** `model` e `effort`: o modelo que escreveu a resposta e o esforço com que pensou, quando se sabe. */
+  | { kind: 'assistant'; text: string; parentToolUseId?: string | null; model?: string; effort?: string }
   | { kind: 'thinking'; text: string; parentToolUseId?: string | null }
   | { kind: 'tool_use'; id: string; name: string; input: Record<string, unknown>; parentToolUseId?: string | null }
   | { kind: 'tool_result'; toolUseId: string; isError: boolean; text: string; images?: string[] }

@@ -22,7 +22,7 @@ export type Item =
    * Falta na primeira mensagem (não há o que manter antes) e nas conversas sem UUID no histórico.
    */
   | { type: 'user'; key: string; text: string; images?: string[]; from?: string }
-  | { type: 'assistant'; key: string; text: string }
+  | { type: 'assistant'; key: string; text: string; model?: string; effort?: string }
   | { type: 'notice'; key: string; text: string }
   | { type: 'activity'; key: string; entries: ActivityEntry[] }
   /** `agent`: descrição do subagente que pediu (aprovações de dentro de um subagente). */
@@ -104,7 +104,7 @@ export function buildItems(events: Keyed[]): Item[] {
         break
       case 'assistant':
         if (e.parentToolUseId) place({ kind: 'subtext', key: e.key, text: e.text }, e.parentToolUseId)
-        else push({ type: 'assistant', key: e.key, text: e.text })
+        else push({ type: 'assistant', key: e.key, text: e.text, model: e.model, effort: e.effort })
         break
       case 'user':
         push({ type: 'user', key: e.key, text: e.text, images: e.images, from: forks.get(e.key) })

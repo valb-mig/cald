@@ -20,6 +20,7 @@ import { ApprovalCard } from './approval-card'
 import { Arrival, useArrivals } from './arrival'
 import { BackgroundTasks } from './background-tasks'
 import { ClaudeSpinner } from './claude-spinner'
+import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
@@ -229,7 +230,23 @@ function CopyMarkdown({ text }: { text: string }) {
  * caixa de mensagem). Na última resposta de cada turno, os atalhos do que o turno fez. `fresh`: acabou
  * de chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
  */
-function AssistantMessage({ id, text, turn, cwd, fresh }: { id: string; text: string; turn?: TurnInfo; cwd?: string; fresh: boolean }) {
+function AssistantMessage({
+  id,
+  text,
+  model,
+  effort,
+  turn,
+  cwd,
+  fresh,
+}: {
+  id: string
+  text: string
+  model?: string
+  effort?: string
+  turn?: TurnInfo
+  cwd?: string
+  fresh: boolean
+}) {
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
   return (
@@ -246,8 +263,22 @@ function AssistantMessage({ id, text, turn, cwd, fresh }: { id: string; text: st
         )}
         <CopyMarkdown text={text} />
         {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
+        {model && <WrittenBy model={model} effort={effort} />}
       </Arrival>
     </div>
+  )
+}
+
+/**
+ * Quem escreveu a resposta: o modelo e o esforço com que pensou, discretos no fim da fileira de botões.
+ * O id completo do modelo fica na dica, para quando o nome curto não bastar.
+ */
+function WrittenBy({ model, effort }: { model: string; effort?: string }) {
+  return (
+    <span title={effort ? `${model} · esforço ${effort}` : model} className="px-1.5 text-xs text-muted-foreground">
+      {prettyModel(model)}
+      {effort && ` · ${(EFFORTS[effort] ?? effort).toLowerCase()}`}
+    </span>
   )
 }
 
@@ -287,7 +318,17 @@ function ItemView({
         />
       )
     case 'assistant':
-      return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} fresh={fresh} />
+      return (
+        <AssistantMessage
+          id={`${sessionId}:${item.key}`}
+          text={item.text}
+          model={item.model}
+          effort={item.effort}
+          turn={turn}
+          cwd={cwd}
+          fresh={fresh}
+        />
+      )
     case 'notice':
       return (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
