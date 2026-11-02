@@ -49,9 +49,21 @@ export default defineConfig({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // As cores de sintaxe (ver lib/highlight.ts) baixam só quando um arquivo é aberto: dezenas de
+        // gramáticas no cache offline pesariam mais que o app inteiro.
+        globIgnores: ['assets/hl/**'],
       },
     }),
   ],
+  build: {
+    rolldownOptions: {
+      output: {
+        // O Shiki e as gramáticas numa pasta própria, que o cache offline deixa de fora (acima).
+        chunkFileNames: (chunk) =>
+          chunk.moduleIds.some((id) => /[\\/](shiki|@shikijs)[\\/]/.test(id)) ? 'assets/hl/[name]-[hash].js' : 'assets/[name]-[hash].js',
+      },
+    },
+  },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })),
   },
