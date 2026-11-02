@@ -1,9 +1,12 @@
 import { FolderGit2, House, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
+import { useShallow } from 'zustand/react/shallow'
 import { ClaudeMark } from '@/components/chat/claude-spinner'
+import { Claudinho } from '@/components/claudinho'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { setComputerOpen, useComputer } from '@/lib/computer'
+import { claudinhoName } from '@/lib/claudinho'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
@@ -11,6 +14,7 @@ import { useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { focusedChat, onWorkbench, useWorkbench } from '@/lib/workbench'
 
 // As medidas ficam no cinza da ilha: a cor (a do quadro do PC, pc-status.tsx) é só para o alerta e o
 // crítico, e o verde para a meta de horas batida, em que encher é bom.
@@ -237,6 +241,38 @@ export function SidebarMeters({ className }: { className?: string }) {
   )
 }
 
+/** Uma conversa aberta em aba, na alça: o claudinho dela, com o estado, e o nome e o título ao passar o mouse. */
+function RailChat({ id, active }: { id: string; active: boolean }) {
+  const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
+  const name = claudinhoName(id, entry?.claudinhoName)
+  return (
+    <RailItem label={entry?.title ? `${name} · ${entry.title}` : name} href={`/s/${id}`} active={active}>
+      <Claudinho seed={id} state={entry?.state} status size={20} />
+    </RailItem>
+  )
+}
+
+/**
+ * Com a lista recolhida, as conversas abertas em abas (de todos os grupos, na ordem da tela) ficam na
+ * alça, para trocar de conversa sem abrir a lista; a que está em foco ganha o destaque.
+ */
+function RailChats() {
+  const [location] = useLocation()
+  const ids = useWorkbench(useShallow((s) => s.groups.flatMap((g) => g.tabs.flatMap((t) => (t.kind === 'chat' ? [t.id] : [])))))
+  const focused = useWorkbench((s) => (onWorkbench(location) ? focusedChat(s) : null))
+  if (!ids.length) return null
+  return (
+    <>
+      <div className="my-1 h-px w-6 shrink-0 bg-foreground/10" />
+      <div className="chat-enter flex min-h-0 flex-col items-center gap-1 overflow-y-auto [scrollbar-width:none] [animation-delay:120ms]">
+        {ids.map((id) => (
+          <RailChat key={id} id={id} active={id === focused} />
+        ))}
+      </div>
+    </>
+  )
+}
+
 /**
  * Alça do PC, sempre à esquerda, como a barra de atividades do VS Code: o botão do topo abre e recolhe a
  * barra lateral; Sessões (com o contador das que precisam de você) e Projetos escolhem o que ela
@@ -273,8 +309,9 @@ export function SidebarRail() {
         <RailItem label="Projetos" shown={!collapsed && view === 'projects'} onClick={() => toggleSidebarView('projects')}>
           <FolderGit2 />
         </RailItem>
+        {collapsed && <RailChats />}
 
-        <div className="mt-auto flex flex-col items-center gap-1.5">
+        <div className="mt-auto flex shrink-0 flex-col items-center gap-1.5 pt-2">
           {collapsed && <RailMeters />}
           {/* O painel Computador: o PC, os limites do Claude e os ajustes deste aparelho. Abre por cima,
               sem tirar você da conversa (ver lib/computer.ts). */}
