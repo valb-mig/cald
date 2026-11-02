@@ -25,7 +25,7 @@ import {
   VolumeOff,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { AgentSheet } from '@/components/agents/agent-sheet'
@@ -43,7 +43,6 @@ import { toolsIn } from '@/components/chat/turn'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
-import { MindMap } from '@/components/mindmap/mind-map'
 import { firstSentence, mindTree } from '@/components/mindmap/model'
 import { MapPane } from '@/components/mindmap/pane'
 import { ProjectPanelButton } from '@/components/project/panel'
@@ -93,6 +92,9 @@ import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
 import { backHref } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 import { useActivityPing } from '@/lib/wakatime'
+
+// O desenho do mapa mental só chega quando ele for aberto; a árvore (model.ts) é leve e fica aqui.
+const MindMap = lazy(() => import('@/components/mindmap/mind-map').then((m) => ({ default: m.MindMap })))
 
 /**
  * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
@@ -778,14 +780,16 @@ export function ChatPage({ id }: { id: string }) {
           </div>
           {mapRoot && (
             <MapPane beside={shown === 'both'}>
-              <MindMap
-                root={mapRoot}
-                title={entry?.title ?? 'Conversa'}
-                onJump={jumpTo}
-                onAgent={setAgentId}
-                onRequest={openRequest}
-                side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
-              />
+              <Suspense>
+                <MindMap
+                  root={mapRoot}
+                  title={entry?.title ?? 'Conversa'}
+                  onJump={jumpTo}
+                  onAgent={setAgentId}
+                  onRequest={openRequest}
+                  side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
+                />
+              </Suspense>
             </MapPane>
           )}
         </div>

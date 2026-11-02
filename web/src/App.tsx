@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Redirect, Route, Switch, useLocation } from 'wouter'
 import { ComputerSheet } from '@/components/computer-sheet'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
@@ -34,12 +34,14 @@ import { rememberTab } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 import { HomePage } from '@/pages/home'
 import { NewChatPage } from '@/pages/new-chat'
-import { OfficePage } from '@/pages/office'
 import { ProjectsPage } from '@/pages/projects'
 import { SessionsPage } from '@/pages/sessions'
 import { SharePage } from '@/pages/share'
 import { ChatSplit } from '@/pages/split'
 import { Workbench } from '@/pages/workbench'
+
+// A salinha é uma tela à parte, para deixar de fundo: o desenho dela só chega quando for aberta.
+const OfficePage = lazy(() => import('@/pages/office').then((m) => ({ default: m.OfficePage })))
 
 /** Quanto cada toque nas setas do teclado muda a largura da lista. */
 const KEY_STEP = 24
@@ -80,7 +82,9 @@ export default function App() {
     return (
       <div className="flex h-dvh flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
         <ConnectionBanner />
-        <OfficePage />
+        <Suspense>
+          <OfficePage />
+        </Suspense>
       </div>
     )
   }

@@ -1,8 +1,7 @@
 import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, SquareTerminal, X, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { ToolDetails } from '@/components/chat/activity'
 import type { ToolEntry } from '@/components/chat/turn'
-import { TerminalView } from '@/components/terminal'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { PANEL_HEIGHT, PANEL_MIN_HEIGHT, saveBottomPanel, setBottomHeight, toggleBottomPanel, useBottomPanel, type BottomTab } from '@/lib/bottom-panel'
@@ -14,6 +13,9 @@ import { setPanelShown, setPanelTab, useProjectPanel } from '@/lib/project-panel
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { focusedChat, useWorkbench } from '@/lib/workbench'
+
+// O xterm é o maior pedaço do app e só serve a quem abre o terminal: chega na primeira vez.
+const TerminalView = lazy(() => import('@/components/terminal').then((m) => ({ default: m.TerminalView })))
 
 /**
  * A conversa da barra de status: a em foco nas abas ou, com um arquivo, issue ou PR na frente, a
@@ -279,7 +281,9 @@ export function BottomPanel() {
         {tab === 'terminal' && !project && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
         {shells.map((s) => (
           <div key={s.key} className={cn('flex min-h-0 flex-1 flex-col', !(tab === 'terminal' && s.key === current) && 'hidden')}>
-            <TerminalView machine={s.machine} cwd={s.cwd} active={open && tab === 'terminal' && s.key === current} />
+            <Suspense>
+              <TerminalView machine={s.machine} cwd={s.cwd} active={open && tab === 'terminal' && s.key === current} />
+            </Suspense>
           </div>
         ))}
       </section>
