@@ -805,8 +805,11 @@ manager.on('catalog', () => {
 if (existsSync(WEB_DIST)) {
   await app.register(fastifyStatic, {
     root: WEB_DIST,
+    // Usa o .br/.gz gerado no build (ver web/scripts/compress.mjs) quando o navegador aceita.
+    preCompressed: true,
     setHeaders: (res, path) => {
       // Arquivos com hash no nome nunca mudam; o resto precisa revalidar para a PWA atualizar.
+      // `path` é o do arquivo enviado, comprimido ou não: a regra vale igual para os dois.
       const immutable = path.includes('/assets/');
       res.header('cache-control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
     },
