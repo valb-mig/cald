@@ -271,10 +271,12 @@ export type GithubInfo =
   | { ok: false; reason: 'no_remote' | 'not_github' | 'no_gh' | 'gh_auth' | 'error'; message?: string; fetchedAt: number }
 
 /** Uma issue ou um PR inteiro, para a aba de análise (ver server/src/github.ts). */
-export type GithubComment = { author: string | null; body: string; createdAt: string; url: string }
+/** `avatar` e `role` (a relação com o repositório) faltam no servidor de antes de reiniciar. */
+export type GithubComment = { author: string | null; avatar?: string | null; role?: string; body: string; createdAt: string; url: string }
 
 export type GithubReview = {
   author: string | null
+  avatar?: string | null
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'
   body: string
   submittedAt: string | null
@@ -284,12 +286,17 @@ export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pendi
 
 export type GithubFile = { path: string; additions: number; deletions: number; change: string }
 
+export type GithubCommit = { sha: string; short: string; headline: string; author: string | null; avatar: string | null; date: string; url: string }
+
 type GithubItemBase = {
   number: number
   title: string
   url: string
   state: 'OPEN' | 'CLOSED' | 'MERGED'
   author: string | null
+  authorAvatar?: string | null
+  /** A relação de quem abriu com o repositório: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR… */
+  authorRole?: string
   /** Quem está logado no `gh` do PC abriu este: o GitHub não deixa aprovar o próprio PR. */
   mine: boolean
   assignees: string[]
@@ -319,6 +326,8 @@ export type GithubPullDetail = GithubItemBase & {
   checks: GithubCheck[]
   files: GithubFile[]
   reviews: GithubReview[]
+  /** Os 50 últimos, do mais antigo ao mais novo. */
+  commits?: GithubCommit[]
   mergeState: string
   crossRepo: boolean
   mergeMethods: MergeMethod[]
@@ -332,6 +341,7 @@ export type GithubItem =
       ok: true
       repo: string
       viewer: string
+      viewerAvatar?: string | null
       repoLabels: GithubLabel[]
       item: GithubIssueDetail | GithubPullDetail
       fetchedAt: number

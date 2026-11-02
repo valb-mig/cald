@@ -176,10 +176,12 @@ async function load(cwd: string): Promise<GithubInfo> {
 
 // ---- uma issue ou um PR, para a aba de análise no meio da tela ----
 
-export type GithubComment = { author: string | null; body: string; createdAt: string; url: string };
+/** `avatar`: a foto de quem escreveu; `role`: a relação com o repositório (OWNER, MEMBER, CONTRIBUTOR…). */
+export type GithubComment = { author: string | null; avatar: string | null; role: string; body: string; createdAt: string; url: string };
 
 export type GithubReview = {
   author: string | null;
+  avatar: string | null;
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
   body: string;
   submittedAt: string | null;
@@ -190,12 +192,18 @@ export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pendi
 
 export type GithubFile = { path: string; additions: number; deletions: number; change: string };
 
+/** Um commit do PR, para a aba de commits e para a linha do tempo. */
+export type GithubCommit = { sha: string; short: string; headline: string; author: string | null; avatar: string | null; date: string; url: string };
+
 type ItemBase = {
   number: number;
   title: string;
   url: string;
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   author: string | null;
+  authorAvatar: string | null;
+  /** A relação de quem abriu com o repositório: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR… */
+  authorRole: string;
   /** Quem está logado no `gh` deste PC abriu este: o GitHub não deixa aprovar o próprio PR. */
   mine: boolean;
   assignees: string[];
@@ -227,6 +235,8 @@ export type GithubPullDetail = ItemBase & {
   /** Os 100 primeiros arquivos; `changedFiles` é o total. */
   files: GithubFile[];
   reviews: GithubReview[];
+  /** Os 50 últimos, do mais antigo ao mais novo; `commitCount` é o total. */
+  commits: GithubCommit[];
   /** O que o GitHub diz do merge agora: `CLEAN` pronto, `BLOCKED` falta revisão ou check, `BEHIND` atrás da base… */
   mergeState: string;
   /** De um fork: a branch é de outro repositório, e não dá para apagar daqui. */
@@ -244,6 +254,7 @@ export type GithubItem =
       ok: true;
       repo: string;
       viewer: string;
+      viewerAvatar: string | null;
       repoLabels: GithubLabel[];
       item: GithubIssueDetail | GithubPullDetail;
       fetchedAt: number;
@@ -251,17 +262,17 @@ export type GithubItem =
     }
   | Failure;
 
-const COMMON = `number title url state body createdAt updatedAt author { login } viewerDidAuthor
+const COMMON = `number title url state body createdAt updatedAt author { login avatarUrl(size: 64) } authorAssociation viewerDidAuthor
   assignees(first: 10) { nodes { login } }
   labels(first: 20) { nodes { name color } }
-  comments(last: 50) { totalCount nodes { author { login } body createdAt url } }`;
+  comments(last: 50) { totalCount nodes { author { login avatarUrl(size: 64) } authorAssociation body createdAt url } }`;
 
 // O que todo item precisa do repositório e de quem está logado: as etiquetas, para pôr e tirar.
 const AROUND = `labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color } }`;
 
 const ISSUE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   rateLimit { remaining limit resetAt }
-  viewer { login }
+  viewer { login avatarUrl(size: 64) }
   repository(owner: $owner, name: $name) {
     ${AROUND}
     issue(number: $number) { ${COMMON} stateReason }
@@ -270,7 +281,7 @@ const ISSUE_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
 
 const PULL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   rateLimit { remaining limit resetAt }
-  viewer { login }
+  viewer { login avatarUrl(size: 64) }
   repository(owner: $owner, name: $name) {
     ${AROUND}
     mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed deleteBranchOnMerge viewerDefaultMergeMethod
@@ -282,12 +293,16 @@ const PULL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
         ... on StatusContext { context state targetUrl }
       } } } } } }
       files(first: 100) { nodes { path additions deletions changeType } }
-      reviews(last: 30) { nodes { author { login } state body submittedAt } }
+      reviews(last: 30) { nodes { author { login avatarUrl(size: 64) } state body submittedAt } }
+      commitList: commits(last: 50) { nodes { commit {
+        oid abbreviatedOid messageHeadline committedDate url author { name user { login avatarUrl(size: 64) } }
+      } } }
     }
   }
 }`;
 
-type RawComment = { author: { login: string } | null; body: string; createdAt: string; url: string };
+type RawAuthor = { login: string; avatarUrl?: string } | null;
+type RawComment = { author: RawAuthor; authorAssociation?: string; body: string; createdAt: string; url: string };
 type RawCommon = {
   number: number;
   title: string;
@@ -296,7 +311,8 @@ type RawCommon = {
   body: string;
   createdAt: string;
   updatedAt: string;
-  author: { login: string } | null;
+  author: RawAuthor;
+  authorAssociation?: string;
   viewerDidAuthor: boolean;
   assignees: { nodes: { login: string }[] };
   labels: { nodes: GithubLabel[] };
@@ -327,7 +343,19 @@ type RawPullDetail = RawCommon & {
   changedFiles: number;
   commits: { totalCount: number; nodes: { commit: { statusCheckRollup: { contexts: { nodes: RawContext[] } } | null } }[] };
   files: { nodes: { path: string; additions: number; deletions: number; changeType: string }[] } | null;
-  reviews: { nodes: { author: { login: string } | null; state: GithubReview['state']; body: string; submittedAt: string | null }[] };
+  reviews: { nodes: { author: RawAuthor; state: GithubReview['state']; body: string; submittedAt: string | null }[] };
+  commitList: {
+    nodes: {
+      commit: {
+        oid: string;
+        abbreviatedOid: string;
+        messageHeadline: string;
+        committedDate: string;
+        url: string;
+        author: { name: string | null; user: RawAuthor } | null;
+      };
+    }[];
+  };
 };
 
 function checkOf(c: RawContext): GithubCheck {
@@ -352,13 +380,22 @@ function common(raw: RawCommon): ItemBase {
     url: raw.url,
     state: raw.state,
     author: raw.author?.login ?? null,
+    authorAvatar: raw.author?.avatarUrl ?? null,
+    authorRole: raw.authorAssociation ?? 'NONE',
     mine: raw.viewerDidAuthor,
     assignees: raw.assignees.nodes.map((a) => a.login),
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     body: raw.body,
     labels: raw.labels.nodes,
-    comments: raw.comments.nodes.map((c) => ({ author: c.author?.login ?? null, body: c.body, createdAt: c.createdAt, url: c.url })),
+    comments: raw.comments.nodes.map((c) => ({
+      author: c.author?.login ?? null,
+      avatar: c.author?.avatarUrl ?? null,
+      role: c.authorAssociation ?? 'NONE',
+      body: c.body,
+      createdAt: c.createdAt,
+      url: c.url,
+    })),
     commentCount: raw.comments.totalCount,
   };
 }
@@ -373,7 +410,11 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
   try {
     if (kind === 'issue') {
       const data = (
-        await graphql<{ data?: { viewer: { login: string }; repository: (RawAround & { issue: RawIssueDetail | null }) | null } }>(cwd, ISSUE_QUERY, vars)
+        await graphql<{ data?: { viewer: { login: string; avatarUrl?: string }; repository: (RawAround & { issue: RawIssueDetail | null }) | null } }>(
+          cwd,
+          ISSUE_QUERY,
+          vars,
+        )
       ).data;
       const raw = data?.repository?.issue;
       if (!raw) return missing;
@@ -381,6 +422,7 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
         ok: true,
         repo,
         viewer: data.viewer.login,
+        viewerAvatar: data.viewer.avatarUrl ?? null,
         repoLabels: data.repository!.labels.nodes,
         item: { ...common(raw), kind: 'issue', stateReason: raw.stateReason },
         fetchedAt,
@@ -388,7 +430,9 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
       };
     }
     const data = (
-      await graphql<{ data?: { viewer: { login: string }; repository: (RawAround & RawMergeRules & { pullRequest: RawPullDetail | null }) | null } }>(
+      await graphql<{
+        data?: { viewer: { login: string; avatarUrl?: string }; repository: (RawAround & RawMergeRules & { pullRequest: RawPullDetail | null }) | null };
+      }>(
         cwd,
         PULL_QUERY,
         vars,
@@ -407,6 +451,7 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
       ok: true,
       repo,
       viewer: data.viewer.login,
+      viewerAvatar: data.viewer.avatarUrl ?? null,
       repoLabels: rules.labels.nodes,
       item: {
         ...common(raw),
@@ -422,7 +467,22 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
         commitCount: raw.commits.totalCount,
         checks: raw.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes.map(checkOf) ?? [],
         files: (raw.files?.nodes ?? []).map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions, change: f.changeType })),
-        reviews: raw.reviews.nodes.map((r) => ({ author: r.author?.login ?? null, state: r.state, body: r.body, submittedAt: r.submittedAt })),
+        reviews: raw.reviews.nodes.map((r) => ({
+          author: r.author?.login ?? null,
+          avatar: r.author?.avatarUrl ?? null,
+          state: r.state,
+          body: r.body,
+          submittedAt: r.submittedAt,
+        })),
+        commits: raw.commitList.nodes.map(({ commit: c }) => ({
+          sha: c.oid,
+          short: c.abbreviatedOid,
+          headline: c.messageHeadline,
+          author: c.author?.user?.login ?? c.author?.name ?? null,
+          avatar: c.author?.user?.avatarUrl ?? null,
+          date: c.committedDate,
+          url: c.url,
+        })),
         mergeState: raw.mergeStateStatus,
         crossRepo: raw.isCrossRepository,
         mergeMethods: methods,
