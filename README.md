@@ -120,7 +120,7 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `WHISPER_MODEL` | `~/.local/share/claude-remote/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
 | `ACTIVITY_FILE` | `~/.local/share/claude-remote/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
 | `WAKATIME_CLI` | `~/.wakatime/wakatime-cli` | Binário do WakaTime, para o seu tempo no painel contar lá (ver [WakaTime](#wakatime)); `WAKATIME=0` desliga |
-| `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem o anel do WakaTime na alça do PC |
+| `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem a medida do WakaTime no PC |
 | `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
 
 No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
@@ -168,9 +168,9 @@ Depois: `systemctl --user enable --now wakatime-ai-sync.timer`.
 
 O outro lado é o **seu**: ler a resposta, conferir um diff, escrever a próxima mensagem. Nada disso vira transcrito, e por isso o servidor manda os heartbeats dele mesmo, com as regras dos plugins de editor (um por arquivo a cada dois minutos, no máximo): abrir um arquivo no explorador ou ver um diff conta como *code reviewing*, e o tempo mexendo numa conversa conta no projeto dela. Parou de mexer ou saiu do app, para de contar.
 
-Com isso em pé, a alça do PC ganha o anel **Hoje**, acima do de CPU: quanto você já codou hoje (o que o Claude fez mais o seu tempo), pelo mesmo número que o `wakatime-cli --today` mostra. Ele enche até a meta de `WAKATIME_GOAL_HOURS` e fica verde ao bater.
+Com isso em pé, o PC ganha a medida **Hoje**, acima da de CPU (no pé da lista de conversas ou, com ela recolhida, na alça): quanto você já codou hoje (o que o Claude fez mais o seu tempo), pelo mesmo número que o `wakatime-cli --today` mostra. Ele enche até a meta de `WAKATIME_GOAL_HOURS` e fica verde ao bater.
 
-Sem o `wakatime-cli` instalado, nada disso acontece: o anel não aparece e o painel segue igual. Para desligar com ele instalado, use `WAKATIME=0`.
+Sem o `wakatime-cli` instalado, nada disso acontece: a medida não aparece e o painel segue igual. Para desligar com ele instalado, use `WAKATIME=0`.
 
 ### Problemas comuns
 
@@ -215,7 +215,7 @@ O que dá para fazer:
 - **Conversas:** no topo, um quadro com CPU, memória e os limites do plano do Claude (janela de 5 h e semana, com horário de reset). Abaixo, as conversas, nesta ordem: as que precisam de você, as fixadas, as abertas agora e as recentes. A aba mostra um contador das que precisam de você. Segurar o dedo numa conversa (ou clicar com o botão direito, no PC) abre o menu dela com **Apagar conversa**, que pede confirmação; a aberta no PC não pode ser apagada até ser fechada lá.
 - **Nova** (nas Conversas) pergunta só onde trabalhar, sem projeto (`~`) ou um projeto, e abre um chat vazio. A primeira mensagem, digitada na própria caixa do chat com modelo, modo, `/`, `@` e anexos, cria a sessão.
 - **Projetos:** escolher um diretório do PC para iniciar uma sessão nova. Os projetos com mudanças no git sobem para o grupo **Com mudanças**, com selos de arquivos não commitados, commits para enviar (↑) e commits novos no GitHub (↓). A tela mostra primeiro o estado local e depois consulta o remoto com `git fetch` (no máximo a cada 10 min por projeto, sem nunca pedir senha: sem chave ou credencial que funcione sozinha, o ↓ fica no último fetch).
-- **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão, as notificações, os sons e o tema. Não é uma tela: abre como painel por cima de onde você está, então dá para conferir o PC ou mudar um ajuste sem sair da conversa. Abre pela aba no celular e, no PC, pela alça, pelos anéis e pelo quadro do PC no início; fecha pelo X, tocando fora ou com o voltar do celular.
+- **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), todas as janelas de uso, inclusive por modelo, a conexão, as notificações, os sons e o tema. Não é uma tela: abre como painel por cima de onde você está, então dá para conferir o PC ou mudar um ajuste sem sair da conversa. Abre pela aba no celular e, no PC, pela alça, pelas medidas e pelo quadro do PC no início; fecha pelo X, tocando fora ou com o voltar do celular.
 
 Com várias máquinas (ver [Várias máquinas](#várias-máquinas)):
 - As conversas de todas aparecem juntas, cada uma com o nome da máquina. No topo das Sessões, o filtro **Todas · máquina 1 · máquina 2** mostra só as de uma; a bolinha de cada máquina diz se a conexão com ela está de pé.
@@ -226,7 +226,7 @@ O app se ajusta à tela:
 - **Celular em pé:** uma tela por vez, com as abas embaixo.
 - **Celular deitado:** o app instalado gira junto. As abas viram uma coluna na lateral, e o cabeçalho e a caixa de mensagem ficam mais baixos para sobrar espaço para a conversa; a branch continua no **⎇** do topo. Depois de atualizar, o Android pode levar até um dia para liberar a rotação no app instalado; reinstalar o app faz valer na hora.
 - **PC ou tablet deitado** (a partir de 1024 px de largura, ou já de 768 px com mouse, como uma janela de PC na metade da tela): a lista de conversas fica fixa à esquerda, e a conversa aberta fica ao lado, marcada na lista. Trocar de conversa não precisa voltar à lista. Sem conversa aberta, o lado direito mostra **Nova conversa**.
-  - À esquerda fica sempre a alça, uma barra estreita com o botão da lista de conversas (com o contador das que precisam de você), nova conversa, Início, Projetos e Computador e, embaixo, CPU, memória e os limites do Claude (5 h e semana) em anéis de progresso, com as mesmas cores de alerta do quadro do PC. Passar o mouse num anel mostra o detalhe, e clicar abre o painel Computador.
+  - À esquerda fica sempre a alça, uma barra estreita com o botão da lista de conversas (com o contador das que precisam de você), nova conversa, Início, Projetos e Computador e, embaixo, CPU, memória e os limites do Claude (5 h e semana). Com a lista aberta, essas medidas ficam no pé dela, uma por linha, com um traço fino em cinza que só ganha cor no alerta. Com a lista recolhida, voltam para a alça em anéis de progresso, com as mesmas cores de alerta do quadro do PC. Passar o mouse numa medida mostra o detalhe, e clicar abre o painel Computador.
   - Ao lado da alça, a lista de conversas, só com a busca e as conversas. O botão do topo da alça recolhe e abre a lista, e a escolha fica salva. Com a lista recolhida, cabe mais uma conversa lado a lado.
 
 Conversas lado a lado (split): **Abrir outra ao lado**, no menu ⋮ do chat, escolhe a conversa que divide a tela. No PC também dá pelo botão que aparece ao passar o mouse numa conversa da lista.
