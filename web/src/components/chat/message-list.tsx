@@ -17,6 +17,7 @@ import type { BackgroundTask, PanelEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Activity, LineCounts } from './activity'
 import { ApprovalCard } from './approval-card'
+import { Arrival, useArrivals } from './arrival'
 import { BackgroundTasks } from './background-tasks'
 import { ClaudeSpinner } from './claude-spinner'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
@@ -129,7 +130,7 @@ function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string
   const files = item.attachments.flatMap((a) => (a.thumb ? [] : [a.name]))
   const action = 'font-medium text-foreground underline-offset-2 hover:underline'
   return (
-    <div className="space-y-1">
+    <div className="chat-pop space-y-1">
       <UserBubble sessionId={sessionId} text={item.text} images={images} files={files} />
       {item.status === 'failed' ? (
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
@@ -225,9 +226,10 @@ function CopyMarkdown({ text }: { text: string }) {
 /**
  * Resposta do Claude, com **Ouvir** e **Copiar** (em Markdown) embaixo: Ouvir lê o texto em voz alta
  * com a voz do aparelho, e o trecho sendo lido fica em destaque (a barra de controle fica em cima da
- * caixa de mensagem). Na última resposta de cada turno, os atalhos do que o turno fez.
+ * caixa de mensagem). Na última resposta de cada turno, os atalhos do que o turno fez. `fresh`: acabou
+ * de chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
  */
-function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; turn?: TurnInfo; cwd?: string }) {
+function AssistantMessage({ id, text, turn, cwd, fresh }: { id: string; text: string; turn?: TurnInfo; cwd?: string; fresh: boolean }) {
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
   return (
@@ -235,7 +237,7 @@ function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; t
       <ReadingLine value={line}>
         <Markdown text={text} />
       </ReadingLine>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
         {speechSupported && (
           <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
             {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
@@ -244,7 +246,7 @@ function AssistantMessage({ id, text, turn, cwd }: { id: string; text: string; t
         )}
         <CopyMarkdown text={text} />
         {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
-      </div>
+      </Arrival>
     </div>
   )
 }
@@ -263,10 +265,12 @@ function ItemView({
   onBranch,
   turn,
   cwd,
+  fresh,
 }: {
   item: Item
   sessionId: string
   actionable: boolean
+  fresh: boolean
   onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
   cwd?: string
@@ -283,7 +287,7 @@ function ItemView({
         />
       )
     case 'assistant':
-      return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} />
+      return <AssistantMessage id={`${sessionId}:${item.key}`} text={item.text} turn={turn} cwd={cwd} fresh={fresh} />
     case 'notice':
       return (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -320,7 +324,7 @@ function WorkingLine({ items }: { items: Item[] }) {
   const running = last?.type === 'activity' ? last.entries.findLast((e): e is ToolEntry => e.kind === 'tool' && !e.result) : undefined
   const now = useNow(Boolean(running?.at))
   return (
-    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
+    <div className="chat-enter flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
       <ClaudeSpinner className="size-4" />
       {running ? (
         <>
@@ -342,29 +346,39 @@ function WorkingLine({ items }: { items: Item[] }) {
 function LiveTail({ sessionId, working, items }: { sessionId: string; working: boolean; items: Item[] }) {
   const streaming = useStore((s) => s.streams[sessionId] ?? '')
   // O markdown é reprocessado inteiro a cada atualização, então o custo cresce com a resposta: quanto
-  // maior ela fica, mais espaçadas as atualizações (de uma por delta até ~4 por segundo).
-  const throttled = useThrottled(streaming, Math.min(250, streaming.length / 40))
+  // maior ela fica, mais espaçadas as atualizações (de uma por quadro até ~4 por segundo).
+  const typed = useTyped(streaming, Math.max(16, Math.min(250, streaming.length / 40)))
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
-  const text = streaming && throttled
-  if (text) return <Markdown text={text} className="opacity-90" />
+  const text = streaming && typed
+  if (text) return <Markdown text={text} className="chat-enter opacity-90" />
   return working ? <WorkingLine items={items} /> : null
 }
 
-/** O valor mais recente, mas trocado no máximo uma vez a cada `ms`. */
-function useThrottled<T>(value: T, ms: number): T {
-  const [shown, setShown] = useState(value)
+/**
+ * O texto do streaming saindo aos poucos, palavra a palavra, em vez dos saltos de cada delta: a cada
+ * atualização (no máximo uma a cada `ms`) entra uma fração do que falta, para alcançar o recebido em
+ * ~1/4 s. Com `ms` alto (resposta longa), cada atualização já mostra tudo, como antes.
+ */
+function useTyped(text: string, ms: number): string {
+  const [shown, setShown] = useState(text)
   const last = useRef(0)
+  // Outro trecho (ou o fim, vazio): não há o que digitar por cima, vai direto.
+  if (!text.startsWith(shown)) setShown(text)
   useEffect(() => {
-    if (Object.is(value, shown)) return
+    if (shown === text || !text.startsWith(shown)) return
     const timer = setTimeout(
       () => {
         last.current = performance.now()
-        setShown(value)
+        let end = shown.length + Math.max(3, Math.ceil(((text.length - shown.length) * ms) / 250))
+        // Para no fim de uma palavra, se estiver perto, para não cortar no meio dela.
+        const space = text.indexOf(' ', end)
+        if (space !== -1 && space - end < 12) end = space + 1
+        setShown(text.slice(0, end))
       },
       Math.max(0, last.current + ms - performance.now()),
     )
     return () => clearTimeout(timer)
-  }, [value, ms, shown])
+  }, [text, ms, shown])
   return shown
 }
 
@@ -396,6 +410,7 @@ export function MessageList({
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
   const turns = useMemo(() => turnsOf(items), [items])
+  const isFresh = useArrivals(sessionId, items.map((i) => i.key))
   // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
   useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
   return (
@@ -405,7 +420,19 @@ export function MessageList({
         {items.map((item) => (
           // `data-item`: o mapa mental leva até aqui ao tocar num nó.
           <div key={item.key} data-item={item.key} className="scroll-mt-16 rounded-xl">
-            <ItemView item={item} sessionId={sessionId} actionable={actionable} onBranch={onBranch} turn={turns.get(item.key)} cwd={cwd} />
+            {/* A mensagem do usuário substitui o balão da fila, que já entrou animado, e a resposta, o texto
+                do streaming: as duas entram paradas, para não piscar. O resto chega com animação. */}
+            <Arrival fresh={item.type !== 'user' && item.type !== 'assistant' && isFresh(item.key)}>
+              <ItemView
+                item={item}
+                sessionId={sessionId}
+                actionable={actionable}
+                onBranch={onBranch}
+                turn={turns.get(item.key)}
+                cwd={cwd}
+                fresh={isFresh(item.key)}
+              />
+            </Arrival>
           </div>
         ))}
         {queued.map((item) => (

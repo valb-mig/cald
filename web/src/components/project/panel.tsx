@@ -4,6 +4,7 @@ import { RailItem } from '@/components/sidebar-rail'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { projectName } from '@/lib/format'
 import { useGithubCounts } from '@/lib/github'
@@ -238,21 +239,13 @@ export function ProjectBar({ hidden }: { hidden: boolean }) {
         onEnd={savePanel}
       />
     )
-    if (!open) {
-      return (
-        <>
-          {handle}
-          {rail}
-        </>
-      )
-    }
     return (
       <>
         {handle}
         {/* Na casca, sem fundo próprio: a cor vem dela (ver ShellPaint). */}
-        <aside style={{ width: shown }} className="flex shrink-0 flex-col" aria-label={`Projeto ${projectName(project.cwd)}`}>
+        <SlidePanel open={open} size={shown} side="right" label={`Projeto ${projectName(project.cwd)}`}>
           <PanelBody key={key} project={project} tabs={false} />
-        </aside>
+        </SlidePanel>
         {rail}
       </>
     )

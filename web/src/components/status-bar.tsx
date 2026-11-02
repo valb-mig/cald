@@ -4,6 +4,7 @@ import { ToolDetails } from '@/components/chat/activity'
 import type { ToolEntry } from '@/components/chat/turn'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
+import { SlidePanel } from '@/components/ui/slide-panel'
 import { PANEL_HEIGHT, PANEL_MIN_HEIGHT, saveBottomPanel, setBottomHeight, toggleBottomPanel, useBottomPanel, type BottomTab } from '@/lib/bottom-panel'
 import { useChatTools } from '@/lib/chat-tools'
 import { projectName, toolSummary } from '@/lib/format'
@@ -234,7 +235,8 @@ export function BottomPanel() {
       tab === t ? 'bg-foreground/[0.06] font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
     )
   return (
-    <div className={cn('flex shrink-0 flex-col', !open && 'hidden')}>
+    <div className="flex shrink-0 flex-col">
+      {open && (
       <ResizeHandle
         between="windows"
         stacked
@@ -248,7 +250,9 @@ export function BottomPanel() {
         onReset={() => setBottomHeight(PANEL_HEIGHT)}
         onEnd={saveBottomPanel}
       />
-      <section style={{ height }} className="flex flex-col overflow-hidden rounded-pane bg-background" aria-label="Painel de baixo">
+      )}
+      {/* Sobe da barra de status ao abrir e desce ao fechar; fechado, só some, com os terminais vivos. */}
+      <SlidePanel open={open} size={height} side="bottom" keepMounted className="overflow-hidden rounded-pane bg-background" label="Painel de baixo">
         <header className="flex h-10 shrink-0 items-center gap-1 pr-1.5 pl-2">
           <button type="button" className={tabClass('commands')} onClick={() => useBottomPanel.setState({ tab: 'commands' })}>
             <Bug /> Comandos
@@ -277,16 +281,20 @@ export function BottomPanel() {
             <X />
           </Button>
         </header>
-        {tab === 'commands' && <CommandsView chat={chat} all={all} />}
+        {tab === 'commands' && (
+          <div className="tab-panel-in flex min-h-0 flex-1 flex-col">
+            <CommandsView chat={chat} all={all} />
+          </div>
+        )}
         {tab === 'terminal' && !project && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
         {shells.map((s) => (
-          <div key={s.key} className={cn('flex min-h-0 flex-1 flex-col', !(tab === 'terminal' && s.key === current) && 'hidden')}>
+          <div key={s.key} className={cn('flex min-h-0 flex-1 flex-col', tab === 'terminal' && s.key === current ? 'tab-panel-in' : 'hidden')}>
             <Suspense>
               <TerminalView machine={s.machine} cwd={s.cwd} active={open && tab === 'terminal' && s.key === current} />
             </Suspense>
           </div>
         ))}
-      </section>
+      </SlidePanel>
     </div>
   )
 }

@@ -36,6 +36,7 @@ import {
   type Tab,
 } from '@/lib/workbench'
 import { useZen } from '@/lib/zen'
+import { useArrivals } from '@/components/chat/arrival'
 import { ChatInMachine } from './split'
 
 /** Tipo do arrasto de uma aba; só ele é aceito pelas barras de abas e pelos grupos. */
@@ -148,6 +149,7 @@ function TabItem({
   tab,
   index,
   active,
+  fresh,
   drop,
   onDrop,
   onMenu,
@@ -156,12 +158,15 @@ function TabItem({
   tab: Tab
   index: number
   active: boolean
+  fresh: boolean
   drop: 'before' | 'after' | null
   onDrop: (index: number | null) => void
   onMenu: (at: TabMenuAt) => void
 }) {
   const title = useStore((s) => (tab.kind === 'chat' ? s.catalog.find((c) => c.sessionId === tab.id)?.title : undefined))
   const close = () => closeTab(group.id, tab.key)
+  // Aberta agora (não com a janela): cresce no lugar dela e empurra as vizinhas, em vez de surgir.
+  const [enter] = useState(fresh)
   return (
     <div
       role="tab"
@@ -196,11 +201,14 @@ function TabItem({
       }}
       className={cn(
         'group/tab relative flex max-w-56 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 pr-1 pl-3 text-[13px] outline-none select-none',
+        // Trocar de aba: a que abre sobe até a janela e ganha a cor dela, e a que sai desce, suaves.
+        'transition-[background-color,color,height,margin] duration-200 ease-out',
+        enter && 'tab-enter',
         // A aberta tem a cor da janela e brota dela (ver .tab-merge em index.css); as outras são pílulas
         // soltas acima da janela, no meio do caminho entre a casca e ela.
         active
           ? 'tab-merge h-8 rounded-t-lg bg-background text-foreground'
-          : 'mb-1 h-7 rounded-lg bg-tab text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground',
+          : 'mb-1 h-7 rounded-lg bg-tab text-muted-foreground hover:bg-background/70 hover:text-foreground',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
       )}
     >
@@ -296,6 +304,7 @@ function TabBar({ group, onMenu }: { group: Group; onMenu: (at: TabMenuAt) => vo
   const dragging = useDraggingTab()
   // Onde a aba arrastada entraria nesta barra, se soltar agora.
   const [dropAt, setDropAt] = useState<number | null>(null)
+  const isFresh = useArrivals(group.id, group.tabs.map((t) => t.key))
   const drop = (e: React.DragEvent) => {
     const raw = e.dataTransfer.getData(TAB_DRAG)
     setDropAt(null)
@@ -331,6 +340,7 @@ function TabBar({ group, onMenu }: { group: Group; onMenu: (at: TabMenuAt) => vo
           tab={tab}
           index={i}
           active={tab.key === group.active}
+          fresh={isFresh(tab.key)}
           drop={dragging && dropAt === i ? 'before' : dragging && dropAt === group.tabs.length && i === group.tabs.length - 1 ? 'after' : null}
           onDrop={setDropAt}
           onMenu={onMenu}
@@ -460,7 +470,8 @@ function GroupView({
               role="tabpanel"
               inert={!active}
               // Depois de vista, fica fora da pintura mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.
-              className={cn('absolute inset-0 flex flex-col', !active && 'invisible [content-visibility:hidden]')}
+              // A que fica à vista aparece com um fade (a animação recomeça a cada vez que a classe volta).
+              className={cn('absolute inset-0 flex flex-col', active ? 'tab-panel-in' : 'invisible [content-visibility:hidden]')}
             >
               {!seen.has(tab.key) ? null : tab.kind === 'chat' ? (
                 <PaneContext value={{ split, focused: focused && active, collapsed: false }}>

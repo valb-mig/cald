@@ -31,6 +31,7 @@ import { imageUrl, thumbUrl } from '@/lib/api'
 import { FILE_TOOLS, shortPath, toolSummary } from '@/lib/format'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
+import { Arrival, useArrivals } from './arrival'
 import { useGallery } from './gallery'
 import type { ActivityEntry } from './items'
 import { lineCounts } from './turn'
@@ -224,21 +225,29 @@ function ThinkingRow({ text }: { text: string }) {
 /** Bloco de eventos de execução, visualmente separado das mensagens. */
 export function Activity({ sessionId, entries }: { sessionId: string; entries: ActivityEntry[] }) {
   const agents = useAgents()
+  // Cada ferramenta nova do turno entra animada; as que já estavam quando o bloco apareceu, não.
+  const isFresh = useArrivals(sessionId, entries.map((e) => e.key))
   return (
     <div className="rounded-lg border bg-muted/30 p-1">
-      {entries.map((entry) => {
-        // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
-        const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
-        if (agent) return <AgentRow key={entry.key} node={agent} onOpen={() => agents!.open(agent.id)} />
-        if (entry.kind === 'tool') return <ToolRow key={entry.key} sessionId={sessionId} use={entry.use} result={entry.result} />
-        if (entry.kind === 'thinking') return <ThinkingRow key={entry.key} text={entry.text} />
-        return (
-          <div key={entry.key} className="mx-2 my-1 border-l-2 pl-2 text-xs text-muted-foreground">
-            <span className="font-medium">subagente: </span>
-            {entry.text.slice(0, 400)}
-          </div>
-        )
-      })}
+      {entries.map((entry) => (
+        <Arrival key={entry.key} fresh={isFresh(entry.key)}>
+          <EntryRow sessionId={sessionId} entry={entry} agents={agents} />
+        </Arrival>
+      ))}
+    </div>
+  )
+}
+
+function EntryRow({ sessionId, entry, agents }: { sessionId: string; entry: ActivityEntry; agents: ReturnType<typeof useAgents> }) {
+  // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
+  const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
+  if (agent) return <AgentRow node={agent} onOpen={() => agents!.open(agent.id)} />
+  if (entry.kind === 'tool') return <ToolRow sessionId={sessionId} use={entry.use} result={entry.result} />
+  if (entry.kind === 'thinking') return <ThinkingRow text={entry.text} />
+  return (
+    <div className="mx-2 my-1 border-l-2 pl-2 text-xs text-muted-foreground">
+      <span className="font-medium">subagente: </span>
+      {entry.text.slice(0, 400)}
     </div>
   )
 }

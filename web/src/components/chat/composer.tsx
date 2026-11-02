@@ -178,6 +178,7 @@ export function Composer({
         <div className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm" onClick={() => setBig(false)} aria-hidden />
       )}
       <div
+        data-big={big || undefined}
         className={cn(
           // No PC, a caixa flutua solta no pé da janela, com folga em volta.
           'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
