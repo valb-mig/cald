@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Veil } from '@/components/wallpaper/veil'
 import { insertInto } from '@/lib/compose'
 import { putDraft } from '@/lib/drafts'
 import { projectName, relativeTime } from '@/lib/format'
@@ -41,6 +42,7 @@ import { actOnInbox, GROUPS, refreshInbox, statusOf, tomorrowMorning, useInbox, 
 import { newChatUrl } from '@/lib/machines'
 import type { InboxReason } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useGlass, useScrim } from '@/lib/wallpaper'
 import { openPanelTab, openProjectHub } from '@/lib/workbench'
 
 const REASON: Record<InboxReason, { label: string; tone: string }> = {
@@ -298,10 +300,13 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 /**
  * A inbox: tudo o que pede você, de todos os projetos e do GitHub da conta, por urgência. Tocar abre
  * (a conversa, o PR ou a issue, o projeto); ✓ marca como visto (e o item volta se mudar); no ⋯, pedir ao
- * Claude (uma conversa nova no projeto, com o pedido já escrito) e adiar até amanhã.
+ * Claude (uma conversa nova no projeto, com o pedido já escrito) e adiar até amanhã. Numa aba do PC
+ * (`panel`), ela rola por dentro e fica sobre a cena do fundo, como a conversa.
  */
-export function InboxView() {
+export function InboxView({ panel = false }: { panel?: boolean }) {
   const all = useInboxEntries()
+  const glass = useGlass()
+  const scrim = useScrim()
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<InboxGroup | null>(null)
   const [project, setProject] = useState<string | null>(null)
@@ -358,17 +363,22 @@ export function InboxView() {
   const total = [...counts.values()].reduce((n, c) => n + c, 0)
   const filtered = Boolean(query.trim() || project || label || group)
 
-  return (
+  const header = (
+    <PageHeader
+      title="Inbox"
+      // Na aba, o vidro (ou o fundo) fica na faixa toda em volta (ver abaixo); o título segue a coluna.
+      className={panel ? 'static mx-auto w-full max-w-3xl bg-transparent backdrop-blur-none' : undefined}
+      action={
+        <Button variant="ghost" size="icon-sm" onClick={() => void refreshInbox(true)} disabled={loading} aria-label="Atualizar" title={at ? `Atualizada ${relativeTime(at)}` : 'Atualizar'}>
+          {loading ? <Loader2 className="animate-spin" /> : <RotateCw />}
+        </Button>
+      }
+    />
+  )
+
+  const body = (
     <>
-      <PageHeader
-        title="Inbox"
-        action={
-          <Button variant="ghost" size="icon-sm" onClick={() => void refreshInbox(true)} disabled={loading} aria-label="Atualizar" title={at ? `Atualizada ${relativeTime(at)}` : 'Atualizar'}>
-            {loading ? <Loader2 className="animate-spin" /> : <RotateCw />}
-          </Button>
-        }
-      />
-      <div className="space-y-2 px-4 pb-3">
+      <div className={cn('space-y-2 px-4 pb-3', panel && 'pt-3')}>
         <div className="flex items-center gap-1.5">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -488,5 +498,28 @@ export function InboxView() {
         <Folded label="Vistos" entries={seen} status="seen" actions={actions} />
       </div>
     </>
+  )
+
+  if (!panel)
+    return (
+      <>
+        {header}
+        {body}
+      </>
+    )
+  return (
+    <div className="flex h-full flex-col">
+      {/* O topo fica fora da rolagem: atualizar está sempre à mão, e o vidro (como a aba aberta, ver
+          .tab-glass em index.css) não é recalculado a cada quadro de rolagem. */}
+      <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background')}>{header}</div>
+      <div className="relative min-h-0 flex-1">
+        {/* Com a cena atrás, o véu sob a lista devolve contraste ao texto, como na conversa. Fica fora
+            do scroller pelo mesmo motivo do vidro do topo. */}
+        {scrim && <Veil scrim={scrim} />}
+        <div className="absolute inset-0 overflow-y-auto [scrollbar-width:thin]">
+          <div className="mx-auto w-full max-w-3xl">{body}</div>
+        </div>
+      </div>
+    </div>
   )
 }
