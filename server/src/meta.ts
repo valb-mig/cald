@@ -17,12 +17,14 @@ type Meta = {
   looks: Record<string, string>;
   /** Conversas esvaziadas por um /clear, com a que continuou no lugar delas: saem da lista do painel. */
   cleared: Record<string, string>;
+  /** Pastas de projeto adicionadas à mão, fora das raízes (PROJECT_ROOTS). */
+  projects: string[];
 };
 
 const FILE = process.env.META_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {} };
+  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, projects: [] };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -34,6 +36,7 @@ export class MetaStore {
         names: data.names && typeof data.names === 'object' ? data.names : {},
         looks: data.looks && typeof data.looks === 'object' ? data.looks : {},
         cleared: data.cleared && typeof data.cleared === 'object' ? data.cleared : {},
+        projects: Array.isArray(data.projects) ? data.projects.filter((p) => typeof p === 'string') : [],
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -103,6 +106,17 @@ export class MetaStore {
   async setPinned(sessionId: string, pinned: boolean): Promise<void> {
     const others = this.meta.pinned.filter((id) => id !== sessionId);
     this.meta = { ...this.meta, pinned: pinned ? [...others, sessionId] : others };
+    await this.save();
+  }
+
+  /** As pastas de projeto que você adicionou, fora das raízes. */
+  addedProjects(): string[] {
+    return this.meta.projects;
+  }
+
+  async setProjectAdded(dir: string, added: boolean): Promise<void> {
+    const others = this.meta.projects.filter((p) => p !== dir);
+    this.meta = { ...this.meta, projects: added ? [...others, dir].sort() : others };
     await this.save();
   }
 
