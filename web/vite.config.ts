@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const backend = 'http://127.0.0.1:7337'
+// `BACKEND`: outra instância do servidor (ex.: uma de teste em :7338).
+const backend = process.env.BACKEND ?? 'http://127.0.0.1:7337'
 
 export default defineConfig({
   plugins: [
