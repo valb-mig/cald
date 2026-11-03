@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
 import { workspaceColor } from '@/lib/workspaces'
 
 /**
- * Conteúdo de uma conversa numa lista, como numa lista de mensagens: o claudinho dela, com a bolinha
- * do estado (como na alça e nas abas), o título com a hora no canto e, embaixo, o nome dele, o
+ * Conteúdo de uma conversa numa lista, como numa lista de mensagens: o claudinho dela, com o estado
+ * nele (como na alça e nas abas), o título com a hora no canto e, embaixo, o nome dele, o
  * projeto e se está aberta no PC. O estado só vira texto quando pede olhar: trabalhando (azul) ou
  * esperando você (âmbar); concluída é o normal e fica sem rótulo. `grouped`: dentro do grupo do
  * projeto (ver pages/sessions.tsx), que já diz o projeto e a máquina. `roomy`: na lista do celular,
@@ -31,7 +31,7 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
     <>
       {/* Com time, os claudinhos dele ficam ao lado do da conversa, menores, como quem está junto. */}
       <span className="mt-0.5 flex shrink-0 items-end">
-        <Claudinho seed={s.sessionId} name={name} state={state} status size={size} />
+        <Claudinho seed={s.sessionId} name={name} state={state} thinking={s.thinking} status size={size} />
         {s.team && <TeamFaces team={s.team} size={Math.round(size * 0.55)} max={3} className="-ml-0.5 pb-px" />}
       </span>
       <div className="min-w-0 flex-1">

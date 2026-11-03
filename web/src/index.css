@@ -308,9 +308,147 @@
   animation: claudinho-hop 0.9s ease-in-out infinite;
   transform-origin: 50% 100%;
 }
+/* O balão do claudinho executando: os três pontinhos sobem e acendem um depois do outro. */
+@keyframes claudinho-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-1.2px);
+  }
+}
+.claudinho-typing circle {
+  animation: claudinho-typing 1.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.claudinho-typing circle:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.claudinho-typing circle:nth-child(3) {
+  animation-delay: 0.3s;
+}
+/* O balão de "!" esperando você: um balançinho de vez em quando, preso pelo rabinho. */
+@keyframes claudinho-nudge {
+  0%,
+  78%,
+  100% {
+    transform: rotate(0);
+  }
+  84% {
+    transform: rotate(-12deg);
+  }
+  90% {
+    transform: rotate(9deg);
+  }
+  95% {
+    transform: rotate(-4deg);
+  }
+}
+.claudinho-nudge {
+  animation: claudinho-nudge 2.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: 10% 100%;
+}
+/* Pensando: o indicador dá duas batidinhas no queixo e espera. */
+@keyframes claudinho-hmm {
+  0%,
+  40%,
+  100% {
+    transform: translateY(0);
+  }
+  10%,
+  30% {
+    transform: translateY(-0.9px);
+  }
+  20% {
+    transform: translateY(0.2px);
+  }
+}
+.claudinho-hmm {
+  animation: claudinho-hmm 2s ease-in-out infinite;
+}
+/* O joinha do fim do turno (CHEER_MS em components/claudinho.tsx): o punho surge do canto, balança,
+   segura um pouco e some; o corpo dá um pulinho junto. */
+@keyframes claudinho-thumb {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-35deg);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1.2) rotate(10deg);
+  }
+  24% {
+    transform: scale(0.94) rotate(-6deg);
+  }
+  32%,
+  82% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+  42% {
+    transform: scale(1.06) rotate(-8deg);
+  }
+  52% {
+    transform: scale(1) rotate(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.6) rotate(0);
+  }
+}
+.claudinho-thumb {
+  animation: claudinho-thumb 2.4s ease-out both;
+  transform-box: fill-box;
+  transform-origin: 30% 100%;
+}
+@keyframes claudinho-cheer {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    transform: translateY(-2.4px) scale(0.96, 1.05);
+  }
+  55% {
+    transform: translateY(0) scale(1.06, 0.93);
+  }
+  72% {
+    transform: translateY(0) scale(1);
+  }
+}
+.claudinho-cheer {
+  animation: claudinho-cheer 0.6s ease-in-out 0.15s;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+/* O fim do chat com o joinha (components/chat/message-list.tsx) some junto com ele. */
+@keyframes claudinho-bye {
+  0%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.claudinho-bye {
+  animation: claudinho-bye 2.4s ease-in both;
+}
 @media (prefers-reduced-motion: reduce) {
   .claudinho-blink,
-  .claudinho-hop {
+  .claudinho-hop,
+  .claudinho-typing circle,
+  .claudinho-nudge,
+  .claudinho-hmm,
+  .claudinho-thumb,
+  .claudinho-cheer,
+  .claudinho-bye {
     animation: none;
   }
 }

@@ -109,12 +109,12 @@ function useViewingSync() {
 
 // ---- abas ----
 
-/** O claudinho da conversa, com a bolinha do estado no canto: azul trabalhando, âmbar esperando você. */
+/** O claudinho da conversa, com o estado nele: "…" executando, pensando, "!" esperando você, o joinha ao terminar. */
 function ChatTabLabel({ id }: { id: string }) {
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
   return (
     <>
-      <Claudinho seed={id} state={entry?.state} status size={16} />
+      <Claudinho seed={id} state={entry?.state} thinking={entry?.thinking} status size={16} />
       <span className="truncate">{entry?.title || 'Conversa'}</span>
     </>
   )
