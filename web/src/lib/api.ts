@@ -115,6 +115,10 @@ export const api = {
   gitCommit: (m: string, cwd: string, message: string, all: boolean) => post<{ sha: string }>(`${at(m)}/git/commit`, { cwd, message, all }),
   /** Traz o que chegou do remoto (só avançando) e envia o que falta; sem upstream, publica a branch. */
   gitSync: (m: string, cwd: string) => post(`${at(m)}/git/sync`, { cwd }),
+  /** A mensagem do próximo commit (o staged, ou tudo com `all`) e um nome de branch, pelo Claude. */
+  gitSuggest: (m: string, cwd: string, all: boolean) => post<{ message: string; branch: string }>(`${at(m)}/git/suggest`, { cwd, all }),
+  /** Cria a branch e passa para ela, levando as alterações. */
+  gitBranch: (m: string, cwd: string, name: string) => post(`${at(m)}/git/branch`, { cwd, name }),
   /** PRs e issues abertos no GitHub; o servidor guarda por 2 min, e `refresh` pede de novo (ver server/src/github.ts). */
   github: (m: string, cwd: string, refresh = false) =>
     request<GithubInfo>('GET', `${at(m)}/github?${project(cwd)}${refresh ? '&refresh=1' : ''}`),
@@ -226,6 +230,12 @@ export function errorMessage(err: unknown): string {
       return String(err.details.message || 'O git recusou.')
     case 'nothing_to_commit':
       return 'Nada para o commit.'
+    case 'suggest_failed':
+      return 'O Claude não respondeu com uma mensagem.'
+    case 'suggest_timeout':
+      return 'O Claude demorou demais para responder.'
+    case 'invalid_branch':
+      return 'Esse nome não serve para branch.'
     case 'detached_head':
       return 'Sem branch (HEAD destacado): não há para onde sincronizar.'
     case 'not_a_repository':

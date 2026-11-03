@@ -1,5 +1,8 @@
 import { execFile } from 'node:child_process';
-import { isAbsolute } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { copyFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { HttpError } from './errors.ts';
 
@@ -237,6 +240,71 @@ export async function gitCommit(cwd: string, message: string, all: boolean): Pro
   await gitWrite(cwd, ['commit', '-m', message]);
   const sha = await git(cwd, ['rev-parse', '--short', 'HEAD']).then((r) => r.stdout.trim());
   return { sha };
+}
+
+/** O que entra no próximo commit, para o Claude escrever a mensagem (ver commit-message.ts). */
+export type PendingCommit = {
+  /** O `--stat`: todos os arquivos, mesmo quando o patch é cortado. */
+  stat: string;
+  patch: string;
+  /** As últimas mensagens (sem merges nem trailers), para seguir o jeito do repositório. */
+  log: string[];
+  /** O `user.name` do git, quando serve de prefixo de branch ("valb-mig/…"). */
+  user: string | null;
+};
+
+const MAX_PENDING_PATCH = 40_000;
+const TRAILER = /^(co-authored-by|signed-off-by):.*$/gim;
+
+/**
+ * O diff do próximo commit: o que está staged, ou, com `all`, tudo, como o commit faria. Para tudo,
+ * prepara numa cópia do índice, assim os arquivos novos entram sem mexer no que você preparou.
+ */
+export async function gitPending(cwd: string, all: boolean): Promise<PendingCommit> {
+  await requireRepo(cwd);
+  let env: NodeJS.ProcessEnv | undefined;
+  let index: string | undefined;
+  if (all) {
+    index = join(tmpdir(), `cr-index-${randomUUID()}`);
+    const real = resolve(cwd, (await git(cwd, ['rev-parse', '--git-path', 'index'])).stdout.trim());
+    // Repositório sem nada preparado ainda não tem índice: começa do vazio.
+    await copyFile(real, index).catch(() => undefined);
+    env = { ...process.env, GIT_INDEX_FILE: index };
+  }
+  const run = (args: string[]) => exec('git', args, { cwd, env, timeout: 20_000, maxBuffer: 32 * 1024 * 1024 }).then((r) => r.stdout);
+  try {
+    if (all) await run(['add', '-A']);
+    const [stat, patch, log, user] = await Promise.all([
+      run(['diff', '--cached', '--stat=200', '--no-color']),
+      run(['diff', '--cached', '--no-color', '--no-ext-diff', '-M']),
+      run(['log', '-n', '12', '--no-merges', '--format=%B%x00']).catch(() => ''),
+      run(['config', 'user.name']).catch(() => ''),
+    ]);
+    if (!stat.trim()) throw new HttpError(409, 'nothing_to_commit');
+    const name = user.trim();
+    return {
+      stat: stat.trim(),
+      patch: patch.length > MAX_PENDING_PATCH ? `${patch.slice(0, MAX_PENDING_PATCH)}\n… diff cortado` : patch,
+      log: log
+        .split('\0')
+        .map((m) => m.replace(TRAILER, '').trim())
+        .filter(Boolean),
+      user: /^[\w.-]+$/.test(name) ? name : null,
+    };
+  } finally {
+    if (index) await rm(index, { force: true });
+  }
+}
+
+/** Cria a branch e passa para ela, levando junto o que está alterado e preparado. */
+export async function gitCreateBranch(cwd: string, name: string): Promise<void> {
+  await requireRepo(cwd);
+  const valid = await git(cwd, ['check-ref-format', '--branch', name]).then(
+    () => true,
+    () => false,
+  );
+  if (!valid || name.startsWith('-')) throw new HttpError(400, 'invalid_branch');
+  await gitWrite(cwd, ['switch', '-c', name]);
 }
 
 /**

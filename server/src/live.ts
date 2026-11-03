@@ -24,10 +24,13 @@ export type LiveSession = {
   state?: string;
 };
 
+/** Sessões que o próprio servidor sobe para tarefas avulsas (a mensagem do commit): não são conversas. */
+export const hiddenSessions = new Set<string>();
+
 export async function fetchLive(): Promise<LiveSession[]> {
   const { stdout } = await exec(CLAUDE_BIN, ['agents', '--json'], { timeout: 10_000, env: childEnv() });
   const rows = JSON.parse(stdout) as LiveSession[];
-  return rows.filter((r) => r.pid && r.sessionId && r.status);
+  return rows.filter((r) => r.pid && r.sessionId && r.status && !hiddenSessions.has(r.sessionId));
 }
 
 /**

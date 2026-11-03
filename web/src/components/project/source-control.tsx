@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronRight, CloudUpload, FileText, GitBranch, Loader2, Minus, Plus, RefreshCw } from 'lucide-react'
+import { ArrowDown, ArrowDownUp, ArrowUp, Check, ChevronRight, CloudUpload, FileText, GitBranch, Loader2, Minus, Plus, RefreshCw, Sparkles, X } from 'lucide-react'
 import { createElement, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { api, errorMessage } from '@/lib/api'
 import { reloadGit, usePressMenu } from '@/lib/hooks'
@@ -165,7 +166,12 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
     drafts.set(key, text)
     setMessageState(text)
   }
-  const [busy, setBusy] = useState<'commit' | 'sync' | 'stage' | 'reload' | null>(null)
+  const [busy, setBusy] = useState<'commit' | 'sync' | 'stage' | 'reload' | 'branch' | null>(null)
+  // A sugestão do Claude: corre à parte, sem travar o resto; a branch dela fica para a "Nova branch".
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggested, setSuggested] = useState<string | null>(null)
+  // O nome da branch nova em edição; `null` com a tarja fechada.
+  const [newBranch, setNewBranch] = useState<string | null>(null)
   const viewing = useProjectPanel((s) => s.viewing)
   const menu = useFileMenu(project)
   const selected =
@@ -206,8 +212,43 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
     void run('commit', async () => {
       const { sha } = await api.gitCommit(project.machine, project.cwd, text, all)
       setMessage('')
+      setSuggested(null)
       toast.success(`Commit ${sha} em ${branch}`, { description: text.split('\n')[0] })
     })
+  }
+
+  /** Pede a mensagem ao Claude, do que vai no commit; `keep` guarda a que você já escreveu e só traz a branch. */
+  const suggest = async (keep = false) => {
+    if (suggesting || status.files.length === 0) return null
+    setSuggesting(true)
+    try {
+      const s = await api.gitSuggest(project.machine, project.cwd, all)
+      if (!keep) setMessage(s.message)
+      setSuggested(s.branch)
+      return s.branch
+    } catch (err) {
+      toast.error('O Claude não sugeriu', { description: errorMessage(err) })
+      return null
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
+  // Commit direto na main: a tarja oferece passar para uma branch antes, com o nome que o Claude sugeriu.
+  const onMain = (status.branch === 'main' || status.branch === 'master') && status.files.length > 0
+  const startBranch = async () => setNewBranch(suggested ?? (await suggest(message.trim() !== '')) ?? '')
+  const createBranch = () => {
+    const name = newBranch?.trim()
+    if (!name || busy) return
+    void run(
+      'branch',
+      async () => {
+        await api.gitBranch(project.machine, project.cwd, name)
+        setNewBranch(null)
+        setSuggested(null)
+      },
+      `Agora na branch ${name}`,
+    )
   }
 
   const sync = () =>
@@ -257,20 +298,75 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
       </div>
 
       <div className="shrink-0 space-y-2 px-3 pb-2">
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault()
-              commit()
-            }
-          }}
-          placeholder="Mensagem do commit (Ctrl+Enter)"
-          aria-label="Mensagem do commit"
-          rows={1}
-          className="max-h-40 min-h-9 resize-none py-1.5 text-[13px] md:text-[13px]"
-        />
+        <div className="relative">
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                commit()
+              }
+            }}
+            placeholder="Mensagem do commit (Ctrl+Enter)"
+            aria-label="Mensagem do commit"
+            rows={1}
+            className="max-h-40 min-h-9 resize-none py-1.5 pr-9 text-[13px] md:text-[13px]"
+          />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="absolute top-1.5 right-1.5 text-muted-foreground"
+            disabled={suggesting || busy === 'commit' || status.files.length === 0}
+            onClick={() => void suggest()}
+            aria-label="Sugerir a mensagem com o Claude"
+            title={all ? 'Sugerir a mensagem com o Claude, de todas as alterações' : 'Sugerir a mensagem com o Claude, do que está preparado'}
+          >
+            {suggesting ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          </Button>
+        </div>
+        {onMain &&
+          (newBranch === null ? (
+            <div className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 py-0.5 pr-0.5 pl-2 text-xs text-amber-700 dark:text-amber-300">
+              <GitBranch className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Commit direto na {status.branch}</span>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-inherit"
+                disabled={busy !== null || suggesting}
+                onClick={() => void startBranch()}
+                title="Passa para uma branch nova antes do commit, levando as alterações"
+              >
+                Nova branch
+              </Button>
+            </div>
+          ) : (
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault()
+                createBranch()
+              }}
+            >
+              <Input
+                value={newBranch}
+                onChange={(e) => setNewBranch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setNewBranch(null)}
+                placeholder="nome-da-branch"
+                aria-label="Nome da branch nova"
+                autoFocus
+                spellCheck={false}
+                className="h-7 font-mono text-xs md:text-xs"
+              />
+              <Button type="submit" size="icon-sm" disabled={busy !== null || !newBranch.trim()} aria-label="Criar a branch" title="Criar e passar para ela">
+                {busy === 'branch' ? <Loader2 className="animate-spin" /> : <Check />}
+              </Button>
+              <Button type="button" variant="ghost" size="icon-sm" onClick={() => setNewBranch(null)} aria-label="Cancelar" title="Cancelar">
+                <X />
+              </Button>
+            </form>
+          ))}
         {syncFirst ? (
           <Button className="w-full" variant="secondary" disabled={busy !== null} onClick={() => void sync()}>
             {busy === 'sync' ? <Loader2 className="animate-spin" /> : status.upstream ? <ArrowDownUp /> : <CloudUpload />}

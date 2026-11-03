@@ -8,12 +8,12 @@ import { SlidePanel } from '@/components/ui/slide-panel'
 import { PANEL_HEIGHT, PANEL_MIN_HEIGHT, saveBottomPanel, setBottomHeight, toggleBottomPanel, useBottomPanel, type BottomTab } from '@/lib/bottom-panel'
 import { useChatTools } from '@/lib/chat-tools'
 import { projectName, toolSummary } from '@/lib/format'
-import { useGitStatus } from '@/lib/hooks'
-import { HOME } from '@/lib/machines'
+import { useGitStatus, useHome } from '@/lib/hooks'
+import { HOME, machineOf } from '@/lib/machines'
 import { setPanelShown, setPanelTab, useProjectPanel } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { focusedChat, useWorkbench } from '@/lib/workbench'
+import { activeTab, focusedChat, focusedGroup, useWorkbench } from '@/lib/workbench'
 
 // O xterm é o maior pedaço do app e só serve a quem abre o terminal: chega na primeira vez.
 const TerminalView = lazy(() => import('@/components/terminal').then((m) => ({ default: m.TerminalView })))
@@ -205,27 +205,44 @@ function CommandsView({ chat, all }: { chat: string | null; all: boolean }) {
 
 // ---- o painel ----
 
-type Shell = { key: string; machine: string; cwd: string }
+type Place = { machine: string; cwd: string }
+type Shell = Place & { key: string }
+
+/**
+ * A pasta do terminal: a do projeto da barra ou, sem ele (a pasta pessoal não põe projeto na barra),
+ * a da conversa em foco nas abas; a conversa nova sem projeto abre na pasta pessoal da máquina dela.
+ */
+function useTerminalPlace(): Place | null {
+  const project = useProjectPanel((s) => s.project)
+  const tab = useWorkbench((s) => activeTab(focusedGroup(s)))
+  const chat = tab?.kind === 'chat' ? tab.id : null
+  const entry = useStore((s) => (chat ? s.catalog.find((c) => c.sessionId === chat) : undefined))
+  const machine = tab?.kind === 'new' ? tab.machine : chat ? (entry?.machine ?? machineOf(chat)) : HOME
+  const home = useHome(machine)
+  if (project) return { machine: project.machine, cwd: project.cwd }
+  const cwd = chat ? entry?.cwd : tab?.kind === 'new' ? (tab.cwd ?? home) : undefined
+  return cwd ? { machine, cwd } : null
+}
 
 /**
  * O painel de baixo, no PC (ver lib/bottom-panel.ts): uma janela embaixo das conversas, com a altura
  * na divisória de cima. Na aba Comandos, o que o Claude rodou na conversa da barra de status; na aba
- * Terminal, o shell do projeto dela. Fica montado mesmo fechado, para os terminais abertos (um por
- * projeto) não morrerem ao fechar o painel ou trocar de aba.
+ * Terminal, o shell na pasta dela. Fica montado mesmo fechado, para os terminais abertos (um por
+ * pasta) não morrerem ao fechar o painel ou trocar de aba.
  */
 export function BottomPanel() {
   const open = useBottomPanel((s) => s.open)
   const tab = useBottomPanel((s) => s.tab)
   const height = useBottomPanel((s) => s.height)
   const chat = useStatusChat()
-  const project = useProjectPanel((s) => s.project)
+  const place = useTerminalPlace()
   const [all, setAll] = useState(false)
-  // Os terminais já abertos, um por projeto; o do projeto em foco é o que aparece.
+  // Os terminais já abertos, um por pasta; o da pasta em foco é o que aparece.
   const [shells, setShells] = useState<Shell[]>([])
-  const current = project && `${project.machine}\n${project.cwd}`
-  // Terminal à vista num projeto que ainda não tem: abre o dele (ajuste na renderização, sem efeito).
-  if (open && tab === 'terminal' && project && current && !shells.some((s) => s.key === current)) {
-    setShells([...shells, { key: current, machine: project.machine, cwd: project.cwd }])
+  const current = place && `${place.machine}\n${place.cwd}`
+  // Terminal à vista numa pasta que ainda não tem: abre o dela (ajuste na renderização, sem efeito).
+  if (open && tab === 'terminal' && place && current && !shells.some((s) => s.key === current)) {
+    setShells([...shells, { key: current, ...place }])
   }
 
   const fit = (h: number) => Math.round(Math.min(window.innerHeight * 0.7, Math.max(PANEL_MIN_HEIGHT, h)))
@@ -259,7 +276,7 @@ export function BottomPanel() {
           </button>
           <button type="button" className={tabClass('terminal')} onClick={() => useBottomPanel.setState({ tab: 'terminal' })}>
             <SquareTerminal /> Terminal
-            {tab === 'terminal' && project && <span className="font-normal text-muted-foreground">· {projectName(project.cwd)}</span>}
+            {tab === 'terminal' && place && <span className="font-normal text-muted-foreground">· {projectName(place.cwd)}</span>}
           </button>
           <span className="flex-1" />
           {tab === 'commands' && (
@@ -286,7 +303,7 @@ export function BottomPanel() {
             <CommandsView chat={chat} all={all} />
           </div>
         )}
-        {tab === 'terminal' && !project && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
+        {tab === 'terminal' && !place && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
         {shells.map((s) => (
           <div key={s.key} className={cn('flex min-h-0 flex-1 flex-col', tab === 'terminal' && s.key === current ? 'tab-panel-in' : 'hidden')}>
             <Suspense>

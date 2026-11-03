@@ -9,10 +9,11 @@ import { mkdir } from 'node:fs/promises';
 import { activity } from './activity.ts';
 import { agentTranscript } from './agents.ts';
 import type { Attachment } from './attachments.ts';
+import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
-import { gitCommit, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
+import { gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
@@ -395,6 +396,30 @@ app.post<{ Body: { cwd: string } }>(
   { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
   async (req) => {
     await gitSync(await manager.knownCwd(req.body.cwd));
+    return { ok: true };
+  },
+);
+
+// A mensagem do commit pelo Claude, no jeito dos últimos commits (ver commit-message.ts).
+app.post<{ Body: { cwd: string; all?: boolean } }>(
+  '/api/git/suggest',
+  { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, all: { type: 'boolean' } } } } },
+  async (req) => suggestCommit(await manager.knownCwd(req.body.cwd), req.body.all ?? false),
+);
+
+app.post<{ Body: { cwd: string; name: string } }>(
+  '/api/git/branch',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'name'],
+        properties: { cwd: { type: 'string' }, name: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  },
+  async (req) => {
+    await gitCreateBranch(await manager.knownCwd(req.body.cwd), req.body.name);
     return { ok: true };
   },
 );
