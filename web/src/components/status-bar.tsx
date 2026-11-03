@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, SquareTerminal, X, XCircle } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, Plus, SquareTerminal, X, XCircle } from 'lucide-react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ToolDetails } from '@/components/chat/activity'
 import type { ToolEntry } from '@/components/chat/turn'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import { HOME, machineOf } from '@/lib/machines'
 import { setPanelShown, setPanelTab, useProjectPanel } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { closeTerminal, newTerminal, selectTerminal, useTermActivity, useTerminals, type TermActivity, type TermTab } from '@/lib/terminals'
 import { activeTab, focusedChat, focusedGroup, useWorkbench } from '@/lib/workbench'
 
 // O xterm é o maior pedaço do app e só serve a quem abre o terminal: chega na primeira vez.
@@ -206,11 +207,10 @@ function CommandsView({ chat, all }: { chat: string | null; all: boolean }) {
 // ---- o painel ----
 
 type Place = { machine: string; cwd: string }
-type Shell = Place & { key: string }
 
 /**
- * A pasta do terminal: a do projeto da barra ou, sem ele (a pasta pessoal não põe projeto na barra),
- * a da conversa em foco nas abas; a conversa nova sem projeto abre na pasta pessoal da máquina dela.
+ * Onde o "+" abre um terminal: a pasta do projeto da barra ou, sem ele (a pasta pessoal não põe projeto
+ * na barra), a da conversa em foco nas abas; sem conversa, a pasta pessoal da máquina dela (ou do PC).
  */
 function useTerminalPlace(): Place | null {
   const project = useProjectPanel((s) => s.project)
@@ -220,15 +220,167 @@ function useTerminalPlace(): Place | null {
   const machine = tab?.kind === 'new' ? tab.machine : chat ? (entry?.machine ?? machineOf(chat)) : HOME
   const home = useHome(machine)
   if (project) return { machine: project.machine, cwd: project.cwd }
-  const cwd = chat ? entry?.cwd : tab?.kind === 'new' ? (tab.cwd ?? home) : undefined
+  const cwd = (chat ? entry?.cwd : tab?.kind === 'new' ? tab.cwd : undefined) ?? home
   return cwd ? { machine, cwd } : null
+}
+
+/**
+ * O fundo da aba à vista, que desliza de uma aba para a outra em vez de pular: mede o item marcado com
+ * `data-pill` igual a `active` dentro de `list` e acompanha quando qualquer item muda de tamanho (o
+ * nome da pasta muda, uma aba nova cresce, a fechada encolhe). `layout` muda quando os itens mudam.
+ */
+function usePill(list: React.RefObject<HTMLElement | null>, active: string | null, layout: string): React.CSSProperties | undefined {
+  const [box, setBox] = useState<{ x: number; w: number; moved: boolean } | null>(null)
+  useLayoutEffect(() => {
+    const items = list.current?.querySelectorAll<HTMLElement>('[data-pill]') ?? []
+    const el = [...items].find((item) => item.dataset.pill === active)
+    if (!el) return setBox(null)
+    // A primeira medida (ou a de quando volta a aparecer) só põe no lugar; daí em diante, desliza.
+    const measure = () => setBox((b) => (el.offsetWidth ? { x: el.offsetLeft, w: el.offsetWidth, moved: b !== null } : null))
+    measure()
+    const resize = new ResizeObserver(measure)
+    for (const item of items) resize.observe(item)
+    return () => resize.disconnect()
+  }, [list, active, layout])
+  if (!box) return undefined
+  return { transform: `translateX(${box.x}px)`, width: box.w, transitionProperty: box.moved ? 'transform, width' : 'none' }
+}
+
+function Pill({ style }: { style: React.CSSProperties | undefined }) {
+  if (!style) return null
+  return (
+    <span
+      aria-hidden
+      style={style}
+      className="pointer-events-none absolute inset-y-0 left-0 rounded-lg bg-foreground/[0.06] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-0"
+    />
+  )
+}
+
+/** O último comando da aba: rodando, uma bolinha laranja pulsando; com erro, vermelha; senão, o ícone. */
+function ActivityMark({ state }: { state: TermActivity | undefined }) {
+  if (state === 'running') return <span className="cr-term-dot size-1.5 shrink-0 rounded-full bg-[#d97757]" title="Rodando um comando" />
+  if (state === 'fail') return <span className="cr-fade-in size-1.5 shrink-0 rounded-full bg-red-500" title="O último comando falhou" />
+  return <SquareTerminal className="size-3.5 shrink-0 opacity-70" />
+}
+
+const termLabel = (t: TermTab, home: string | undefined) => {
+  const dir = t.here ?? t.cwd
+  return dir === home ? '~' : projectName(dir)
+}
+
+/**
+ * As abas do terminal, no cabeçalho do painel (ver lib/terminals.ts): uma por shell, com o nome da
+ * pasta em que ele está e a bolinha do último comando. Clicar mostra, o botão do meio ou o × fecha (o
+ * shell junto), o "+" abre outro na pasta em foco. A aba nova cresce no lugar dela e a fechada encolhe
+ * até sumir; o fundo da aberta desliza entre elas.
+ */
+function TerminalTabs({ place }: { place: Place | null }) {
+  const tabs = useTerminals((s) => s.tabs)
+  const active = useTerminals((s) => s.active)
+  const activity = useTermActivity()
+  const home = useHome(HOME)
+  const list = useRef<HTMLDivElement>(null)
+  // As que já existiam ao abrir o app aparecem paradas; só as criadas agora crescem.
+  const [initial] = useState(() => new Set(tabs.map((t) => t.id)))
+  const [leaving, setLeaving] = useState<string[]>([])
+  const pill = usePill(list, active, tabs.map((t) => `${t.id}:${t.here ?? ''}`).join() + leaving.join())
+
+  const close = (id: string) => {
+    if (leaving.includes(id)) return
+    const rest = tabs.filter((t) => t.id !== id && !leaving.includes(t.id))
+    // A vizinha aparece já, enquanto a fechada encolhe.
+    if (active === id) {
+      const index = tabs.findIndex((t) => t.id === id)
+      const next = tabs.slice(index + 1).find((t) => rest.includes(t)) ?? tabs.slice(0, index).reverse().find((t) => rest.includes(t))
+      if (next) selectTerminal(next.id)
+    }
+    // Encolhe a partir da largura de agora (ver .cr-tab-leave em index.css).
+    const el = [...(list.current?.querySelectorAll<HTMLElement>('[data-pill]') ?? [])].find((item) => item.dataset.pill === id)
+    el?.style.setProperty('--tab-w', `${el.offsetWidth}px`)
+    setLeaving((l) => [...l, id])
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+    setTimeout(() => {
+      setLeaving((l) => l.filter((x) => x !== id))
+      closeTerminal(id)
+      // Era a última: o painel fecha, como no VSCode; abrir de novo já traz um terminal novo.
+      if (!rest.length) {
+        useBottomPanel.setState({ open: false })
+        saveBottomPanel()
+      }
+    }, reduced ? 0 : 200)
+  }
+
+  return (
+    <div ref={list} role="tablist" aria-label="Terminais" className="relative flex min-w-0 items-center overflow-x-auto [scrollbar-width:none]">
+      <Pill style={pill} />
+      {tabs.map((t) => {
+        const shown = t.id === active
+        return (
+          <div
+            key={t.id}
+            role="tab"
+            tabIndex={0}
+            aria-selected={shown}
+            data-pill={t.id}
+            title={t.here ?? t.cwd}
+            onClick={() => selectTerminal(t.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') selectTerminal(t.id)
+              if (e.key === 'Delete') close(t.id)
+            }}
+            // Botão do meio fecha, como no navegador e no VSCode; o mousedown dele rolaria a página.
+            onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+            onAuxClick={(e) => e.button === 1 && close(t.id)}
+            className={cn(
+              'group/term relative flex h-7 max-w-44 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg pr-1 pl-2.5 text-xs whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring',
+              shown ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              !initial.has(t.id) && 'tab-enter',
+              leaving.includes(t.id) && 'cr-tab-leave',
+            )}
+          >
+            <ActivityMark state={activity[t.id]} />
+            <span className="truncate">{termLabel(t, home)}</span>
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation()
+                close(t.id)
+              }}
+              aria-label="Fechar o terminal"
+              title="Fechar (encerra o shell)"
+              className={cn(
+                'grid size-4.5 shrink-0 place-items-center rounded-md transition-opacity hover:bg-foreground/10 [&_svg]:size-3',
+                shown ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover/term:opacity-70',
+              )}
+            >
+              <X />
+            </button>
+          </div>
+        )
+      })}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="ml-0.5 shrink-0"
+        disabled={!place}
+        onClick={() => place && newTerminal(place)}
+        aria-label="Novo terminal"
+        title={place ? `Novo terminal em ${place.cwd === home ? '~' : projectName(place.cwd)}` : 'Novo terminal'}
+      >
+        <Plus />
+      </Button>
+    </div>
+  )
 }
 
 /**
  * O painel de baixo, no PC (ver lib/bottom-panel.ts): uma janela embaixo das conversas, com a altura
  * na divisória de cima. Na aba Comandos, o que o Claude rodou na conversa da barra de status; na aba
- * Terminal, o shell na pasta dela. Fica montado mesmo fechado, para os terminais abertos (um por
- * pasta) não morrerem ao fechar o painel ou trocar de aba.
+ * Terminal, os terminais abertos, cada um numa aba própria. Fica montado mesmo fechado, para os
+ * terminais não morrerem ao fechar o painel; e eles não seguem a conversa em foco, então trocar de
+ * aba nas conversas deixa o terminal como está.
  */
 export function BottomPanel() {
   const open = useBottomPanel((s) => s.open)
@@ -237,19 +389,28 @@ export function BottomPanel() {
   const chat = useStatusChat()
   const place = useTerminalPlace()
   const [all, setAll] = useState(false)
-  // Os terminais já abertos, um por pasta; o da pasta em foco é o que aparece.
-  const [shells, setShells] = useState<Shell[]>([])
-  const current = place && `${place.machine}\n${place.cwd}`
-  // Terminal à vista numa pasta que ainda não tem: abre o dela (ajuste na renderização, sem efeito).
-  if (open && tab === 'terminal' && place && current && !shells.some((s) => s.key === current)) {
-    setShells([...shells, { key: current, ...place }])
-  }
+  const terms = useTerminals((s) => s.tabs)
+  const activeTerm = useTerminals((s) => s.active)
+  const panelTabs = useRef<HTMLDivElement>(null)
+  const panelPill = usePill(panelTabs, tab, '')
+  // Para o terminal que entra vir do lado da aba dele: da direita, se ela fica depois da que saiu.
+  const index = terms.findIndex((t) => t.id === activeTerm)
+  const [order, setOrder] = useState<{ id: string | null; index: number; from: 'left' | 'right' }>({ id: activeTerm, index, from: 'right' })
+  if (order.id !== activeTerm) setOrder({ id: activeTerm, index, from: index < order.index ? 'left' : 'right' })
+
+  // Terminal à vista sem nenhum aberto: abre um na pasta em foco.
+  const none = terms.length === 0
+  const [placeMachine, placeCwd] = [place?.machine, place?.cwd]
+  useEffect(() => {
+    // A máquina desta página é `''`: o que diz se há lugar é a pasta.
+    if (open && tab === 'terminal' && none && placeCwd) newTerminal({ machine: placeMachine ?? HOME, cwd: placeCwd })
+  }, [open, tab, none, placeMachine, placeCwd])
 
   const fit = (h: number) => Math.round(Math.min(window.innerHeight * 0.7, Math.max(PANEL_MIN_HEIGHT, h)))
   const tabClass = (t: BottomTab) =>
     cn(
-      'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors [&_svg]:size-3.5',
-      tab === t ? 'bg-foreground/[0.06] font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+      'relative flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors [&_svg]:size-3.5',
+      tab === t ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
     )
   return (
     <div className="flex shrink-0 flex-col">
@@ -271,13 +432,21 @@ export function BottomPanel() {
       {/* Sobe da barra de status ao abrir e desce ao fechar; fechado, só some, com os terminais vivos. */}
       <SlidePanel open={open} size={height} side="bottom" keepMounted className="overflow-hidden rounded-pane bg-background" label="Painel de baixo">
         <header className="flex h-10 shrink-0 items-center gap-1 pr-1.5 pl-2">
-          <button type="button" className={tabClass('commands')} onClick={() => useBottomPanel.setState({ tab: 'commands' })}>
-            <Bug /> Comandos
-          </button>
-          <button type="button" className={tabClass('terminal')} onClick={() => useBottomPanel.setState({ tab: 'terminal' })}>
-            <SquareTerminal /> Terminal
-            {tab === 'terminal' && place && <span className="font-normal text-muted-foreground">· {projectName(place.cwd)}</span>}
-          </button>
+          <div ref={panelTabs} className="relative flex shrink-0 items-center gap-1">
+            <Pill style={panelPill} />
+            <button type="button" data-pill="commands" className={tabClass('commands')} onClick={() => useBottomPanel.setState({ tab: 'commands' })}>
+              <Bug /> Comandos
+            </button>
+            <button type="button" data-pill="terminal" className={tabClass('terminal')} onClick={() => useBottomPanel.setState({ tab: 'terminal' })}>
+              <SquareTerminal /> Terminal
+            </button>
+          </div>
+          {tab === 'terminal' && (
+            <>
+              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-foreground/10" />
+              <TerminalTabs place={place} />
+            </>
+          )}
           <span className="flex-1" />
           {tab === 'commands' && (
             <label className="flex cursor-pointer items-center gap-1.5 px-1 text-xs text-muted-foreground select-none">
@@ -303,14 +472,20 @@ export function BottomPanel() {
             <CommandsView chat={chat} all={all} />
           </div>
         )}
-        {tab === 'terminal' && !place && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
-        {shells.map((s) => (
-          <div key={s.key} className={cn('flex min-h-0 flex-1 flex-col', tab === 'terminal' && s.key === current ? 'tab-panel-in' : 'hidden')}>
-            <Suspense>
-              <TerminalView machine={s.machine} cwd={s.cwd} active={open && tab === 'terminal' && s.key === current} />
-            </Suspense>
-          </div>
-        ))}
+        {tab === 'terminal' && none && !place && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
+        {terms.map((t) => {
+          const shown = tab === 'terminal' && t.id === activeTerm
+          return (
+            <div
+              key={t.id}
+              className={cn('flex min-h-0 flex-1 flex-col', shown ? (order.from === 'left' ? 'cr-term-in-left' : 'cr-term-in-right') : 'hidden')}
+            >
+              <Suspense>
+                <TerminalView id={t.id} machine={t.machine} cwd={t.cwd} active={open && shown} />
+              </Suspense>
+            </div>
+          )
+        })}
       </SlidePanel>
     </div>
   )

@@ -1,13 +1,15 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type IDecoration, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { RotateCcw } from 'lucide-react'
+import { Loader2, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useDarkMode } from '@/lib/hooks'
 import { useCodeFont } from '@/lib/code-font'
+import { pinRejected, useLock } from '@/lib/lock'
 import { baseOf } from '@/lib/machines'
 import { withToken } from '@/lib/pin-tokens'
+import { setTermActivity, setTerminalHere, useTerminals, type TermActivity } from '@/lib/terminals'
 
 /**
  * Fundo transparente (o da janela aparece) e o texto nos cinzas do app; as cores ANSI, as do terminal
@@ -78,15 +80,21 @@ const THEMES: Record<'dark' | 'light', ITheme> = {
 // A mesma do código no resto do app (--font-mono em index.css); o tamanho segue o do código (Ctrl+= / Ctrl+−).
 const FONT = 'Cascadia Code Variable'
 
-const socketUrl = (machine: string, cwd: string) => {
+/** A conexão com o shell da aba no PC: `id` acha o que já vive lá, e `since` diz até onde a tela já viu. */
+const socketUrl = (machine: string, cwd: string, id: string, since: number) => {
   const base = baseOf(machine)
   const origin = base ? base.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
-  return withToken(`${origin}/ws/terminal?cwd=${encodeURIComponent(cwd)}`)
+  return withToken(`${origin}/ws/terminal?cwd=${encodeURIComponent(cwd)}&id=${encodeURIComponent(id)}&since=${since}`)
 }
 
-type Status = 'connecting' | 'open' | 'exited' | 'failed'
+/** O que o PC manda além da saída (que vem crua, binária). */
+type ServerMsg = { t: 'attach'; fresh: boolean; from: number; replay: number } | { t: 'exit'; code?: number | null; error?: string }
 
-/** Um bloco do terminal: um prompt e o comando que saiu dele (ver `watchBlocks`). */
+type Status = 'connecting' | 'open' | 'reconnecting' | 'exited' | 'failed'
+
+const note = (text: string) => `\r\n\x1b[2m${text}\x1b[0m\r\n`
+
+/** Um bloco do terminal: um prompt e o comando que saiu dele (ver `watchBlocks`). Sem `ms` (NaN), o tempo não aparece. */
 type Block = { state: 'idle' | 'running' | 'ok' | 'fail'; started: number; ms: number; code: number; deco?: IDecoration }
 
 const seconds = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
@@ -106,8 +114,15 @@ function paintHead(node: HTMLElement, b: Block): void {
     status.className = 'cr-term-status'
     node.append(status)
   }
+  const time = Number.isFinite(b.ms) ? took(b.ms) : ''
   status.textContent =
-    b.state === 'running' ? 'rodando' : b.state === 'ok' ? `✓ ${took(b.ms)}` : b.state === 'fail' ? `✗ ${b.code} · ${took(b.ms)}` : ''
+    b.state === 'running'
+      ? 'rodando'
+      : b.state === 'ok'
+        ? `✓ ${time}`.trim()
+        : b.state === 'fail'
+          ? [`✗ ${b.code}`, time].filter(Boolean).join(' · ')
+          : ''
 }
 
 /**
@@ -116,21 +131,26 @@ function paintHead(node: HTMLElement, b: Block): void {
  * `D;n`, que saiu com `n`. Cada cabeçalho ganha uma faixa por baixo do texto, com o resultado e o tempo
  * do comando à direita. Sem as marcas (outro shell), o terminal fica como é.
  */
-function watchBlocks(t: Terminal): void {
+function watchBlocks(t: Terminal, onState: (state: TermActivity) => void, replaying: () => boolean): void {
   let block: Block | null = null
-  const repaint = (b: Block) => b.deco?.element && paintHead(b.deco.element, b)
+  const repaint = (b: Block) => {
+    if (b.deco?.element) paintHead(b.deco.element, b)
+    onState(b.state)
+  }
   t.parser.registerOscHandler(133, (data) => {
     const [kind, arg] = data.split(';')
     if (kind === 'A') {
       const marker = t.registerMarker(0)
       if (!marker) return true
+      // O resultado do bloco anterior fica na bolinha da aba até o próximo comando rodar.
       const b: Block = { state: 'idle', started: 0, ms: 0, code: 0 }
       b.deco = t.registerDecoration({ marker, width: t.cols, layer: 'bottom' })
       b.deco?.onRender((node) => paintHead(node, b))
       block = b
     } else if (kind === 'C' && block) {
       block.state = 'running'
-      block.started = performance.now()
+      // Na saída que o PC repassa ao reconectar, o relógio daqui não mede nada: o bloco fica sem tempo.
+      block.started = replaying() ? NaN : performance.now()
       repaint(block)
     } else if (kind === 'D' && block && block.state === 'running') {
       block.code = Number(arg) || 0
@@ -142,18 +162,62 @@ function watchBlocks(t: Terminal): void {
   })
 }
 
+/** A pasta em que o shell está, pela marca OSC 7 (`file://máquina/caminho`) que o zsh escreve a cada prompt. */
+function watchFolder(t: Terminal, onFolder: (dir: string) => void): void {
+  t.parser.registerOscHandler(7, (data) => {
+    const path = data.replace(/^file:\/\/[^/]*/, '')
+    if (!path.startsWith('/')) return true
+    try {
+      onFolder(decodeURIComponent(path))
+    } catch {
+      onFolder(path)
+    }
+    return true
+  })
+}
+
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform)
+
 /**
- * O terminal do projeto, no painel de baixo: o shell do PC na pasta dele, interativo (ver
- * server/src/terminal.ts). Fica montado enquanto o painel existe, mesmo escondido, para o shell não
- * morrer ao trocar de aba ou de projeto; `active` é quando ele está à vista (aí ajusta o tamanho e
- * pega o foco).
+ * Copiar e colar como no terminal do VSCode: Ctrl+C copia o que está selecionado (sem seleção, segue
+ * interrompendo o comando) e Ctrl+V cola; Ctrl+Shift+C/V e Ctrl/Shift+Insert também. No Mac, o ⌘ já
+ * faz isso e o Ctrl fica com o terminal. Colar fica com o navegador: devolver `false` sem impedir a
+ * tecla deixa o evento de colar chegar ao xterm, que cuida do "bracketed paste", sem pedir permissão
+ * para ler a área de transferência.
  */
-export function TerminalView({ machine, cwd, active }: { machine: string; cwd: string; active: boolean }) {
+function handleClipboard(t: Terminal): void {
+  t.attachCustomKeyEventHandler((e) => {
+    if (MAC || e.altKey || e.metaKey) return true
+    const key = e.key.toLowerCase()
+    const copy = (e.ctrlKey && key === 'c' && (e.shiftKey || t.hasSelection())) || (e.ctrlKey && !e.shiftKey && key === 'insert')
+    const paste = (e.ctrlKey && key === 'v') || (e.shiftKey && !e.ctrlKey && key === 'insert')
+    if (copy) {
+      if (e.type === 'keydown') {
+        e.preventDefault()
+        const text = t.getSelection()
+        // Copiado, a seleção some: o próximo Ctrl+C volta a interromper.
+        if (text) void navigator.clipboard?.writeText(text).then(() => t.clearSelection(), () => {})
+      }
+      return false
+    }
+    return !paste
+  })
+}
+
+/**
+ * Uma aba do terminal, no painel de baixo: o shell do PC na pasta dela, interativo (ver
+ * server/src/terminal.ts). Fica montada enquanto a aba existe, mesmo escondida, e o shell vive no PC
+ * além dela: se a conexão cai (o app travou, a rede piscou, o PC reiniciou o cald), volta sozinha pelo
+ * id da aba e recebe só o que perdeu. Fechar a aba encerra o shell. `active` é quando ela está à vista
+ * (aí ajusta o tamanho e pega o foco).
+ */
+export function TerminalView({ id, machine, cwd, active }: { id: string; machine: string; cwd: string; active: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal | null>(null)
   const fit = useRef<FitAddon | null>(null)
   const [status, setStatus] = useState<Status>('connecting')
-  // Mudar a geração abre um shell novo (o "Reiniciar", depois que o anterior saiu).
+  // Mudar a geração abre o terminal de novo (o "Abrir de novo", depois que o shell saiu): o PC abre
+  // outro shell com o mesmo id.
   const [generation, setGeneration] = useState(0)
   const dark = useDarkMode()
   const fontSize = useCodeFont((s) => s.size)
@@ -161,7 +225,7 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
   useEffect(() => {
     const el = box.current
     if (!el) return
-    // Abre o terminal e o shell do PC; devolve como fechar os dois.
+    // Abre o terminal e a conexão com o shell do PC; devolve como fechar os dois.
     const start = (): (() => void) => {
       const t = new Terminal({
         allowTransparency: true,
@@ -176,12 +240,18 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
         // Mais aberta que o padrão, perto da do código no visualizador.
         lineHeight: 1.4,
         scrollback: 5000,
+        // A roda do mouse desliza em vez de pular de três em três linhas.
+        smoothScrollDuration: 120,
         theme: THEMES[document.documentElement.classList.contains('dark') ? 'dark' : 'light'],
       })
       const f = new FitAddon()
       t.loadAddon(f)
       t.open(el)
-      watchBlocks(t)
+      // A saída de antes, que o PC repassa ao reconectar, está sendo escrita (ver `watchBlocks`).
+      let replaying = false
+      watchBlocks(t, (state) => setTermActivity(id, state), () => replaying)
+      watchFolder(t, (dir) => setTerminalHere(id, dir))
+      handleClipboard(t)
       term.current = t
       fit.current = f
       try {
@@ -190,24 +260,76 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
         // Escondido (tamanho zero): ajusta quando aparecer.
       }
 
-      let opened = false
-      const ws = new WebSocket(socketUrl(machine, cwd))
-      ws.binaryType = 'arraybuffer'
-      const send = (msg: unknown) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg))
-      ws.onopen = () => {
-        opened = true
-        setStatus('open')
-        send({ t: 'size', c: t.cols, r: t.rows })
-      }
-      ws.onmessage = (e) => {
-        if (typeof e.data !== 'string') return t.write(new Uint8Array(e.data as ArrayBuffer))
-        const msg = JSON.parse(e.data) as { t?: string; error?: string }
-        if (msg.t === 'exit') {
-          t.write(`\r\n\x1b[2m${msg.error ? `Não deu para abrir o terminal: ${msg.error}` : 'O shell terminou.'}\x1b[0m\r\n`)
-          setStatus('exited')
+      // Bytes da saída já na tela: ao reconectar, o PC manda só o que vem depois.
+      let received = 0
+      let ws: WebSocket | null = null
+      // O shell saiu, a pasta foi recusada ou a aba fechou: não reconecta mais.
+      let ended = false
+      let tries = 0
+      let retry: ReturnType<typeof setTimeout> | undefined
+      // Bytes ainda por vir que são a saída de antes, repassada pelo PC.
+      let pending = 0
+      const send = (msg: unknown) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg))
+
+      const connect = () => {
+        clearTimeout(retry)
+        if (ended || ws) return
+        const socket = new WebSocket(socketUrl(machine, cwd, id, received))
+        socket.binaryType = 'arraybuffer'
+        ws = socket
+        socket.onmessage = (e) => {
+          if (typeof e.data !== 'string') {
+            const bytes = new Uint8Array(e.data as ArrayBuffer)
+            received += bytes.length
+            if (!pending) return t.write(bytes)
+            pending = Math.max(0, pending - bytes.length)
+            replaying = true
+            return t.write(bytes, () => (replaying = pending > 0))
+          }
+          const msg = JSON.parse(e.data) as ServerMsg
+          if (msg.t === 'attach') {
+            tries = 0
+            // O PC não tinha mais este shell (o cald reiniciou): a tela antiga fica, e o novo segue embaixo.
+            if (msg.fresh && received) t.write(note('O shell anterior foi encerrado no PC; este é um novo, na mesma pasta.'))
+            // O que a tela já viu não está mais guardado lá: recomeça do que ficou.
+            else if (!msg.fresh && msg.from !== received) t.reset()
+            received = msg.from
+            pending = msg.replay
+            setStatus('open')
+            send({ t: 'size', c: t.cols, r: t.rows })
+          } else if (msg.t === 'exit') {
+            ended = true
+            t.write(note(msg.error ? `Não deu para abrir o terminal: ${msg.error}` : 'O shell terminou.'))
+            setStatus('exited')
+          }
+        }
+        socket.onclose = (e) => {
+          if (ws !== socket) return
+          ws = null
+          if (ended) return
+          // A pasta não é de um projeto conhecido: tentar de novo não muda nada.
+          if (e.code === 1008) {
+            ended = true
+            return setStatus('failed')
+          }
+          setStatus('reconnecting')
+          // Sem o token do PIN (o app travou): tenta destravar só esta máquina; senão, volta ao destravar.
+          if (e.code === 4401) return void pinRejected(socket.url).then((ok) => ok && connect())
+          retry = setTimeout(connect, Math.min(10_000, 500 * 2 ** tries++))
         }
       }
-      ws.onclose = () => setStatus((s) => (s === 'exited' ? s : opened ? 'exited' : 'failed'))
+      connect()
+
+      // Destravou, a rede voltou ou o app voltou para a frente: reconecta já, sem esperar a espera.
+      const now = () => {
+        tries = 0
+        connect()
+      }
+      const unlocked = useLock.subscribe((s, prev) => s.round !== prev.round && now())
+      const visible = () => document.visibilityState === 'visible' && now()
+      addEventListener('online', now)
+      document.addEventListener('visibilitychange', visible)
+
       const typing = t.onData((d) => send({ t: 'in', d }))
       const sizing = t.onResize(({ cols, rows }) => send({ t: 'size', c: cols, r: rows }))
       const resize = new ResizeObserver(() => {
@@ -218,7 +340,14 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
         resize.disconnect()
         typing.dispose()
         sizing.dispose()
-        ws.close()
+        unlocked()
+        removeEventListener('online', now)
+        document.removeEventListener('visibilitychange', visible)
+        clearTimeout(retry)
+        // A aba foi fechada (não é só o app saindo da tela): o shell no PC acaba junto.
+        if (!useTerminals.getState().tabs.some((tab) => tab.id === id)) send({ t: 'close' })
+        ended = true
+        ws?.close()
         t.dispose()
         term.current = null
       }
@@ -238,7 +367,7 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
       cancelled = true
       stop?.()
     }
-  }, [machine, cwd, generation])
+  }, [id, machine, cwd, generation])
 
   useEffect(() => {
     if (term.current) term.current.options.theme = THEMES[dark ? 'dark' : 'light']
@@ -275,16 +404,21 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
       <div className="absolute inset-0 pt-1 pr-1 pb-2 pl-[1.125rem]">
         <div ref={box} className="cr-terminal size-full" />
       </div>
+      {status === 'reconnecting' && (
+        <span className="cr-fade-in absolute top-1.5 right-3 flex items-center gap-1.5 rounded-full bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground shadow-xs backdrop-blur-sm">
+          <Loader2 className="size-3 animate-spin" /> Reconectando ao PC…
+        </span>
+      )}
       {status === 'failed' && (
-        <p className="absolute inset-x-0 top-0 bg-background p-4 text-sm text-muted-foreground">
-          Não deu para conectar ao terminal do PC. Se esta função é nova no painel, reinicie o cald no PC.
+        <p className="cr-fade-in absolute inset-x-0 top-0 bg-background p-4 text-sm text-muted-foreground">
+          Não deu para abrir o terminal nesta pasta. Feche a aba e abra outra a partir de um projeto.
         </p>
       )}
-      {(status === 'exited' || status === 'failed') && (
+      {status === 'exited' && (
         <Button
           variant="secondary"
           size="sm"
-          className="absolute right-3 bottom-3"
+          className="cr-fade-in absolute right-3 bottom-3"
           onClick={() => {
             setStatus('connecting')
             setGeneration((g) => g + 1)

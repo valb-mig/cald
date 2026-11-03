@@ -5,7 +5,7 @@ servidor pelas pipes. Com o pty do próprio Python, o servidor não precisa de m
 
   fd 0  o que você digita            → shell
   fd 1  o que o shell escreve        → painel
-  fd 3  tamanho da janela, "colunas linhas\\n" por linha
+  fd 3  tamanho da janela, "colunas linhas\\n" por linha; "w\\n" pede para redesenhar
 
 Acaba quando o shell sai ou quando o servidor fecha o fd 0 (o painel fechou o terminal).
 """
@@ -43,6 +43,15 @@ def resize(cols: int, rows: int) -> None:
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
+def redraw() -> None:
+    # Quem reanexou começou de uma tela limpa: o programa em primeiro plano (o vim, o claude) se
+    # redesenha inteiro, como ao redimensionar a janela.
+    try:
+        os.killpg(os.tcgetpgrp(master), signal.SIGWINCH)
+    except OSError:
+        pass
+
+
 CONTROL = 3
 reading = [0, master, CONTROL]
 pending = b""
@@ -71,6 +80,9 @@ while True:
         pending += data
         while b"\n" in pending:
             line, pending = pending.split(b"\n", 1)
+            if line == b"w":
+                redraw()
+                continue
             try:
                 cols, rows = (int(n) for n in line.split())
                 if 0 < cols < 1000 and 0 < rows < 1000:

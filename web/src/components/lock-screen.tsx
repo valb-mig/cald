@@ -1,5 +1,5 @@
 import { Delete } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CaldMark } from '@/components/claudinho'
 import { unlock, useLock } from '@/lib/lock'
 import { cn } from '@/lib/utils'
@@ -20,6 +20,11 @@ export function LockScreen() {
   // Fim da espera depois de errar demais (ms), para a contagem.
   const [blockedUntil, setBlockedUntil] = useState(0)
   const [now, setNow] = useState(() => Date.now())
+
+  // O foco vem para cá ao travar: no que estava focado por baixo (o terminal, que segura as teclas
+  // para o shell), os dígitos do PIN não chegariam a esta tela.
+  const dialog = useRef<HTMLDivElement>(null)
+  useEffect(() => dialog.current?.focus(), [])
 
   const blocked = blockedUntil > now
   useEffect(() => {
@@ -71,10 +76,12 @@ export function LockScreen() {
   const wait = Math.ceil((blockedUntil - now) / 1000)
   return (
     <div
+      ref={dialog}
+      tabIndex={-1}
       role="dialog"
       aria-modal
       aria-label="Painel travado"
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] select-none"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none select-none"
     >
       <div className="flex flex-col items-center gap-3">
         <CaldMark className="size-10 text-foreground" />
