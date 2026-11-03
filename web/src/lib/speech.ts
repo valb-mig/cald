@@ -1,10 +1,12 @@
 import { toast } from 'sonner'
 import { create } from 'zustand'
+import { ApiError, api, errorMessage } from './api'
 
 /**
  * Ler as respostas do Claude em voz alta com a voz do próprio aparelho: no Android, o motor de texto
  * para fala do sistema (o dos "Serviços de fala do Google", com vozes em pt-BR que funcionam sem
- * internet depois de baixadas). Nada roda no PC.
+ * internet depois de baixadas). Nada roda no PC, a não ser no próprio PC: lá a voz do navegador é a do
+ * espeak, robótica, e com o Piper instalado a fala é gerada pelo servidor (ver "Voz do PC", abaixo).
  *
  * A leitura vai uma frase por vez: dá para pausar, pular pela barra e destacar no texto o trecho
  * que está sendo lido.
@@ -174,6 +176,25 @@ export function speechUnits(markdown: string): Unit[] {
 // A voz é a padrão do aparelho para pt-BR (no Android, a de Configurações › Texto para fala; no Linux,
 // a do speech-dispatcher): escolher outra por cima pegava vozes online que falham sem estar baixadas.
 
+// Voz do PC: no Linux, a padrão é a do espeak, robótica. Com o Piper instalado no PC (ver
+// server/src/speak.ts), cada frase é gerada lá, com voz neural e sem internet, e tocada aqui. O
+// celular segue com a voz dele, que já é boa e não depende do PC.
+const audio = new Audio()
+let piper = false
+if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+  void api.speakStatus().then(
+    (s) => (piper = s.available),
+    () => {},
+  )
+}
+// Frases da mensagem em leitura já pedidas ao PC: a atual e a seguinte, gerada enquanto a atual toca.
+const clips = new Map<number, Promise<Blob>>()
+// Mensagem em que a voz do PC falhou: o resto dela vai com a voz do navegador, sem um aviso por frase.
+let piperFailedOn: string | null = null
+// A voz do PC está gerando ou tocando a frase atual (o `audio` parado não quer dizer silêncio).
+let clipActive = false
+let clipUrl: string | null = null
+
 const ERRORS: Partial<Record<SpeechSynthesisErrorCode, string>> = {
   'language-unavailable': 'O aparelho não tem voz em português. Instale em Configurações › Texto para fala.',
   'voice-unavailable': 'O aparelho não tem voz em português. Instale em Configurações › Texto para fala.',
@@ -215,6 +236,72 @@ function silence(): void {
   if (current) current.onend = current.onerror = null
   current = null
   synth?.cancel()
+  audio.onended = audio.onerror = null
+  audio.pause()
+  releaseClip()
+}
+
+function releaseClip(): void {
+  if (clipUrl) URL.revokeObjectURL(clipUrl)
+  clipUrl = null
+  clipActive = false
+}
+
+/** Frase `index` pedida ao PC; a mesma promessa se já foi pedida. */
+function clip(units: Unit[], index: number): Promise<Blob> | undefined {
+  if (index >= units.length) return undefined
+  let blob = clips.get(index)
+  if (!blob) {
+    blob = api.speak(units[index].text)
+    // A falha de uma frase pedida adiantada só importa quando chegar a vez dela.
+    blob.catch(() => {})
+    clips.set(index, blob)
+  }
+  return blob
+}
+
+/** Como `speakFrom`, com a voz do PC: toca a frase `index` e já pede a seguinte. */
+function speakClip(reading: Reading, index: number, gen: number): void {
+  const { units } = reading
+  for (const i of clips.keys()) if (i !== index && i !== index + 1) clips.delete(i)
+  const blob = clip(units, index)!
+  clip(units, index + 1)
+  clipActive = true
+  patch({ index, playing: true, progress: progressAt(units, index) })
+  const failed = (why: string) => {
+    if (gen !== generation) return
+    // PC fora do ar ou Piper com problema: a mensagem segue com a voz do navegador.
+    releaseClip()
+    piperFailedOn = reading.key
+    toast.error(`${why} Seguindo com a voz do navegador.`)
+    speakFrom(index, gen)
+  }
+  blob.then(
+    (data) => {
+      if (gen !== generation) return
+      clipUrl = URL.createObjectURL(data)
+      audio.src = clipUrl
+      // Acelera sem afinar (o `preservesPitch` vem ligado), até os 3x da barra.
+      audio.defaultPlaybackRate = audio.playbackRate = useSpeech.getState().rate
+      audio.onended = () => {
+        if (gen !== generation) return
+        releaseClip()
+        speakFrom(index + 1, gen)
+      }
+      audio.onerror = () => failed('O navegador não conseguiu tocar a voz do PC.')
+      ticker = setInterval(() => {
+        const within = audio.duration ? (units[index].text.length * audio.currentTime) / audio.duration : 0
+        patch({ progress: progressAt(units, index, within) })
+      }, 100)
+      audio.play().catch((err: unknown) => {
+        if (gen !== generation) return
+        if (!(err instanceof DOMException && err.name === 'NotAllowedError')) return failed('O navegador não conseguiu tocar a voz do PC.')
+        pauseSpeech()
+        toast.error(ERRORS['not-allowed'])
+      })
+    },
+    (err: unknown) => failed(err instanceof ApiError ? errorMessage(err) : 'O PC não respondeu.'),
+  )
 }
 
 /** Fala o pedaço `index` e, ao terminar, o seguinte, até o fim da mensagem. */
@@ -222,6 +309,7 @@ function speakFrom(index: number, gen: number): void {
   const reading = useSpeech.getState().reading
   if (!synth || !reading || gen !== generation) return
   clearInterval(ticker)
+  clipActive = false
   if (index >= reading.units.length) {
     current = null
     useSpeech.setState({ reading: null })
@@ -229,6 +317,7 @@ function speakFrom(index: number, gen: number): void {
     if (next) start(next.key, next.markdown)
     return
   }
+  if (piper && piperFailedOn !== reading.key) return speakClip(reading, index, gen)
   const { text } = reading.units[index]
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'pt-BR'
@@ -289,6 +378,8 @@ function start(key: string, markdown: string): void {
     if (next) start(next.key, next.markdown)
     return
   }
+  clips.clear()
+  piperFailedOn = null
   useSpeech.setState({ reading: { key, units, index: 0, playing: true, progress: 0 } })
   playFrom(0)
 }
@@ -325,12 +416,17 @@ export function setAutoSpeech(sessionId: string, on: boolean): void {
   if (!on) stopSpeakingIn(sessionId)
 }
 
-/** Troca a velocidade da voz; tocando, a frase atual recomeça já nela (a fala não muda de ritmo no meio). */
+/**
+ * Troca a velocidade da voz. A do PC muda na hora; a do aparelho não muda de ritmo no meio de uma
+ * fala, então a frase atual recomeça já na velocidade nova.
+ */
 export function setSpeechRate(rate: number): void {
   save(RATE_KEY, String(rate))
   useSpeech.setState({ rate })
   const reading = useSpeech.getState().reading
-  if (reading?.playing) playFrom(reading.index)
+  if (!reading?.playing) return
+  if (clipActive) audio.defaultPlaybackRate = audio.playbackRate = rate
+  else playFrom(reading.index)
 }
 
 /** Pausa no começo da frase atual; continuar repete a frase desde o início. */
@@ -381,5 +477,5 @@ export function stopSpeakingIn(sessionId: string): void {
 // não um "Pausar" sem som).
 document.addEventListener('visibilitychange', () => {
   const reading = useSpeech.getState().reading
-  if (!document.hidden && reading?.playing && !synth?.speaking && !synth?.pending) pauseSpeech()
+  if (!document.hidden && reading?.playing && !clipActive && !synth?.speaking && !synth?.pending) pauseSpeech()
 })

@@ -35,6 +35,7 @@ import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './team
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
+import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
@@ -210,6 +211,15 @@ app.post<{ Body: { audio: string } }>(
     if (wav.length > MAX_AUDIO_BYTES) throw new HttpError(413, 'audio_too_long');
     return { text: await transcribe(wav) };
   },
+);
+
+/** Leitura em voz alta pelo Piper no PC, onde a voz do navegador é a do espeak, robótica (ver speak.ts). */
+app.get('/api/speak', async () => ({ available: piperAvailable() }));
+
+app.post<{ Body: { text: string } }>(
+  '/api/speak',
+  { schema: { body: { type: 'object', required: ['text'], properties: { text: { type: 'string', minLength: 1, maxLength: MAX_SPEAK_CHARS } } } } },
+  async (req, reply) => reply.header('content-type', 'audio/wav').header('cache-control', 'no-store').send(await speak(req.body.text)),
 );
 
 /** Tarefa em segundo plano da conversa aberta no painel: o fim da saída e parar (ver tasks.ts). */
