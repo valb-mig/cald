@@ -112,6 +112,18 @@ export const api = {
   /** Ditado pelo Whisper na máquina desta página (navegadores sem reconhecimento de voz). `audio`: WAV em base64. */
   transcribeStatus: () => request<{ available: boolean }>('GET', `${at(HOME)}/transcribe`),
   transcribe: (audio: string) => post<{ text: string }>(`${at(HOME)}/transcribe`, { audio }),
+  /** Leitura em voz alta pelo Piper na máquina desta página (no PC, onde a voz do navegador é robótica). */
+  speakStatus: () => request<{ available: boolean }>('GET', `${at(HOME)}/speak`),
+  /** Uma frase falada pelo Piper, em WAV. */
+  speak: async (text: string): Promise<Blob> => {
+    const res = await send(`${at(HOME)}/speak`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as Record<string, unknown>)
+    return res.blob()
+  },
   /** O que um subagente fez, do transcript salvo no PC; `agentId`, se já se sabe, poupa a busca. */
   agent: (id: string, toolUseId: string, agentId?: string) =>
     request<LoggedEvent[]>('GET', `${sid(id)}/agents/${encodeURIComponent(toolUseId)}${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
@@ -249,6 +261,11 @@ export function errorMessage(err: unknown): string {
       return 'A transcrição demorou demais. Tente um trecho mais curto.'
     case 'audio_too_long':
       return 'Gravação longa demais: até 10 minutos.'
+    case 'piper_unavailable':
+      return 'O Piper não está instalado no PC.'
+    case 'speak_failed':
+    case 'speak_timeout':
+      return 'O Piper não conseguiu falar.'
     case 'github_action_failed':
       return String(err.details.message ?? 'O GitHub recusou.')
     case 'agent_not_found':
