@@ -29,7 +29,7 @@ import { sessionCost } from './session-cost.ts';
 import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
-import { openTerminal } from './terminal.ts';
+import { attachTerminal, openTerminal } from './terminal.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
@@ -1065,10 +1065,13 @@ function subscribe(socket: WebSocket, sessionId: string, sinceSeq: number, runId
 /**
  * Terminal do painel, na pasta de um projeto conhecido (ver terminal.ts). A proteção de acesso vale
  * aqui como no resto: só a origem do app abre (um site qualquer no navegador, não), e só pela tailnet
- * do dono. O que chega antes de a pasta ser conferida (o tamanho da tela) fica guardado e vai depois.
+ * do dono. Com o id de uma aba cujo shell ainda vive, liga nele e manda o que veio depois de `since`;
+ * senão abre um novo. O que chega antes de a pasta ser conferida (o tamanho da tela) fica guardado e vai depois.
  */
-app.get<{ Querystring: { cwd?: string } }>('/ws/terminal', { websocket: true }, (socket, req) => {
+app.get<{ Querystring: { cwd?: string; id?: string; since?: string } }>('/ws/terminal', { websocket: true }, (socket, req) => {
   holdPin(socket, req);
+  const since = Number(req.query.since ?? 0);
+  if (attachTerminal(socket, req.query.id, since)) return;
   const early: Buffer[] = [];
   const hold = (raw: Buffer) => early.push(raw);
   socket.on('message', hold);
@@ -1076,7 +1079,7 @@ app.get<{ Querystring: { cwd?: string } }>('/ws/terminal', { websocket: true }, 
     (dir) => {
       socket.off('message', hold);
       if (socket.readyState !== socket.OPEN) return;
-      openTerminal(socket, dir);
+      openTerminal(socket, dir, req.query.id, since);
       for (const raw of early) socket.emit('message', raw, false);
     },
     () => socket.close(1008, 'unknown_project'),
