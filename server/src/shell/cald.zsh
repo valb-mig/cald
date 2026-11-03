@@ -34,6 +34,8 @@ __cr_precmd() {
   # Um respiro entre um bloco e o próximo; o primeiro cola no alto.
   (( __cr_first )) || print ''
   __cr_first=0
+  # A pasta, para a aba do painel mostrar onde o shell está (o oh-my-zsh já manda; sem ele, vai daqui).
+  printf '\e]7;file://%s%s\a' "$HOST" "$PWD"
   __cr_osc A
   __cr_head
 }
