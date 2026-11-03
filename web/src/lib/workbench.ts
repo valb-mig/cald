@@ -31,6 +31,8 @@ export type TabRef =
   | { kind: 'new'; machine: string; cwd?: string; workspace?: string }
   /** A página de um workspace: projetos, contexto, regras, comandos, time e as conversas dele. */
   | { kind: 'workspace'; machine: string; id: string }
+  /** A inbox: tudo o que pede você, de todas as máquinas (uma aba só). */
+  | { kind: 'inbox' }
 
 export type Tab = TabRef & { key: string; preview?: boolean }
 
@@ -64,7 +66,9 @@ export const keyOf = (ref: TabRef) =>
           ? `n:${ref.machine}\n${ref.cwd ?? ''}${ref.workspace ? `\n${ref.workspace}` : ''}`
           : ref.kind === 'workspace'
             ? `w:${ref.machine}\n${ref.id}`
-            : `p:${ref.machine}\n${ref.cwd}`
+            : ref.kind === 'inbox'
+              ? 'i:'
+              : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0
@@ -162,6 +166,7 @@ export function openPanelTab(ref: Exclude<TabRef, { kind: 'chat' }>, opts: { pre
 /** Abre o hub do projeto numa aba de prévia (pelo nome dele na lista de sessões ou na de projetos). */
 export const openProjectHub = (machine: string, cwd: string) => openPanelTab({ kind: 'project', machine, cwd }, { preview: true })
 export const openWorkspace = (machine: string, id: string) => openPanelTab({ kind: 'workspace', machine, id }, { preview: true })
+export const openInbox = () => openPanelTab({ kind: 'inbox' })
 
 /**
  * Abre `ref`. Já aberta em algum grupo: só vai para ela (e, sem `preview`, ela vira fixa). Senão,

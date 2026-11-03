@@ -9,6 +9,9 @@ import type {
   FolderListing,
   GithubInfo,
   GithubAction,
+  InboxAction,
+  InboxItemState,
+  InboxPayload,
   GithubItem,
   GitStatus,
   GitSummary,
@@ -110,6 +113,10 @@ export const api = {
   teams: (m: string) => request<Team[]>('GET', `${at(m)}/teams`),
   saveTeam: (m: string, team: TeamInput) => post<Team>(`${at(m)}/teams`, team),
   deleteTeam: (m: string, id: string) => post(`${at(m)}/teams/${encodeURIComponent(id)}/delete`),
+  /** A inbox da máquina (ver server/src/inbox.ts); `refresh` busca de novo no GitHub e no remoto. */
+  inbox: (m: string, refresh = false) => request<InboxPayload>('GET', `${at(m)}/inbox${refresh ? '?refresh=1' : ''}`),
+  inboxState: (m: string) => request<Record<string, InboxItemState>>('GET', `${at(m)}/inbox/state`),
+  setInboxState: (m: string, actions: InboxAction[]) => post<Record<string, InboxItemState>>(`${at(m)}/inbox/state`, { actions }),
   /** Workspaces (ver server/src/workspaces.ts). */
   workspaces: (m: string) => request<Workspace[]>('GET', `${at(m)}/workspaces`),
   saveWorkspace: (m: string, ws: WorkspaceInput) => post<Workspace>(`${at(m)}/workspaces`, ws),
