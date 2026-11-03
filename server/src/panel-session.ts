@@ -337,6 +337,17 @@ export class PanelSession extends EventEmitter {
     return this.agents.active > 0 || this.background.list.length > 0;
   }
 
+  /** Turno em andamento sem ferramenta aberta nem subagente trabalhando: o Claude está pensando (ou escrevendo). */
+  get thinking(): boolean {
+    return this.state === 'running' && !this.compacting && !this.inTool && this.agents.active === 0;
+  }
+
+  /** Alguma ferramenta da própria conversa (não de subagente) rodando agora. */
+  private get inTool(): boolean {
+    for (const t of this.openTools.values()) if (t.scope === null) return true;
+    return false;
+  }
+
   /** Para uma tarefa em segundo plano; o Claude recebe o aviso de que ela foi parada. */
   async stopTask(taskId: string): Promise<void> {
     if (!this.background.knows(taskId)) throw new HttpError(404, 'task_not_found');
@@ -513,6 +524,7 @@ export class PanelSession extends EventEmitter {
     // O UUID vem junto para o que chega ao vivo também, senão só daria para bifurcar no histórico
     // já lido do arquivo — e não no turno que acabou de acontecer.
     const uuid = (msg as { uuid?: string }).uuid;
+    const tooling = this.inTool;
     for (const ev of events) {
       this.track(ev);
       this.record(ev, uuid);
@@ -525,8 +537,9 @@ export class PanelSession extends EventEmitter {
     for (const ev of this.agents.fromMessage(msg)) this.record(ev);
     const waiting = this.background.list;
     for (const ev of this.background.fromMessage(msg)) this.record(ev);
-    // Subagente ou tarefa em segundo plano começou ou terminou: a lista de sessões mostra.
-    if (this.agents.active !== working || this.background.list !== waiting) this.emit('state');
+    // Subagente, tarefa em segundo plano ou ferramenta da conversa começou ou terminou: a lista de
+    // sessões mostra (com ferramenta, o claudinho está executando; sem, pensando).
+    if (this.agents.active !== working || this.background.list !== waiting || this.inTool !== tooling) this.emit('state');
   }
 
   /** Quem está no setor desta conversa na salinha, o que cada um faz e o que acabou de acontecer (ver office.ts). */
