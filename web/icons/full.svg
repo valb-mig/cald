@@ -1,5 +1,6 @@
 <!-- O ícone de ponta a ponta, para quem recorta o próprio formato (o maskable do Android e o do
-     iPhone): o mesmo preto com a luz de cima e o claudinho menor, dentro do círculo que nunca é cortado. -->
+     iPhone): o mesmo preto com a luz de cima e o claudinho de icon.svg, menor, dentro do círculo que
+     nunca é cortado. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="fundo" x1="0" y1="0" x2="0" y2="1">
@@ -7,14 +8,14 @@
       <stop offset="0.45" stop-color="#0d0d0f" />
       <stop offset="1" stop-color="#000" />
     </linearGradient>
-    <linearGradient id="corpo" gradientUnits="userSpaceOnUse" x1="0" y1="3" x2="0" y2="30">
+    <linearGradient id="corpo" gradientUnits="userSpaceOnUse" x1="0" y1="3" x2="0" y2="34">
       <stop offset="0" stop-color="#fff" />
       <stop offset="1" stop-color="#d4d4da" />
     </linearGradient>
-    <mask id="olhos" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+    <mask id="olhos" maskUnits="userSpaceOnUse" x="-4" y="-4" width="40" height="40">
       <rect x="-4" y="-4" width="40" height="40" fill="#fff" />
       <ellipse cx="11.5" cy="19.5" rx="2.4" ry="3.4" fill="#000" />
-        <ellipse cx="20.5" cy="19.5" rx="2.4" ry="3.4" fill="#000" />
+      <path d="M18 20.8Q20.5 16.7 23 20.8" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round" />
     </mask>
     <!-- Grão bem fraco: sem ele, o degradê escuro aparece em faixas nos 8 bits do PNG. -->
     <filter id="grao" x="0" y="0" width="100%" height="100%">
@@ -24,9 +25,18 @@
   </defs>
   <rect width="512" height="512" fill="url(#fundo)" />
   <rect width="512" height="512" filter="url(#grao)" opacity="0.07" />
-  <g transform="translate(256 262) scale(8.5) translate(-16 -16.5)">
-    <g mask="url(#olhos)">
-      <polygon points="16,8 25.5,25 6.5,25" fill="url(#corpo)" stroke="url(#corpo)" stroke-width="10" stroke-linejoin="round" />
+  <g transform="translate(256 258) scale(7.2) translate(-14 -22.5)">
+    <ellipse cx="16.5" cy="40.5" rx="8.5" ry="1.5" fill="#fff" opacity="0.16" />
+    <g transform="rotate(-8 16 30)">
+      <!-- As perninhas abertas em V, de quem saiu do chão. -->
+      <rect x="9.4" y="25" width="3.6" height="10.5" rx="1.8" fill="url(#corpo)" transform="rotate(14 11.2 26)" />
+      <rect x="18.4" y="25" width="3.6" height="10.5" rx="1.8" fill="url(#corpo)" transform="rotate(-24 20.2 26)" />
+      <!-- Um bracinho aberto, para o equilíbrio; o outro lá em cima, acenando. -->
+      <ellipse cx="2.2" cy="19.8" rx="2.6" ry="3.8" fill="url(#corpo)" transform="rotate(-40 2.2 19.8)" />
+      <ellipse cx="25.8" cy="10.5" rx="2.6" ry="4" fill="url(#corpo)" transform="rotate(28 25.8 10.5)" />
+          <g mask="url(#olhos)">
+        <polygon points="16,8 25.5,25 6.5,25" fill="url(#corpo)" stroke="url(#corpo)" stroke-width="10" stroke-linejoin="round" />
+      </g>
     </g>
   </g>
 </svg>
