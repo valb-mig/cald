@@ -1,0 +1,10 @@
+<!-- Ícone do cald: o claudinho gota (o mesmo desenho de 32 × 32 de components/claudinho.tsx) sobre o
+     fundo escuro de cantos arredondados. PNGs gerados por scripts/icons.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#060709" />
+  <g transform="translate(256 262) scale(10) translate(-16 -16.5)">
+    <polygon points="16,8 25.5,25 6.5,25" fill="#ff7a3d" stroke="#ff7a3d" stroke-width="10" stroke-linejoin="round" />
+    <ellipse cx="11.5" cy="19.5" rx="2.4" ry="3.4" fill="#fff" />
+    <ellipse cx="20.5" cy="19.5" rx="2.4" ry="3.4" fill="#fff" />
+  </g>
+</svg>

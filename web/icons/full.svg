@@ -1,0 +1,10 @@
+<!-- O ícone de ponta a ponta, para quem recorta o próprio formato (o maskable do Android e o do
+     iPhone): o claudinho menor, dentro do círculo central que nunca é cortado. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#060709" />
+  <g transform="translate(256 262) scale(8.5) translate(-16 -16.5)">
+    <polygon points="16,8 25.5,25 6.5,25" fill="#ff7a3d" stroke="#ff7a3d" stroke-width="10" stroke-linejoin="round" />
+    <ellipse cx="11.5" cy="19.5" rx="2.4" ry="3.4" fill="#fff" />
+    <ellipse cx="20.5" cy="19.5" rx="2.4" ry="3.4" fill="#fff" />
+  </g>
+</svg>
