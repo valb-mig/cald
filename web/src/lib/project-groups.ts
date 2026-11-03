@@ -25,7 +25,8 @@ export type ProjectGroup = {
 
 export const projectKey = (machine: string, cwd?: string) => `${machine}\n${cwd ?? ''}`
 
-const bySession = (a: CatalogEntry, b: CatalogEntry) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastModified - a.lastModified
+/** Fixadas primeiro, depois da mais recente para a mais antiga. */
+export const bySession = (a: CatalogEntry, b: CatalogEntry) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.lastModified - a.lastModified
 
 export function groupByProject(list: CatalogEntry[]): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>()
@@ -88,6 +89,19 @@ export function toggleProject(key: string): void {
     // localStorage indisponível (modo privado): vale só até fechar o app.
   }
 }
+
+// ---- abas de projeto do celular ----
+
+/** A aba de todas as conversas, antes das dos projetos. */
+export const ALL_TAB = 'all'
+
+/**
+ * A aba aberta na lista do celular (ver pages/sessions.tsx): a de todas ou a `projectKey` de um projeto.
+ * Fica na memória, para voltar de uma conversa na mesma aba; ao reabrir o app, começa em todas.
+ */
+export const useProjectTab = create<{ key: string }>(() => ({ key: ALL_TAB }))
+
+export const setProjectTab = (key: string) => useProjectTab.setState({ key })
 
 // ---- git dos projetos ----
 

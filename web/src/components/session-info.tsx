@@ -11,9 +11,10 @@ import { cn } from '@/lib/utils'
  * do estado (como na alça e nas abas), o título com a hora no canto e, embaixo, o nome dele, o
  * projeto e se está aberta no PC. O estado só vira texto quando pede olhar: trabalhando (azul) ou
  * esperando você (âmbar); concluída é o normal e fica sem rótulo. `grouped`: dentro do grupo do
- * projeto (ver pages/sessions.tsx), que já diz o projeto e a máquina.
+ * projeto (ver pages/sessions.tsx), que já diz o projeto e a máquina. `roomy`: na lista do celular,
+ * claudinho e letras maiores, para o dedo e para ler de longe.
  */
-export function SessionInfo({ s, grouped = false }: { s: CatalogEntry; grouped?: boolean }) {
+export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogEntry; grouped?: boolean; roomy?: boolean }) {
   // Com várias máquinas, cada conversa diz de qual é.
   const machine = useMachines((m) =>
     !grouped && m.machines.length > 1 ? m.machines.find((x) => x.id === (s.machine ?? HOME))?.name : undefined,
@@ -25,17 +26,17 @@ export function SessionInfo({ s, grouped = false }: { s: CatalogEntry; grouped?:
   const name = claudinhoName(s.sessionId, s.claudinhoName)
   return (
     <>
-      <Claudinho seed={s.sessionId} name={name} state={state} status size={grouped ? 28 : 32} className="mt-0.5" />
+      <Claudinho seed={s.sessionId} name={name} state={state} status size={roomy ? 40 : grouped ? 28 : 32} className="mt-0.5" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}
           {s.forkedFrom && <GitFork className="size-3.5 shrink-0 text-muted-foreground" aria-label="Bifurcada de outra conversa" />}
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.title}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={relativeTime(s.lastModified)}>
+          <span className={cn('min-w-0 flex-1 truncate font-medium', roomy ? 'text-[15px]' : 'text-sm')}>{s.title}</span>
+          <span className={cn('shrink-0 text-muted-foreground tabular-nums', roomy ? 'text-xs' : 'text-[11px]')} title={relativeTime(s.lastModified)}>
             {shortTime(s.lastModified)}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className={cn('mt-0.5 flex items-center gap-1.5 text-muted-foreground', roomy ? 'text-[13px]' : 'text-xs')}>
           <span className="shrink-0 font-medium text-foreground/70">{name}</span>
           {!grouped && (
             <>
@@ -80,7 +81,7 @@ export function SessionInfo({ s, grouped = false }: { s: CatalogEntry; grouped?:
           </span>
         </div>
         {s.tasks?.length ? (
-          <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-sky-700 dark:text-sky-300">
+          <div className={cn('mt-0.5 flex min-w-0 items-center gap-1 text-sky-700 dark:text-sky-300', roomy ? 'text-[13px]' : 'text-xs')}>
             <Hourglass className="size-3 shrink-0" />
             <span className="truncate">{s.tasks[0]!.description}</span>
             {s.tasks.length > 1 && <span className="shrink-0">+{s.tasks.length - 1}</span>}
