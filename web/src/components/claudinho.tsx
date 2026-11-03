@@ -109,3 +109,18 @@ export function Claudinho({
     </svg>
   )
 }
+
+/**
+ * A marca do cald, o claudinho gota do ícone do app só com o corpo e os olhos (vazados), na cor do
+ * texto. O contorno é o da gota de `Body` (o triângulo com o traço grosso arredondando as pontas).
+ */
+export function CaldMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="1 1.5 30 30" className={cn('shrink-0 fill-current', className)} aria-hidden>
+      <path
+        fillRule="evenodd"
+        d="M11.64 5.56A5 5 0 0 1 20.36 5.56L29.86 22.56A5 5 0 0 1 25.5 30L6.5 30A5 5 0 0 1 2.14 22.56ZM7.5 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0ZM17.9 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0Z"
+      />
+    </svg>
+  )
+}

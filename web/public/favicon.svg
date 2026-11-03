@@ -1,0 +1,15 @@
+<!-- Favicon: o claudinho de icon.svg sem os bracinhos, as perninhas e a sombra, que viram borrão em
+     16 px. Só a gota, bem grande, e dois olhos maiores. PNG gerado por scripts/icons.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <mask id="olhos" maskUnits="userSpaceOnUse" x="-4" y="-4" width="40" height="40">
+      <rect x="-4" y="-4" width="40" height="40" fill="#fff" />
+      <ellipse cx="10.8" cy="19.6" rx="3.3" ry="4.5" fill="#000" />
+      <ellipse cx="21.2" cy="19.6" rx="3.3" ry="4.5" fill="#000" />
+    </mask>
+  </defs>
+  <path d="M63.00 32.00L62.94 44.24L62.76 48.12L62.46 50.90L62.03 53.11L61.48 54.95L60.79 56.51L59.97 57.84L58.99 58.99L57.84 59.97L56.51 60.79L54.95 61.48L53.11 62.03L50.90 62.46L48.12 62.76L44.24 62.94L32.00 63.00L19.76 62.94L15.88 62.76L13.10 62.46L10.89 62.03L9.05 61.48L7.49 60.79L6.16 59.97L5.01 58.99L4.03 57.84L3.21 56.51L2.52 54.95L1.97 53.11L1.54 50.90L1.24 48.12L1.06 44.24L1.00 32.00L1.06 19.76L1.24 15.88L1.54 13.10L1.97 10.89L2.52 9.05L3.21 7.49L4.03 6.16L5.01 5.01L6.16 4.03L7.49 3.21L9.05 2.52L10.89 1.97L13.10 1.54L15.88 1.24L19.76 1.06L32.00 1.00L44.24 1.06L48.12 1.24L50.90 1.54L53.11 1.97L54.95 2.52L56.51 3.21L57.84 4.03L58.99 5.01L59.97 6.16L60.79 7.49L61.48 9.05L62.03 10.89L62.46 13.10L62.76 15.88L62.94 19.76Z" fill="#0d0d0f" />
+  <g transform="translate(32 34) scale(1.76) translate(-16 -16.5)" mask="url(#olhos)">
+    <polygon points="16,8 25.5,25 6.5,25" fill="#fff" stroke="#fff" stroke-width="10" stroke-linejoin="round" />
+  </g>
+</svg>
