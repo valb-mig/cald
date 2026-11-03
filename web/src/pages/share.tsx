@@ -100,7 +100,7 @@ export function SharePage() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
           <Share2 className="size-8 text-muted-foreground" />
           <p className="text-sm">Nada para compartilhar.</p>
-          <p className="text-xs text-muted-foreground">No Android, use "Compartilhar" em outro app e escolha o Claude Remote.</p>
+          <p className="text-xs text-muted-foreground">No Android, use "Compartilhar" em outro app e escolha o cald.</p>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">

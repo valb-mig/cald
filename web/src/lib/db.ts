@@ -9,6 +9,7 @@ let opening: Promise<IDBDatabase> | null = null
 
 function open(): Promise<IDBDatabase> {
   opening ??= new Promise((resolve, reject) => {
+    // Nome de antes da troca para cald: mudar perderia os rascunhos e a fila guardados no aparelho.
     const req = indexedDB.open('claude-remote', 2)
     req.onupgradeneeded = () => {
       const db = req.result

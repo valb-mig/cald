@@ -49,7 +49,7 @@ import { NewChatView } from './new-chat'
 import { ChatInMachine } from './split'
 
 /** Tipo do arrasto de uma aba; só ele é aceito pelas barras de abas e pelos grupos. */
-const TAB_DRAG = 'application/x-claude-remote-tab'
+const TAB_DRAG = 'application/x-cald-tab'
 const KEY_STEP = 0.05
 
 /** A aba sendo arrastada, para os grupos saberem mostrar onde ela cai. */

@@ -63,7 +63,7 @@ export default function App() {
   const glass = useGlass()
 
   useEffect(() => {
-    // Outras máquinas suas com o Claude Remote (ver lib/machines.ts); a lista guardada vale até a resposta.
+    // Outras máquinas suas com o cald (ver lib/machines.ts); a lista guardada vale até a resposta.
     const refresh = () => void loadMachines().catch(() => {})
     refresh()
     const machines = setInterval(refresh, 60_000)

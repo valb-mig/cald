@@ -14,7 +14,7 @@ import { baseOf } from '@/lib/machines'
  * cinzas (preto e branco do ANSI) saem do tema do GitHub, que puxa para o azul, e ficam os neutros do
  * app. A barra de rolagem é um traço discreto, como o resto.
  */
-// O laranja do Claude, o mesmo do `›` do prompt do painel (ver server/src/shell/claude-remote.zsh).
+// O laranja do Claude, o mesmo do `›` do prompt do painel (ver server/src/shell/cald.zsh).
 const CLAUDE = '#d97757'
 
 const THEMES: Record<'dark' | 'light', ITheme> = {
@@ -111,7 +111,7 @@ function paintHead(node: HTMLElement, b: Block): void {
 
 /**
  * Os blocos do terminal do painel, pelas marcas OSC 133 que o zsh dele escreve (ver
- * server/src/shell/claude-remote.zsh): `A` abre o cabeçalho de um bloco, `C` diz que o comando rodou e
+ * server/src/shell/cald.zsh): `A` abre o cabeçalho de um bloco, `C` diz que o comando rodou e
  * `D;n`, que saiu com `n`. Cada cabeçalho ganha uma faixa por baixo do texto, com o resultado e o tempo
  * do comando à direita. Sem as marcas (outro shell), o terminal fica como é.
  */
@@ -276,7 +276,7 @@ export function TerminalView({ machine, cwd, active }: { machine: string; cwd: s
       </div>
       {status === 'failed' && (
         <p className="absolute inset-x-0 top-0 bg-background p-4 text-sm text-muted-foreground">
-          Não deu para conectar ao terminal do PC. Se esta função é nova no painel, reinicie o Claude Remote no PC.
+          Não deu para conectar ao terminal do PC. Se esta função é nova no painel, reinicie o cald no PC.
         </p>
       )}
       {(status === 'exited' || status === 'failed') && (

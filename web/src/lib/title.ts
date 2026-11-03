@@ -2,7 +2,7 @@ import { useStore } from './store'
 
 /**
  * O título da aba avisa quando algum Claude está esperando sua resposta — uma pergunta ou uma aprovação, aqui
- * ou no PC, em qualquer máquina: "(2) Esperando resposta · Claude Remote". Dá para ver de outra aba, sem
+ * ou no PC, em qualquer máquina: "(2) Esperando resposta · cald". Dá para ver de outra aba, sem
  * depender do som nem da notificação. É o mesmo sinal do som de atenção (ver lib/sounds.ts).
  */
 let started = false

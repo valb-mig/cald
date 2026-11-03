@@ -5,7 +5,7 @@ import { api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from './api'
 import type { Todo } from './types'
 
 /**
- * O TODO de cada projeto, a lista simples do próprio Claude Remote, guardada no PC (ver
+ * O TODO de cada projeto, a lista simples do próprio cald, guardada no PC (ver
  * server/src/todos.ts): a mesma no celular e no PC. Cada mudança aparece na hora e vai inteira para o
  * servidor, em fila, para uma não passar na frente da outra.
  */

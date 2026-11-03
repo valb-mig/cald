@@ -3,6 +3,7 @@ import type { PushPrefs } from './types'
 
 export type PushStatus = 'unsupported' | 'denied' | 'off' | 'on'
 
+// Chave de antes da troca para cald, mantida para não perder as preferências do aparelho.
 const PREFS_KEY = 'claude-remote:push-prefs'
 const DEFAULT_PREFS: PushPrefs = { done: true, pc: true }
 

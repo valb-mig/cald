@@ -109,7 +109,7 @@ export function moveChat(id: string, target: string, after: boolean): void {
 }
 
 /** Tipo do arrasto de uma conversa pelo topo; só ele é aceito como soltura entre os painéis. */
-export const CHAT_DRAG = 'application/x-claude-remote-chat'
+export const CHAT_DRAG = 'application/x-cald-chat'
 
 /** A conversa sendo arrastada pelo topo, para as outras saberem mostrar onde ela vai cair. */
 export const useDraggingChat = create<{ id: string | null }>(() => ({ id: null }))
