@@ -59,6 +59,12 @@ const WHISPER_DIR = join(DATA_DIR, 'whisper');
 export const WHISPER_CLI = env.WHISPER_CLI ?? join(WHISPER_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-cli');
 export const WHISPER_MODEL = env.WHISPER_MODEL ?? join(WHISPER_DIR, 'models', 'ggml-small-q5_1.bin');
 
+// Leitura em voz alta pelo Piper para o PC, onde a voz do navegador é a do espeak, robótica: o
+// binário e a voz, com o `.onnx.json` ao lado (ver speak.ts e o README).
+const PIPER_DIR = join(DATA_DIR, 'piper');
+export const PIPER_BIN = env.PIPER_BIN ?? join(PIPER_DIR, 'piper', 'piper');
+export const PIPER_VOICE = env.PIPER_VOICE ?? join(PIPER_DIR, 'voices', 'pt_BR-faber-medium.onnx');
+
 // O seu tempo no painel vai para o WakaTime por este binário (ver wakatime.ts e o README).
 export const WAKATIME_CLI = env.WAKATIME_CLI ?? join(homedir(), '.wakatime', 'wakatime-cli');
 // Quantas horas de hoje enchem o anel do WakaTime na alça do PC.
