@@ -582,11 +582,7 @@ function GroupView({
                     <WorkspacePage machine={tab.machine} id={tab.id} />
                   </MachineContext>
                 ) : tab.kind === 'inbox' ? (
-                  <div className="h-full overflow-y-auto [scrollbar-width:thin]">
-                    <div className="mx-auto w-full max-w-3xl">
-                      <InboxView />
-                    </div>
-                  </div>
+                  <InboxView panel />
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}

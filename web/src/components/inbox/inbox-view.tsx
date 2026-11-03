@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Veil } from '@/components/wallpaper/veil'
 import { insertInto } from '@/lib/compose'
 import { putDraft } from '@/lib/drafts'
 import { projectName, relativeTime } from '@/lib/format'
@@ -41,6 +42,7 @@ import { actOnInbox, GROUPS, refreshInbox, statusOf, tomorrowMorning, useInbox, 
 import { newChatUrl } from '@/lib/machines'
 import type { InboxReason } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useGlass, useScrim } from '@/lib/wallpaper'
 import { openPanelTab, openProjectHub } from '@/lib/workbench'
 
 const REASON: Record<InboxReason, { label: string; tone: string }> = {
@@ -104,6 +106,23 @@ function projectOf(e: InboxEntry): string {
 }
 
 const labelsOf = (e: InboxEntry) => (e.item.type === 'github' ? e.item.labels : [])
+
+const DAY = 86_400_000
+
+/**
+ * O filtro por data, sobre a data do item: a última atividade do PR ou da issue, a criação do TODO, a
+ * última mensagem da conversa. As mudanças nos projetos não têm data e só aparecem em "Qualquer data".
+ */
+const PERIODS: { key: string; label: string; has: (at: number, now: number) => boolean }[] = [
+  { key: 'today', label: 'Hoje', has: (at, now) => at >= new Date(now).setHours(0, 0, 0, 0) },
+  { key: 'week', label: 'Últimos 7 dias', has: (at, now) => at >= now - 7 * DAY },
+  { key: 'month', label: 'Últimos 30 dias', has: (at, now) => at >= now - 30 * DAY },
+  // O que ficou esquecido: nada de novo há mais de um mês.
+  { key: 'stale', label: 'Parados há mais de 30 dias', has: (at, now) => at < now - 30 * DAY },
+]
+type Period = (typeof PERIODS)[number]
+
+const inPeriod = (e: InboxEntry, period: Period, now: number) => e.at > 0 && period.has(e.at, now)
 
 /** Onde a busca procura: título, o porquê, o projeto, o repositório e as labels. */
 function searchText(e: InboxEntry): string {
@@ -298,17 +317,25 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 /**
  * A inbox: tudo o que pede você, de todos os projetos e do GitHub da conta, por urgência. Tocar abre
  * (a conversa, o PR ou a issue, o projeto); ✓ marca como visto (e o item volta se mudar); no ⋯, pedir ao
- * Claude (uma conversa nova no projeto, com o pedido já escrito) e adiar até amanhã.
+ * Claude (uma conversa nova no projeto, com o pedido já escrito) e adiar até amanhã. Numa aba do PC
+ * (`panel`), ela rola por dentro e fica sobre a cena do fundo, como a conversa.
  */
-export function InboxView() {
+export function InboxView({ panel = false }: { panel?: boolean }) {
   const all = useInboxEntries()
+  const glass = useGlass()
+  const scrim = useScrim()
   const [query, setQuery] = useState('')
   const [group, setGroup] = useState<InboxGroup | null>(null)
   const [project, setProject] = useState<string | null>(null)
   const [label, setLabel] = useState<string | null>(null)
+  const [period, setPeriod] = useState<Period | null>(null)
   const state = useInbox((s) => s.state)
   const loading = useInbox((s) => s.loading)
   const at = useInbox((s) => s.at)
+  // "Agora", para o período: a última atualização, como no adiado (ver abaixo); antes da primeira, a
+  // hora em que a inbox abriu.
+  const [opened] = useState(Date.now)
+  const now = Math.max(at, opened)
   const github = useInbox((s) => Object.values(s.byMachine).find((p) => p && !p.github.ok)?.github)
   const actions = useActions()
   useEffect(() => {
@@ -316,7 +343,7 @@ export function InboxView() {
     void refreshInbox()
   }, [])
 
-  // Os projetos e as labels que aparecem, para os menus de filtro.
+  // Os períodos, os projetos e as labels que aparecem, para os menus de filtro.
   const options = useMemo(() => {
     const projects = new Map<string, number>()
     const labels = new Map<string, { color: string; n: number }>()
@@ -326,16 +353,23 @@ export function InboxView() {
       for (const l of labelsOf(e)) labels.set(l.name, { color: l.color, n: (labels.get(l.name)?.n ?? 0) + 1 })
     }
     return {
+      periods: PERIODS.map((p) => [p, all.filter((e) => inPeriod(e, p, now)).length] as const),
       projects: [...projects].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
       labels: [...labels].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0])),
     }
-  }, [all])
+  }, [all, now])
 
-  // Busca, projeto e label valem para tudo; o tipo (os chips) só escolhe qual grupo aparece.
+  // Busca, período, projeto e label valem para tudo; o tipo (os chips) só escolhe qual grupo aparece.
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return all.filter((e) => (!project || projectOf(e) === project) && (!label || labelsOf(e).some((l) => l.name === label)) && (!q || searchText(e).includes(q)))
-  }, [all, query, project, label])
+    return all.filter(
+      (e) =>
+        (!period || inPeriod(e, period, now)) &&
+        (!project || projectOf(e) === project) &&
+        (!label || labelsOf(e).some((l) => l.name === label)) &&
+        (!q || searchText(e).includes(q)),
+    )
+  }, [all, now, query, period, project, label])
 
   const { byGroup, seen, snoozed, fresh, counts } = useMemo(() => {
     // "Agora" é a última atualização (a cada 2 min): o adiado volta sozinho quando passa a hora.
@@ -356,19 +390,24 @@ export function InboxView() {
     return { byGroup, seen, snoozed, fresh, counts }
   }, [entries, state, at, group])
   const total = [...counts.values()].reduce((n, c) => n + c, 0)
-  const filtered = Boolean(query.trim() || project || label || group)
+  const filtered = Boolean(query.trim() || period || project || label || group)
 
-  return (
+  const header = (
+    <PageHeader
+      title="Inbox"
+      // Na aba, o vidro (ou o fundo) fica na faixa toda em volta (ver abaixo); o título segue a coluna.
+      className={panel ? 'static mx-auto w-full max-w-3xl bg-transparent backdrop-blur-none' : undefined}
+      action={
+        <Button variant="ghost" size="icon-sm" onClick={() => void refreshInbox(true)} disabled={loading} aria-label="Atualizar" title={at ? `Atualizada ${relativeTime(at)}` : 'Atualizar'}>
+          {loading ? <Loader2 className="animate-spin" /> : <RotateCw />}
+        </Button>
+      }
+    />
+  )
+
+  const body = (
     <>
-      <PageHeader
-        title="Inbox"
-        action={
-          <Button variant="ghost" size="icon-sm" onClick={() => void refreshInbox(true)} disabled={loading} aria-label="Atualizar" title={at ? `Atualizada ${relativeTime(at)}` : 'Atualizar'}>
-            {loading ? <Loader2 className="animate-spin" /> : <RotateCw />}
-          </Button>
-        }
-      />
-      <div className="space-y-2 px-4 pb-3">
+      <div className={cn('space-y-2 px-4 pb-3', panel && 'pt-3')}>
         <div className="flex items-center gap-1.5">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -382,11 +421,22 @@ export function InboxView() {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant={project || label ? 'secondary' : 'ghost'} size="icon" aria-label="Filtrar por projeto ou label" title="Filtrar">
+              <Button variant={period || project || label ? 'secondary' : 'ghost'} size="icon" aria-label="Filtrar por período, projeto ou label" title="Filtrar">
                 <ListFilter />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-[70dvh] w-64 overflow-y-auto">
+              <DropdownMenuLabel>Período</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={period?.key ?? ''} onValueChange={(v) => setPeriod(PERIODS.find((p) => p.key === v) ?? null)}>
+                <DropdownMenuRadioItem value="">Qualquer data</DropdownMenuRadioItem>
+                {options.periods.map(([p, n]) => (
+                  <DropdownMenuRadioItem key={p.key} value={p.key}>
+                    <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{n}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>Projeto</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={project ?? ''} onValueChange={(v) => setProject(v || null)}>
                 <DropdownMenuRadioItem value="">Todos</DropdownMenuRadioItem>
@@ -427,8 +477,13 @@ export function InboxView() {
             </Chip>
           ))}
         </div>
-        {(project || label) && (
+        {(period || project || label) && (
           <div className="flex flex-wrap gap-1.5">
+            {period && (
+              <Chip active onClick={() => setPeriod(null)}>
+                {period.label} <X className="size-3" />
+              </Chip>
+            )}
             {project && (
               <Chip active onClick={() => setProject(null)}>
                 {project} <X className="size-3" />
@@ -488,5 +543,28 @@ export function InboxView() {
         <Folded label="Vistos" entries={seen} status="seen" actions={actions} />
       </div>
     </>
+  )
+
+  if (!panel)
+    return (
+      <>
+        {header}
+        {body}
+      </>
+    )
+  return (
+    <div className="flex h-full flex-col">
+      {/* O topo fica fora da rolagem: atualizar está sempre à mão, e o vidro (como a aba aberta, ver
+          .tab-glass em index.css) não é recalculado a cada quadro de rolagem. */}
+      <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background')}>{header}</div>
+      <div className="relative min-h-0 flex-1">
+        {/* Com a cena atrás, o véu sob a lista devolve contraste ao texto, como na conversa. Fica fora
+            do scroller pelo mesmo motivo do vidro do topo. */}
+        {scrim && <Veil scrim={scrim} />}
+        <div className="absolute inset-0 overflow-y-auto [scrollbar-width:thin]">
+          <div className="mx-auto w-full max-w-3xl">{body}</div>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -75,6 +75,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Veil } from '@/components/wallpaper/veil'
 import { api, errorMessage } from '@/lib/api'
 import { dropTools, publishTools } from '@/lib/chat-tools'
 import { claudinhoName } from '@/lib/claudinho'
@@ -276,25 +277,6 @@ function useAutoScroll(deps: unknown[]) {
   )
 
   return { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom }
-}
-
-/**
- * O véu atrás da conversa, na cor do fundo e com um leve desfoque: puxa a cena de volta para o fundo
- * do app, para o texto ficar legível. Mais largo que a coluna de texto (48rem) para o esfumaçado das
- * laterais cair fora dela, e não atrás das letras.
- */
-function Veil({ scrim }: { scrim: string }) {
-  return (
-    <div
-      aria-hidden
-      // A máscara esfumaça as laterais: sem ela o véu vira um retângulo com borda dura no meio da cena.
-      className={cn(
-        'pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[56rem] -translate-x-1/2 backdrop-blur-[1.5px]',
-        '[mask-image:linear-gradient(90deg,transparent,#000_7%,#000_93%,transparent)]',
-        scrim,
-      )}
-    />
-  )
 }
 
 // Os /clear cuja animação já rodou: a conversa remontada (a aba troca para o id novo) não repete.
