@@ -31,6 +31,7 @@ import type {
   Workspace,
   WorkspaceFile,
   WorkspaceInput,
+  WorktreeStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -104,11 +105,26 @@ export const api = {
   agent: (id: string, toolUseId: string, agentId?: string) =>
     request<LoggedEvent[]>('GET', `${sid(id)}/agents/${encodeURIComponent(toolUseId)}${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
 
+  /** `worktree`: a conversa abre num worktree novo do projeto, separada das outras dele. */
   create: (
     m: string,
-    body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[]; teamId?: string; workspaceId?: string },
+    body: RunOptions & {
+      cwd?: string
+      prompt: string
+      title?: string
+      attachments?: AttachmentPayload[]
+      teamId?: string
+      workspaceId?: string
+      worktree?: boolean
+    },
   ) =>
     post<{ sessionId: string }>(`${at(m)}/sessions`, body),
+  /** O worktree de uma conversa (ver server/src/worktrees.ts): branch, origem e o que falta trazer. */
+  worktree: (m: string, cwd: string) => request<WorktreeStatus>('GET', `${at(m)}/worktree?${project(cwd)}`),
+  /** "Trazer": merge da branch do worktree na de origem, no checkout principal. */
+  mergeWorktree: (m: string, cwd: string) => post<{ commits: number }>(`${at(m)}/worktree/merge`, { cwd }),
+  /** `force`: remove mesmo com commits que não voltaram ou mudanças sem commit. */
+  removeWorktree: (m: string, cwd: string, force = false) => post(`${at(m)}/worktree/remove`, { cwd, force }),
   /** Times de agentes (ver server/src/teams.ts). */
   teams: (m: string) => request<Team[]>('GET', `${at(m)}/teams`),
   saveTeam: (m: string, team: TeamInput) => post<Team>(`${at(m)}/teams`, team),
@@ -296,6 +312,24 @@ export function errorMessage(err: unknown): string {
       return 'O servidor não roda como serviço. Reinicie pelo terminal.'
     case 'git_failed':
       return String(err.details.message || 'O git recusou.')
+    case 'worktree_dirty':
+      return `O worktree tem ${String(err.details.changed)} ${err.details.changed === 1 ? 'arquivo' : 'arquivos'} sem commit. O "Trazer" leva só commits: faça o commit antes.`
+    case 'nothing_to_merge':
+      return 'Nada para trazer: a branch de origem já tem todos os commits do worktree.'
+    case 'base_not_checked_out':
+      return `O projeto está em ${String(err.details.current ?? 'nenhuma branch')}, não em ${String(err.details.base)}. Volte para ${String(err.details.base)} para trazer.`
+    case 'merge_conflict':
+      return `Conflito com ${String(err.details.base)} em ${((err.details.files as string[] | undefined) ?? []).join(', ') || 'alguns arquivos'}. Nada mudou no projeto: peça ao Claude para trazer ${String(err.details.base)} para o worktree e resolver.`
+    case 'worktree_removed':
+      return 'O worktree desta conversa foi removido. O histórico continua aqui, só para leitura.'
+    case 'cwd_gone':
+      return 'A pasta desta conversa não existe mais no PC.'
+    case 'already_in_worktree':
+      return 'Esta conversa já está num worktree.'
+    case 'no_commits':
+      return 'O projeto ainda não tem commits: não há de onde criar o worktree.'
+    case 'worktree_needs_project':
+      return 'Escolha um projeto para rodar num worktree.'
     case 'nothing_to_commit':
       return 'Nada para o commit.'
     case 'suggest_failed':

@@ -1,4 +1,4 @@
-import { Bot, GitFork, Hourglass, Layers, Monitor, Pin, Server } from 'lucide-react'
+import { Bot, GitBranch, GitFork, Hourglass, Layers, Monitor, Pin, Server } from 'lucide-react'
 import { Claudinho } from '@/components/claudinho'
 import { TeamFaces } from '@/components/teams/team-faces'
 import { claudinhoName } from '@/lib/claudinho'
@@ -58,6 +58,16 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
             <>
               <span>·</span>
               <span className="truncate">{projectName(s.cwd)}</span>
+            </>
+          )}
+          {/* No grupo do projeto, a conversa num worktree diz qual (fora dele, o nome do projeto já diz). */}
+          {grouped && s.worktree && (
+            <>
+              <span>·</span>
+              <span className="flex min-w-0 shrink items-center gap-1" title={s.worktree.branch ?? s.worktree.name}>
+                <GitBranch className="size-3 shrink-0" />
+                <span className="truncate">{s.worktree.name}</span>
+              </span>
             </>
           )}
           {machine && (

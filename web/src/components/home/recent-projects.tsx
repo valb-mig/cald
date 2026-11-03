@@ -47,10 +47,12 @@ export function RecentProjects({ activity, className }: { activity: Activity | n
       // A pasta pessoal é "sem projeto": não entra.
       if (!c.cwd || c.cwd === home) continue
       const machine = c.machine ?? HOME
-      const key = `${machine}|${c.cwd}`
+      // A de um worktree conta para o projeto dele.
+      const cwd = c.worktree?.project ?? c.cwd
+      const key = `${machine}|${cwd}`
       const p = byKey.get(key)
       if (p) p.conversations++
-      else byKey.set(key, { cwd: c.cwd, machine, latest: c, conversations: 1 })
+      else byKey.set(key, { cwd, machine, latest: c, conversations: 1 })
     }
     return [...byKey.values()].slice(0, LIMIT)
   }, [catalog, home])
