@@ -267,6 +267,87 @@
     opacity: 0.45;
   }
 }
+/* O cursor pisca num fade, não em liga-desliga: o xterm desenha a barra com uma sombra por dentro do
+   caractere (com a largura de `cursorWidth`) e a apaga de uma vez na metade do ciclo. A cor é a do
+   cursor nos dois temas (o laranja do Claude, ver terminal.tsx). */
+@keyframes cr-caret {
+  0%,
+  40% {
+    box-shadow: 2px 0 0 #d97757 inset;
+  }
+  55%,
+  90% {
+    box-shadow: 2px 0 0 transparent inset;
+  }
+  100% {
+    box-shadow: 2px 0 0 #d97757 inset;
+  }
+}
+.cr-terminal .xterm-rows .xterm-cursor.xterm-cursor-blink.xterm-cursor-bar {
+  animation: cr-caret 1.1s ease-in-out infinite !important;
+}
+/* As abas do terminal (status-bar.tsx): a bolinha de um comando rodando pulsa; a aba fechada encolhe
+   a partir da largura que tinha (`--tab-w`, medida ao fechar) até sumir. */
+@keyframes cr-term-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+.cr-term-dot {
+  animation: cr-term-dot 1.2s ease-in-out infinite;
+}
+@keyframes cr-tab-leave {
+  from {
+    max-width: var(--tab-w, 11rem);
+  }
+  to {
+    max-width: 0;
+    opacity: 0;
+    padding-inline: 0;
+  }
+}
+.cr-tab-leave {
+  pointer-events: none;
+  animation: cr-tab-leave 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* O terminal que aparece vem um pouco do lado da aba dele, com um fade. */
+@keyframes cr-term-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--from, 12px));
+  }
+}
+.cr-term-in-right {
+  animation: cr-term-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.cr-term-in-left {
+  --from: -12px;
+  animation: cr-term-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes cr-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.cr-fade-in {
+  animation: cr-fade-in 0.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cr-terminal .xterm-rows .xterm-cursor.xterm-cursor-blink.xterm-cursor-bar,
+  .cr-term-dot,
+  .cr-tab-leave,
+  .cr-term-in-right,
+  .cr-term-in-left,
+  .cr-fade-in {
+    animation: none !important;
+  }
+}
 
 /* O claudinho de uma conversa trabalhando pisca de vez em quando (components/claudinho.tsx). */
 @keyframes claudinho-blink {
