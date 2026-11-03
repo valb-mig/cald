@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ALLOWED_LOGINS, EXTRA_ORIGINS, PORT } from './config.ts';
+import type { PinLock } from './pin.ts';
 
 const exec = promisify(execFile);
 
@@ -58,12 +59,24 @@ function knownOrigin(policy: AccessPolicy, origin: string): boolean {
   return name !== origin && policy.origins.has(name);
 }
 
+// Abertas mesmo com o PIN ligado: a tela de bloqueio, a sondagem e os avisos entre as suas máquinas
+// (ver machines.ts e push.ts). Continuam valendo o Host, a origem e o login do Tailscale.
+const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay']);
+
+/** O token do PIN: no cabeçalho (fetch) ou em `?t=` (WebSocket, `<img>` e links, que não mandam cabeçalho). */
+export function pinToken(req: FastifyRequest): string | undefined {
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) return auth.slice(7);
+  const t = (req.query as Record<string, unknown> | undefined)?.t;
+  return typeof t === 'string' ? t : undefined;
+}
+
 /**
- * Sem login próprio: a identidade vem do Tailscale. Barra DNS rebinding (Host),
- * CSRF de outros sites no navegador do PC (Origin + JSON) e acessos do tailnet
- * que não sejam do dono.
+ * A identidade vem do Tailscale. Barra DNS rebinding (Host), CSRF de outros sites no navegador do PC
+ * (Origin + JSON) e acessos do tailnet que não sejam do dono. Com PIN (ver pin.ts), a API e o
+ * WebSocket pedem também o token de quem acertou; os arquivos do app ficam abertos, para a tela de bloqueio carregar.
  */
-export function accessGuard(policy: AccessPolicy) {
+export function accessGuard(policy: AccessPolicy, pin: PinLock) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const host = req.headers.host ?? '';
     // Numa porta HTTPS extra do `tailscale serve` (ex.: uma instância de teste em :10000), o Host traz a porta.
@@ -89,7 +102,7 @@ export function accessGuard(policy: AccessPolicy) {
     if (origin && req.method === 'OPTIONS') {
       return reply
         .header('access-control-allow-methods', 'GET, POST')
-        .header('access-control-allow-headers', 'content-type')
+        .header('access-control-allow-headers', 'content-type, authorization')
         .header('access-control-allow-private-network', 'true')
         .header('access-control-max-age', '600')
         .code(204)
@@ -99,6 +112,13 @@ export function accessGuard(policy: AccessPolicy) {
     const unsafe = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
     if (unsafe && !String(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return reply.code(415).send({ error: 'json_required' });
+    }
+
+    // Pela rota que casou, e não pela URL crua: `/%61pi/...` cai na mesma rota da API.
+    const route = req.routeOptions.url ?? '';
+    const guarded = route.startsWith('/api/') || route === '/ws' || route.startsWith('/ws/');
+    if (pin.enabled && guarded && !PIN_FREE.has(route) && !pin.check(pinToken(req))) {
+      return reply.code(401).send({ error: 'pin_required' });
     }
   };
 }

@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import Fastify, { LogController } from 'fastify';
+import Fastify, { LogController, type FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
 import { activity } from './activity.ts';
@@ -17,12 +17,13 @@ import { gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries,
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
-import { accessGuard, loadAccessPolicy, refreshTailnet } from './guard.ts';
+import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
 import { LiveRegistry } from './live.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
+import { PinLock } from './pin.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { sessionCost } from './session-cost.ts';
 import { AudioMonitor } from './audio.ts';
@@ -55,6 +56,8 @@ const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planN
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
+const pin = new PinLock();
+await pin.load();
 // Outras máquinas suas com o cald: o app junta as conversas, e os avisos daqui vão para elas.
 const machines = new MachineDirectory(policy);
 void machines.refresh();
@@ -66,7 +69,7 @@ new Notifier(manager, live, push);
 
 const app = Fastify({ logger: { level: 'info' }, logController: new LogController({ disableRequestLogging: true }) });
 await app.register(websocket);
-app.addHook('onRequest', accessGuard(policy));
+app.addHook('onRequest', accessGuard(policy, pin));
 
 app.setErrorHandler((err: unknown, _req, reply) => {
   if (err instanceof HttpError) return reply.code(err.status).send({ error: err.code, ...err.details });
@@ -114,6 +117,22 @@ app.get('/api/health', async () => ({
 }));
 
 /** As outras máquinas suas com o cald, para o app conectar em todas. */
+// ---- PIN (ver pin.ts): a tela de bloqueio do app ----
+
+// `unlocked`: o token que veio ainda vale (o app recarregado não precisa pedir o PIN de novo).
+app.get('/api/pin', async (req) => ({ ...pin.status(), unlocked: pin.check(pinToken(req)) }));
+
+app.post<{ Body: { pin: string } }>(
+  '/api/pin/unlock',
+  { schema: { body: { type: 'object', required: ['pin'], properties: { pin: { type: 'string', maxLength: 16 } } } } },
+  async (req) => ({ token: await pin.unlock(req.body.pin) }),
+);
+
+app.post('/api/pin/lock', async (req) => {
+  pin.lock(pinToken(req));
+  return { ok: true };
+});
+
 app.get('/api/machines', async () => ({ name: MACHINE_NAME, machines: await machines.list() }));
 
 app.get('/api/sessions', async () => manager.catalog());
@@ -967,6 +986,26 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
 
 // ---- WebSocket: catálogo e eventos em tempo real ----
 
+/**
+ * O token do PIN de cada WebSocket aberto (o do painel e os de terminal): ao travar o app ou trocar o
+ * PIN, quem ficou sem token válido cai na hora. Aberto conta como uso, e o token não expira no meio.
+ */
+const pinSockets = new Map<WebSocket, string | undefined>();
+
+function holdPin(socket: WebSocket, req: FastifyRequest): void {
+  // Guardado mesmo sem PIN: ligar o PIN com o app aberto derruba quem não tem token.
+  pinSockets.set(socket, pinToken(req));
+  socket.on('close', () => pinSockets.delete(socket));
+}
+
+function dropUnlocked(): void {
+  for (const [socket, token] of pinSockets) {
+    if (pin.enabled && !pin.check(token)) socket.close(4401, 'pin_required');
+  }
+}
+pin.on('revoke', dropUnlocked);
+setInterval(dropUnlocked, 60_000).unref();
+
 type ClientMsg =
   | { type: 'subscribe'; sessionId: string; sinceSeq?: number; runId?: string }
   | { type: 'unsubscribe'; sessionId: string }
@@ -1029,6 +1068,7 @@ function subscribe(socket: WebSocket, sessionId: string, sinceSeq: number, runId
  * do dono. O que chega antes de a pasta ser conferida (o tamanho da tela) fica guardado e vai depois.
  */
 app.get<{ Querystring: { cwd?: string } }>('/ws/terminal', { websocket: true }, (socket, req) => {
+  holdPin(socket, req);
   const early: Buffer[] = [];
   const hold = (raw: Buffer) => early.push(raw);
   socket.on('message', hold);
@@ -1043,7 +1083,8 @@ app.get<{ Querystring: { cwd?: string } }>('/ws/terminal', { websocket: true }, 
   );
 });
 
-app.get('/ws', { websocket: true }, (socket) => {
+app.get('/ws', { websocket: true }, (socket, req) => {
+  holdPin(socket, req);
   clients.set(socket, new Set());
   let alive = true;
   socket.on('pong', () => (alive = true));
