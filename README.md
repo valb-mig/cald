@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do cald, uma gota branca de olhos vazados sobre o preto">
+<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do cald, uma gota branca dando oi no meio de um pulinho">
 
 # cald
 
