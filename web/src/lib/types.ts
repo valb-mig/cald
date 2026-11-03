@@ -107,7 +107,30 @@ export type CatalogEntry = {
   team?: TeamSnapshot;
   /** O workspace de que a conversa faz parte (ver server/src/workspaces.ts). */
   workspace?: WorkspaceTag;
+  /** O worktree em que ela roda, separada das outras conversas do projeto (ver server/src/worktrees.ts). */
+  worktree?: WorktreeTag;
 };
+
+/** `project`: o projeto de que o worktree é cópia; branch e origem só quando foi o cald que criou. */
+export type WorktreeTag = { name: string; project: string; branch?: string; base?: string }
+
+export type WorktreeStatus = {
+  name: string
+  path: string
+  project: string
+  /** A branch do worktree agora; `null` sem branch. */
+  branch: string | null
+  /** Para onde o "Trazer" leva: a branch de onde ele saiu. */
+  base: string | null
+  /** A branch do checkout principal agora: o "Trazer" só vai se for a base. */
+  current: string | null
+  /** Commits do worktree que a base ainda não tem. */
+  ahead: number
+  /** Commits da base que o worktree ainda não tem. */
+  behind: number
+  /** Arquivos ainda sem commit no worktree. */
+  changed: number
+}
 
 export type WorkspaceFile = { id: string; name: string; mediaType: string; size: number }
 export type WorkspaceCommand = { label: string; command: string; cwd?: string }

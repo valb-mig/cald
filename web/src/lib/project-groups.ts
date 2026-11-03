@@ -32,10 +32,12 @@ export function groupByProject(list: CatalogEntry[]): ProjectGroup[] {
   const groups = new Map<string, ProjectGroup>()
   for (const s of list) {
     const machine = s.machine ?? HOME
-    const key = projectKey(machine, s.cwd)
+    // A conversa num worktree fica no projeto de que ele é cópia, com o nome do worktree na linha dela.
+    const cwd = s.worktree?.project ?? s.cwd
+    const key = projectKey(machine, cwd)
     let group = groups.get(key)
     if (!group) {
-      group = { key, machine, cwd: s.cwd, name: s.cwd ? projectName(s.cwd) : 'Sem projeto', sessions: [], last: 0, waiting: 0 }
+      group = { key, machine, cwd, name: cwd ? projectName(cwd) : 'Sem projeto', sessions: [], last: 0, waiting: 0 }
       groups.set(key, group)
     }
     group.sessions.push(s)

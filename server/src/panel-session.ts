@@ -102,10 +102,16 @@ export type PanelSessionOptions = {
   team?: TeamSnapshot;
   /** Contexto do workspace da conversa, montado agora (ver workspaces.ts): mais prompt de sistema e pastas extras. */
   workspace?: { prompt: string; directories: string[] };
+  /**
+   * A conversa roda num worktree (ver worktrees.ts): um trecho do prompt de sistema e o checkout de que
+   * ele é cópia, de onde vêm as configurações do projeto (permissões locais, skills, hooks).
+   */
+  worktree?: { prompt: string; configRoot: string };
 };
 
-/** O que vai no fim do prompt de sistema: o time e o workspace da conversa. */
-const append = (opts: PanelSessionOptions) => [opts.team && teamPrompt(opts.team), opts.workspace?.prompt].filter(Boolean).join('\n\n');
+/** O que vai no fim do prompt de sistema: o time, o workspace e o worktree da conversa. */
+const append = (opts: PanelSessionOptions) =>
+  [opts.team && teamPrompt(opts.team), opts.workspace?.prompt, opts.worktree?.prompt].filter(Boolean).join('\n\n');
 
 /**
  * Sessão cujo único dono é o painel: um processo headless do Claude Code
@@ -188,6 +194,9 @@ export class PanelSession extends EventEmitter {
         // Anexos do celular ficam fora do projeto; liberados para leitura sem pedir aprovação. Os outros
         // projetos e os arquivos do workspace também.
         additionalDirectories: [UPLOADS_DIR, ...(opts.workspace?.directories ?? [])],
+        // O `settings.local.json` não é versionado e não existe no worktree: sem isto, o que você já liberou
+        // no projeto voltaria a pedir aprovação.
+        projectConfigRoot: opts.worktree?.configRoot,
         systemPrompt: { type: 'preset', preset: 'claude_code', ...(append(opts) ? { append: append(opts) } : {}) },
         agents: opts.team ? agentsOf(opts.team) : undefined,
         settingSources: ['user', 'project', 'local'],

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { STATE_DIR } from './config.ts';
 import type { TeamSnapshot } from './teams.ts';
+import type { WorktreeInfo } from './worktrees.ts';
 
 /** De onde uma conversa bifurcou, e em que ponto do log da origem ela foi cortada. */
 export type Fork = { from: string; at?: string };
@@ -24,12 +25,14 @@ type Meta = {
   workspaces: Record<string, string>;
   /** Pastas de projeto adicionadas à mão, fora das raízes (PROJECT_ROOTS). */
   projects: string[];
+  /** Worktrees criados para conversas, pela pasta: a branch dele e a de origem (ver worktrees.ts). */
+  worktrees: Record<string, WorktreeInfo>;
 };
 
 const FILE = process.env.META_FILE ?? join(STATE_DIR, 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [] };
+  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [], worktrees: {} };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -44,6 +47,7 @@ export class MetaStore {
         teams: data.teams && typeof data.teams === 'object' ? data.teams : {},
         workspaces: data.workspaces && typeof data.workspaces === 'object' ? data.workspaces : {},
         projects: Array.isArray(data.projects) ? data.projects.filter((p) => typeof p === 'string') : [],
+        worktrees: data.worktrees && typeof data.worktrees === 'object' ? data.worktrees : {},
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -147,6 +151,18 @@ export class MetaStore {
   async setProjectAdded(dir: string, added: boolean): Promise<void> {
     const others = this.meta.projects.filter((p) => p !== dir);
     this.meta = { ...this.meta, projects: added ? [...others, dir].sort() : others };
+    await this.save();
+  }
+
+  /** O worktree criado aqui nesta pasta, se foi o cald que criou. */
+  worktreeInfo(path: string): WorktreeInfo | undefined {
+    return this.meta.worktrees[path];
+  }
+
+  /** `undefined`: o worktree foi removido. */
+  async setWorktree(path: string, info: WorktreeInfo | undefined): Promise<void> {
+    const { [path]: _old, ...worktrees } = this.meta.worktrees;
+    this.meta = { ...this.meta, worktrees: info ? { ...worktrees, [path]: info } : worktrees };
     await this.save();
   }
 

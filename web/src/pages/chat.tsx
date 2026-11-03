@@ -44,6 +44,7 @@ import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { toolsIn } from '@/components/chat/turn'
+import { WorktreeBar } from '@/components/chat/worktree-bar'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
@@ -785,6 +786,8 @@ export function ChatPage({ id }: { id: string }) {
             </Button>
           )}
         </header>
+        {/* Num worktree: a branch dela, o que falta trazer para a de origem, e o "Trazer" e o "Remover". */}
+        {entry?.worktree && cwd && !zen && <WorktreeBar machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
 
         <div
           ref={areaRef}

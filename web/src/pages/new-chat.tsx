@@ -8,6 +8,8 @@ import { ProjectPanelButton } from '@/components/project/panel'
 import { ProjectPicker } from '@/components/project-picker'
 import { RepoLink } from '@/components/repo-link'
 import { Button } from '@/components/ui/button'
+import { WorktreeToggle } from '@/components/worktree-toggle'
+import { useWorktreeChoice } from '@/lib/worktree'
 import { api } from '@/lib/api'
 import { attachInto } from '@/lib/compose'
 import { projectName } from '@/lib/format'
@@ -94,6 +96,8 @@ function NewChat({
   }
   const [picker, setPicker] = useState(false)
   const git = useGitStatus(machine, cwd, null)
+  const worktree = useWorktreeChoice(machine, cwd, git.status)
+  const [creating, setCreating] = useState(false)
   useShowProject(machine, cwd, `new:${cwd ?? '~'}`, showProject)
   const project = cwd ? projectName(cwd) : 'Sem projeto (~)'
   const inWorkspace = ws ? `${ws.name} · ${project}` : project
@@ -137,6 +141,12 @@ function NewChat({
         </Button>
       </div>
 
+      {cwd && (
+        <div className="mx-auto w-full max-w-3xl px-2 wide:px-4">
+          <WorktreeToggle choice={worktree} cwd={cwd} creating={creating} />
+        </div>
+      )}
+
       <Composer
         key={cwd ?? '~'}
         sessionId={`new:${cwd ?? '~'}`}
@@ -148,10 +158,23 @@ function NewChat({
         onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
         extra={<TeamPill machine={machine} value={teamId} onChange={setTeamId} />}
         onSend={async (text, attachments) => {
-          const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, teamId, workspaceId: ws?.id, ...pending })
-          // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
-          noteSession(sessionId, machine)
-          onCreated(sessionId)
+          setCreating(worktree.on)
+          try {
+            const { sessionId } = await api.create(machine, {
+              cwd,
+              prompt: text,
+              attachments,
+              teamId,
+              workspaceId: ws?.id,
+              worktree: worktree.on || undefined,
+              ...pending,
+            })
+            // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
+            noteSession(sessionId, machine)
+            onCreated(sessionId)
+          } finally {
+            setCreating(false)
+          }
         }}
       />
 

@@ -232,7 +232,9 @@ app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: str
 /** Tokens e custo estimado da conversa inteira, subagentes incluídos (ver session-cost.ts). */
 app.get<{ Params: IdParams }>('/api/sessions/:id/cost', async (req) => sessionCost(req.params.id));
 
-app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string } }>(
+app.post<{
+  Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string; worktree?: boolean };
+}>(
   '/api/sessions',
   {
     bodyLimit: ATTACHMENT_BODY_LIMIT,
@@ -247,6 +249,8 @@ app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attac
           attachments: attachmentsSchema,
           teamId: { type: 'string', maxLength: 64 },
           workspaceId: { type: 'string', maxLength: 64 },
+          // Abre num worktree novo do projeto, separada das outras conversas dele (ver worktrees.ts).
+          worktree: { type: 'boolean' },
           ...runOptions,
         },
       },
@@ -648,6 +652,22 @@ app.post<{ Body: { cwd: string; name: string } }>(
     return { ok: true };
   },
 );
+
+// ---- Worktrees das conversas (ver worktrees.ts) ----
+
+// Branch, origem, commits à frente e mudanças sem commit, para a barra do worktree no chat.
+app.get<ProjectQuery>('/api/worktree', projectQuery, async (req) => manager.worktreeStatus(req.query.cwd));
+
+const worktreeBody = { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, force: { type: 'boolean' } } } } };
+
+// "Trazer": merge da branch do worktree na de origem, no checkout principal.
+app.post<{ Body: { cwd: string } }>('/api/worktree/merge', worktreeBody, async (req) => manager.mergeWorktree(req.body.cwd));
+
+// Remove o worktree (e a branch, se foi o cald que criou); `force` aceita perder o que não voltou.
+app.post<{ Body: { cwd: string; force?: boolean } }>('/api/worktree/remove', worktreeBody, async (req) => {
+  await manager.removeWorktree(req.body.cwd, req.body.force ?? false);
+  return { ok: true };
+});
 
 // ---- GitHub e TODO do projeto (abas da barra do projeto) ----
 

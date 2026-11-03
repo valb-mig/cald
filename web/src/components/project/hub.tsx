@@ -7,6 +7,8 @@ import { GitBadges } from '@/components/git-badges'
 import { BAR, plural, usd } from '@/components/home/scale'
 import { StateBadge } from '@/components/state-badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { WorktreeToggle } from '@/components/worktree-toggle'
+import { useWorktreeChoice } from '@/lib/worktree'
 import { dayKey, noon, useToday } from '@/lib/activity'
 import { api, OUTDATED_SERVER } from '@/lib/api'
 import { claudinhoName } from '@/lib/claudinho'
@@ -215,9 +217,15 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
   const [pending, setPending] = useState<RunOptions>({})
   const [everyone, setEveryone] = useState(false)
   const git = useGitStatus(machine, cwd, null)
+  const worktree = useWorktreeChoice(machine, cwd, git.status)
+  const [creating, setCreating] = useState(false)
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const all = useStore((s) => s.catalog)
-  const team = useMemo(() => all.filter((c) => (c.machine ?? HOME) === machine && c.cwd === cwd).sort(liveFirst), [all, machine, cwd])
+  // As dos worktrees do projeto também são dele.
+  const team = useMemo(
+    () => all.filter((c) => (c.machine ?? HOME) === machine && (c.worktree?.project ?? c.cwd) === cwd).sort(liveFirst),
+    [all, machine, cwd],
+  )
   const recent = useMemo(() => [...team].sort((a, b) => b.lastModified - a.lastModified)[0], [team])
   const { info } = useGithub(machine, cwd, active)
   const todo = useTodos(machine, cwd)?.find((t) => !t.done)
@@ -267,6 +275,7 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
           />
           <h1 className="relative text-center text-3xl font-medium tracking-tight text-balance">O que vamos fazer no {name} hoje?</h1>
           <div className="relative mt-6">
+            <WorktreeToggle choice={worktree} cwd={cwd} creating={creating} className="mx-2 mb-1 wide:mx-4" />
             <Composer
               sessionId={composerId}
               cwd={cwd}
@@ -278,11 +287,16 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
               // Escrever aqui deixa o hub aberto, como editar no VSCode.
               onEdit={() => pinTab(keyOf({ kind: 'project', machine, cwd }))}
               onSend={async (text, attachments) => {
-                const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, ...pending })
-                noteSession(sessionId, machine)
-                // A conversa nova nasce aba fixa (ver lib/workbench.ts), e a URL leva até ela.
-                openTab({ kind: 'chat', id: sessionId })
-                navigate(`/s/${sessionId}`)
+                setCreating(worktree.on)
+                try {
+                  const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, worktree: worktree.on || undefined, ...pending })
+                  noteSession(sessionId, machine)
+                  // A conversa nova nasce aba fixa (ver lib/workbench.ts), e a URL leva até ela.
+                  openTab({ kind: 'chat', id: sessionId })
+                  navigate(`/s/${sessionId}`)
+                } finally {
+                  setCreating(false)
+                }
               }}
             />
           </div>

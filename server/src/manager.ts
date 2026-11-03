@@ -30,6 +30,18 @@ import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
+import {
+  createWorktree,
+  mergeWorktree,
+  removeWorktree,
+  tagOf as worktreeTag,
+  unsaved,
+  worktreeOf,
+  worktreePrompt,
+  worktreeStatus,
+  type WorktreeStatus,
+  type WorktreeTag,
+} from './worktrees.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 
@@ -67,6 +79,8 @@ export type CatalogEntry = {
   team?: TeamSnapshot;
   /** O workspace de que a conversa faz parte. */
   workspace?: WorkspaceTag;
+  /** O worktree em que a conversa roda, separada das outras do mesmo projeto (ver worktrees.ts). */
+  worktree?: WorktreeTag;
 };
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
@@ -216,6 +230,8 @@ export class Manager extends EventEmitter {
       if (ws) entry.workspace = tagOf(ws);
       const fork = this.meta.forkOf(entry.sessionId);
       if (fork) entry.forkedFrom = { sessionId: fork.from, title: byId.get(fork.from)?.title };
+      const wt = entry.cwd ? worktreeOf(entry.cwd) : null;
+      if (wt) entry.worktree = worktreeTag(wt, this.meta.worktreeInfo(wt.path));
     }
     return [...byId.values()].sort((a, b) => b.lastModified - a.lastModified);
   }
@@ -318,7 +334,8 @@ export class Manager extends EventEmitter {
    * que ainda existem) e cwds de conversas salvas dentro delas.
    */
   async projects(): Promise<string[]> {
-    const fromSessions = (await this.saved()).map((s) => s.cwd).filter((c): c is string => Boolean(c));
+    // Conversa num worktree conta para o projeto dele, não como projeto à parte.
+    const fromSessions = (await this.saved()).flatMap((s) => (s.cwd ? [worktreeOf(s.cwd)?.project ?? s.cwd] : []));
     const fromRoots = await Promise.all(
       PROJECT_ROOTS.map(async (root) => {
         const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
@@ -377,24 +394,94 @@ export class Manager extends EventEmitter {
     return dir === homedir() || this.isProjectDir(dir);
   }
 
+  /**
+   * Conversa nova. Com `worktree`, ela abre num worktree criado agora a partir do projeto (ver
+   * worktrees.ts), para não disputar os arquivos com as outras conversas dele.
+   */
   async create(
-    opts: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string },
+    opts: RunOptions & {
+      cwd?: string;
+      prompt: string;
+      title?: string;
+      attachments?: Attachment[];
+      teamId?: string;
+      workspaceId?: string;
+      worktree?: boolean;
+    },
   ): Promise<PanelSession> {
-    const { prompt, attachments, teamId, workspaceId, ...rest } = opts;
+    const { prompt, attachments, teamId, workspaceId, worktree, ...rest } = opts;
     // O time vai copiado: editá-lo depois não muda esta conversa.
     const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
     const ws = workspaceId ? this.workspaces.get(workspaceId) : undefined;
     // Sem projeto: a sessão abre na pasta pessoal (no workspace, no projeto principal dele).
-    const cwd = resolve(opts.cwd || ws?.projects[0] || homedir());
+    let cwd = resolve(opts.cwd || ws?.projects[0] || homedir());
     if (!this.isAllowedCwd(cwd)) throw new HttpError(403, 'cwd_outside_roots', { roots: PROJECT_ROOTS });
     const info = await stat(cwd).catch(() => null);
     if (!info?.isDirectory()) throw new HttpError(400, 'cwd_not_a_directory');
+    // Instalação que falhou não impede a conversa: o Claude fica sabendo no primeiro turno.
+    let notice: string | undefined;
+    if (worktree) {
+      if (cwd === homedir()) throw new HttpError(400, 'worktree_needs_project');
+      const made = await createWorktree(cwd, opts.title || prompt, (dir) => this.isProjectDir(dir));
+      await this.meta.setWorktree(made.ref.path, made.info);
+      cwd = made.cwd;
+      if (made.install && !made.install.ok) {
+        notice = `(Aviso do cald: o \`${made.install.tool}\` não conseguiu instalar as dependências neste worktree. Instale antes de rodar build ou testes.)\n${made.install.error}`;
+      }
+    }
     const workspace = ws ? ((await this.workspaces.context(ws.id, cwd)) ?? undefined) : undefined;
-    const session = this.adopt(new PanelSession({ ...rest, cwd, team, workspace, label: opts.title || prompt.slice(0, 80) }));
+    const session = this.adopt(
+      new PanelSession({ ...rest, cwd, team, workspace, worktree: this.worktreeContext(cwd), label: opts.title || prompt.slice(0, 80) }),
+    );
     if (team) await this.meta.setTeam(session.id, team);
     if (ws) await this.meta.setWorkspace(session.id, ws.id);
-    await this.send(session.id, prompt, attachments);
+    await this.send(session.id, prompt, attachments, undefined, notice);
     return session;
+  }
+
+  /** O que a sessão num worktree leva: o aviso para o Claude e de onde vêm as configurações do projeto. */
+  private worktreeContext(cwd: string): PanelSessionOptions['worktree'] {
+    const ref = worktreeOf(cwd);
+    return ref ? { prompt: worktreePrompt(ref, this.meta.worktreeInfo(ref.path)), configRoot: ref.project } : undefined;
+  }
+
+  /** O worktree de um projeto conhecido; erro se a pasta não for um. */
+  private async worktreeAt(cwd: string) {
+    const ref = worktreeOf(await this.knownCwd(cwd));
+    if (!ref) throw new HttpError(400, 'not_a_worktree');
+    return { ref, info: this.meta.worktreeInfo(ref.path) };
+  }
+
+  async worktreeStatus(cwd: string): Promise<WorktreeStatus> {
+    const { ref, info } = await this.worktreeAt(cwd);
+    return worktreeStatus(ref, info);
+  }
+
+  /** Traz os commits do worktree para a branch de origem, no checkout principal. */
+  async mergeWorktree(cwd: string): Promise<{ commits: number }> {
+    const { ref, info } = await this.worktreeAt(cwd);
+    return mergeWorktree(ref, info);
+  }
+
+  /**
+   * Remove o worktree. As conversas do painel que estavam nele são fechadas (precisam estar paradas); aberta
+   * no PC, recusa. Com commits que a base não tem ou mudanças sem commit, só com `force`.
+   */
+  async removeWorktree(cwd: string, force: boolean): Promise<void> {
+    const { ref, info } = await this.worktreeAt(cwd);
+    const status = await worktreeStatus(ref, info);
+    if (!force && unsaved(status)) throw new HttpError(409, 'worktree_unsaved', { changed: status.changed, ahead: status.ahead });
+    const inside = (dir?: string) => dir !== undefined && (dir === ref.path || dir.startsWith(ref.path + sep));
+    await this.live.refresh();
+    // O processo headless do painel também aparece em `agents --json`: esse o painel fecha sozinho.
+    if (this.live.all().some((l) => inside(l.cwd) && !this.sessions.has(l.sessionId))) throw new HttpError(409, 'live_on_pc');
+    const own = [...this.sessions.values()].filter((s) => inside(s.cwd) && s.state !== 'exited');
+    const busy = own.find((s) => s.state === 'running' || s.state === 'waiting' || s.agents.active);
+    if (busy) throw new HttpError(409, 'session_busy', { state: busy.state, agents: busy.agents.active });
+    await Promise.all(own.map((s) => s.shutdown()));
+    await removeWorktree(ref, status, info);
+    await this.meta.setWorktree(ref.path, undefined);
+    this.emit('catalog');
   }
 
   /**
@@ -403,7 +490,8 @@ export class Manager extends EventEmitter {
    */
   todoContext?: (cwd: string, text: string) => Promise<string | null>;
 
-  async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string): Promise<void> {
+  /** `notice`: um aviso do cald para o Claude, junto do contexto dos TODOs (fora da tela também). */
+  async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string, notice?: string): Promise<void> {
     // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
     if (clientId && this.delivered.has(clientId)) return;
     const session = this.get(sessionId);
@@ -413,7 +501,8 @@ export class Manager extends EventEmitter {
     }
     try {
       const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
-      const context = (await this.todoContext?.(session.cwd, text).catch(() => null)) ?? undefined;
+      const todos = await this.todoContext?.(session.cwd, text).catch(() => null);
+      const context = [todos, notice].filter(Boolean).join('\n\n') || undefined;
       session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context });
     } catch (err) {
       if (clientId) this.delivered.delete(clientId);
@@ -564,6 +653,8 @@ export class Manager extends EventEmitter {
     const info = await getSessionInfo(sessionId);
     const cwd = info && (info.cwd ?? (await transcriptCwd(sessionId)));
     if (!cwd) throw new HttpError(404, 'session_not_found');
+    // O worktree dela foi removido (ou a pasta sumiu): o histórico continua legível, mas não há onde rodar.
+    if (!(await isDirectory(cwd))) throw new HttpError(410, worktreeOf(cwd) ? 'worktree_removed' : 'cwd_gone');
 
     if (!opts.fork) {
       await this.live.refresh();
@@ -588,6 +679,7 @@ export class Manager extends EventEmitter {
         // Retomada (ou bifurcada) com o time que ela tinha e o contexto atual do workspace dela.
         team: this.meta.teamOf(sessionId),
         workspace: await this.workspaceContext(sessionId, cwd),
+        worktree: this.worktreeContext(cwd),
       }),
     );
     // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.
