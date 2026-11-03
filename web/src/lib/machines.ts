@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import { create } from 'zustand'
+import { authHeader } from './pin-tokens'
 
 /**
  * Várias máquinas suas com o cald no mesmo app (ver server/src/machines.ts). A desta
@@ -29,7 +30,7 @@ export const useMachines = create<{ machines: Machine[] }>(() => {
 
 /** Pergunta à máquina desta página o nome dela e quais outras existem; sem resposta, fica a lista guardada. */
 export async function loadMachines(): Promise<void> {
-  const res = await fetch('/api/machines')
+  const res = await fetch('/api/machines', { headers: authHeader('/api/machines') })
   // Servidor sem a rota (versão antiga): só esta máquina.
   if (res.status === 404) return
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
