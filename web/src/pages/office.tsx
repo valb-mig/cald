@@ -2,7 +2,7 @@ import { ArrowLeft, Maximize, Minimize, Sun, SunDim } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useSearch } from 'wouter'
 import { useDemoOffice } from '@/components/office/demo'
-import { PixelOffice } from '@/components/office/pixel/pixel-office'
+import { VectorOffice } from '@/components/office/vector/office'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOffice } from '@/lib/office'
@@ -134,7 +134,7 @@ export function OfficePage() {
           <Skeleton className="mx-auto aspect-[3/1.3] w-full max-w-3xl rounded-xl" />
         ) : (
           <>
-            <PixelOffice rooms={rooms} clock={clock} />
+            <VectorOffice rooms={rooms} clock={clock} />
             {rooms.length === 0 && (
               <p className="p-6 text-center text-sm text-muted-foreground">
                 Nenhuma conversa aberta. Quando você abrir uma, no celular ou no PC, ela ganha um cômodo aqui.

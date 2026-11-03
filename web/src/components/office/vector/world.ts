@@ -1,6 +1,5 @@
 import type { CatalogState, OfficeActivity, OfficeEvent, OfficeTodos, OfficeWorker } from '@/lib/types'
-import { LANE_Y, PILE, REST_SPOTS, spotFor, stationOf, type Occupancy, type Spot } from './scene'
-import { BODY, familyOf, tintOf, type BubbleKind, type Carry, type Facing, type Family, type Tint } from './sprites'
+import { LANE_Y, PILE, REST_SPOTS, familyOf, spotFor, stationOf, type BubbleKind, type Carry, type Facing, type Family, type Occupancy, type Spot } from './layout'
 
 type Point = { x: number; y: number }
 
@@ -11,7 +10,7 @@ const ELEVATOR_Y = 96
 const MIN_DWELL = 1.6
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
 
-/** Ida temporária a outro lugar: levar a caixa do commit ao elevador, entregar a pasta ao gestor. */
+/** Ida temporária a outro lugar: levar a caixa do commit ao elevador, entregar a pasta ao claudinho da conversa. */
 type Task = { kind: 'errand' | 'deliver'; spot: Spot; stay: number; carry?: Carry }
 
 /** Jeitos de descansar; `near` são os que valem com algo rodando em segundo plano (não se afasta). */
@@ -36,9 +35,8 @@ export type Actor = {
   room: string
   name: string
   lead: boolean
-  tint: Tint
-  /** Índice da cor, para o próximo subagente da área pegar outra. */
-  color: number
+  /** De onde sai o claudinho dele (ver lib/claudinho.ts): o da conversa, ou um sorteado para o subagente. */
+  seed: string
   activity: OfficeActivity
   detail?: string
   /** Estação e posição nela (o n-ésimo), que ficam enquanto a atividade não muda. */
@@ -115,6 +113,9 @@ export type RoomInput = {
   todos?: OfficeTodos
   model?: string
   state: CatalogState
+  /** O claudinho da conversa (o que ela veste) e o nome dele. */
+  seed: string
+  leadName: string
   entryX: number
   askX: number
   coolerX: number
@@ -156,7 +157,6 @@ export class World {
         const a = this.actors.get(keyOf(w))
         if (a && !a.leaving && a.station === stationOf(w.activity)) take(a.station, a.slot)
       }
-      const colors = new Set([...this.actors.values()].filter((a) => a.room === room.key && !a.leaving).map((a) => a.color))
 
       for (const w of room.workers) {
         const key = keyOf(w)
@@ -171,21 +171,14 @@ export class World {
         }
         const base = spotFor(w.activity, slot, room.askX)
         const lead = w.role === 'gestor'
+        const name = lead ? room.leadName : w.name
         if (!a) {
-          let color = 0
-          if (!lead) {
-            color = 1
-            while (colors.has(color) && color < BODY.length) color++
-            if (color >= BODY.length) color = 1 + (colors.size % (BODY.length - 1))
-          }
-          colors.add(color)
           a = {
             key,
             room: room.key,
-            name: lead ? 'Gestor' : w.name,
+            name,
             lead,
-            tint: tintOf(color),
-            color,
+            seed: lead ? room.seed : `${room.seed}:${w.id}`,
             activity: w.activity,
             station,
             slot,
@@ -216,7 +209,8 @@ export class World {
           this.actors.set(key, a)
         }
         a.entry = room.entryX
-        a.name = lead ? 'Gestor' : w.name
+        a.name = name
+        if (lead) a.seed = room.seed
         a.detail = w.detail
         const changed = a.leaving || a.activity !== w.activity || a.base.x !== base.x || a.base.y !== base.y
         if (changed) {
@@ -247,7 +241,7 @@ export class World {
     }
   }
 
-  /** O subagente terminou: leva a pasta até o gestor e sai pelo elevador. */
+  /** O subagente terminou: leva a pasta até o claudinho da conversa e sai pelo elevador. */
   private leave(a: Actor): void {
     a.leaving = true
     a.urgent = true
@@ -260,7 +254,7 @@ export class World {
     }
   }
 
-  /** Eventos novos da conversa viram animação; mudanças de estado viram balão no gestor. */
+  /** Eventos novos da conversa viram animação; mudanças de estado viram balão no claudinho da conversa. */
   private react(room: RoomInput, rs: RoomState, fresh: boolean): void {
     const lead = this.actors.get(`${room.key}|lead`)
     const leadActivity = room.workers[0]?.activity
@@ -431,7 +425,7 @@ export class World {
       if (a.arrived === null) {
         a.arrived = t
         a.facing = here.facing
-        // A pasta chegou: o gestor agradece.
+        // A pasta chegou: o claudinho da conversa agradece.
         if (a.task?.kind === 'deliver') {
           const lead = this.actors.get(`${a.room}|lead`)
           if (lead) this.emote(lead, 'check', 1.5)
@@ -516,8 +510,11 @@ export class World {
   /** Altura do pulo do cutucão (dois pulinhos) e do "pede você" (um pulinho de vez em quando). */
   bob(a: Actor): number {
     const j = this.time - a.jumpAt
-    if (j < 0.6) return -Math.round(Math.abs(Math.sin((j / 0.6) * Math.PI * 2)) * 5)
-    if (a.activity === 'ask' && !a.path.length && !this.calm && (this.time + a.phase) % 1.4 < 0.25) return -2
+    if (j < 0.6) return -Math.abs(Math.sin((j / 0.6) * Math.PI * 2)) * 5
+    if (a.activity === 'ask' && !a.path.length && !this.calm) {
+      const p = (this.time + a.phase) % 1.4
+      return p < 0.3 ? -Math.sin((p / 0.3) * Math.PI) * 2.5 : 0
+    }
     return 0
   }
 
