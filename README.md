@@ -134,6 +134,8 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
 | `WHISPER_CLI` | `~/.local/share/cald/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
 | `WHISPER_MODEL` | `~/.local/share/cald/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
+| `PIPER_BIN` | `~/.local/share/cald/piper/piper/piper` | Binário do Piper para a leitura em voz alta no PC (ver [Voz natural no PC](#voz-natural-no-pc-piper)) |
+| `PIPER_VOICE` | `~/.local/share/cald/piper/voices/pt_BR-faber-medium.onnx` | Voz do Piper, com o `.onnx.json` ao lado |
 | `ACTIVITY_FILE` | `~/.local/share/cald/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
 | `WAKATIME_CLI` | `~/.wakatime/wakatime-cli` | Binário do WakaTime, para o seu tempo no painel contar lá (ver [WakaTime](#wakatime)); `WAKATIME=0` desliga |
 | `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem a medida do WakaTime no PC |
@@ -155,6 +157,16 @@ deploy/install-whisper.sh        # compila o whisper.cpp e baixa o modelo small-
 ```
 
 Precisa de git, cmake e um compilador de C++. O servidor acha o Whisper sozinho, sem reiniciar, e o microfone passa a aparecer no Firefox. O modelo `small-q5_1` vai bem em português e usa uns 400 MB de memória só enquanto transcreve. Com mais memória sobrando, o `large-v3-turbo-q5_0` acerta mais (`deploy/install-whisper.sh large-v3-turbo-q5_0` e `WHISPER_MODEL` apontando para ele).
+
+### Voz natural no PC (Piper)
+
+O **Ouvir** usa a voz do aparelho. No celular ela é boa, mas no PC com Linux o navegador fala pelo speech-dispatcher, que vem com o espeak: robótico e difícil de entender. Para ouvir no PC com uma voz natural, instale o Piper, que gera a fala ali mesmo, sem internet:
+
+```sh
+deploy/install-piper.sh          # baixa o Piper e a voz pt_BR-faber-medium (~90 MB)
+```
+
+O servidor acha o Piper sozinho, sem reiniciar; recarregue a página no PC. Cada frase é gerada no PC enquanto a anterior toca, então só a primeira demora um instante. O celular segue com a voz dele. Se o Piper falhar no meio de uma leitura, ela continua com a voz do navegador. Há outras vozes em português (`cadu-medium`, `jeff-medium`, `edresson-low`): `deploy/install-piper.sh cadu-medium` e `PIPER_VOICE` apontando para ela.
 
 ### WakaTime
 
@@ -311,11 +323,11 @@ No chat:
   - **pílula do modelo**: com o esforço;
   - **modo**: Manual, Editar automaticamente, Plano ou Automático, com o nível de esforço no mesmo menu;
   - **enviar**: muda de cor conforme o modo, e vira **parar** enquanto o Claude trabalha, com o campo vazio. Com texto, a mensagem entra na fila.
-- Embaixo de cada resposta do Claude, **Ouvir** lê o texto em voz alta com a voz do próprio celular; nada roda no PC. Blocos de código e tabelas viram um aviso ("Tem um trecho de código na tela"), caminhos viram só o nome do arquivo e links viram "um link". Durante a leitura:
+- Embaixo de cada resposta do Claude, **Ouvir** lê o texto em voz alta com a voz do próprio celular; nada roda no PC. No PC, com o Piper instalado, a voz é a dele (ver [Voz natural no PC](#voz-natural-no-pc-piper)). Blocos de código e tabelas viram um aviso ("Tem um trecho de código na tela"), caminhos viram só o nome do arquivo e links viram "um link". Durante a leitura:
   - como a letra no Spotify, o trecho sendo lido fica em destaque, o resto da resposta esmaece e a conversa rola junto;
   - em cima da caixa de mensagem aparece uma barra com pausar/continuar, a frase atual e até onde já leu; tocar ou arrastar na barra pula para outra frase, e o **×** encerra;
   - o botão embaixo da resposta também pausa e continua (continuar repete a frase desde o começo), e tocar em outra resposta troca a leitura.
-  - o **1x** da barra troca a velocidade: 1,5x, 2x, 3x e de volta a 1x. A escolha fica salva no celular e vale para todas as conversas, inclusive na leitura automática; trocar no meio de uma frase recomeça a frase já na velocidade nova. A voz acelera sem ficar fina, mas o máximo real depende da voz do aparelho: algumas param de acelerar antes de 3x.
+  - o **1x** da barra troca a velocidade: 1,5x, 2x, 3x e de volta a 1x. A escolha fica salva no celular e vale para todas as conversas, inclusive na leitura automática; trocar no meio de uma frase recomeça a frase já na velocidade nova (com o Piper, a voz muda de ritmo na hora). A voz acelera sem ficar fina, mas o máximo real depende da voz do aparelho: algumas param de acelerar antes de 3x.
   - Com a tela apagada, o Android pode cortar a fala: a leitura fica pausada na frase em que parou, e **Continuar** retoma.
 - O alto-falante no topo do chat liga a **leitura automática**: cada resposta nova do Claude é lida sozinha, sem tocar em **Ouvir**. Uma resposta que chega com outra sendo lida espera a vez, e o histórico nunca é lido. A escolha é de cada conversa: com duas lado a lado, ligar numa não lê a outra, e desligar cala só o que for dela. Fica salva no celular.
 
@@ -436,6 +448,8 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/tasks/:taskId/stop` | Para uma tarefa em segundo plano; o Claude recebe o aviso |
 | GET | `/api/transcribe` | `{available}`: se o Whisper está instalado neste PC |
 | POST | `/api/transcribe` | `{audio}` (WAV em base64, até ~10 min): transcreve em português com o Whisper (`503 whisper_unavailable`) |
+| GET | `/api/speak` | `{available}`: se o Piper está instalado neste PC |
+| POST | `/api/speak` | `{text}` (até 1000 caracteres): a frase falada pelo Piper, em WAV (`503 piper_unavailable`) |
 | GET | `/api/sessions/:id/agents/:toolUseId` | O que o subagente criado por essa chamada da ferramenta Agent fez, do transcript salvo (`?agentId=` poupa a busca; `404 agent_not_found`) |
 | POST | `/api/sessions` | Nova sessão `{cwd?, prompt, attachments?, model?, effort?, permissionMode?}`; sem `cwd`, abre em `~` |
 | POST | `/api/sessions/:id/open` | Retomar no painel (`409 live_on_pc` se estiver aberta no PC) |
