@@ -12,7 +12,7 @@ Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui.
 
 ## Instalar na sua máquina
 
-O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela sua rede Tailscale. Não há nuvem no meio nem senha: só aparelhos da sua tailnet chegam ao painel. A exceção são as notificações, que passam criptografadas pelo serviço de push do Google (ou da Apple, no iPhone).
+O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela sua rede Tailscale. Não há nuvem no meio: só aparelhos da sua tailnet chegam ao painel, e um PIN opcional protege do celular desbloqueado na mão de outra pessoa (ver [PIN](#pin)). A exceção são as notificações, que passam criptografadas pelo serviço de push do Google (ou da Apple, no iPhone).
 
 ### Requisitos
 
@@ -36,6 +36,7 @@ O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e 
 
 ```sh
 cald -link      # mostra o link de acesso remoto da tailnet
+cald -pin       # define (ou troca) o PIN pedido ao abrir o painel; `cald -pin off` remove
 ```
 
 O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
@@ -98,6 +99,21 @@ O painel passa a abrir como um app e avisa quando o Claude precisa de você.
 ### Quem pode acessar
 
 O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` informa no cabeçalho `Tailscale-User-Login`). Por padrão, só entra o dono do PC na tailnet. Para liberar outra conta, use `ALLOWED_LOGINS`: ela substitui o padrão, então inclua o seu login também.
+
+### PIN
+
+O Tailscale garante que só aparelhos seus chegam ao painel, mas não protege do celular desbloqueado na mão de outra pessoa. Para isso, defina um PIN de 4 a 8 dígitos no PC:
+
+```sh
+cald -pin       # pede o PIN duas vezes, sem mostrar
+cald -pin off   # remove
+```
+
+Vale na hora, sem reiniciar o serviço. Daí em diante, o app abre numa tela de bloqueio, no celular e no navegador do PC (o acesso local também pede). Quem confere é o servidor: só o hash do PIN fica no PC (`~/.local/state/cald/pin.json`), e acertar dá um token que toda chamada da API e o WebSocket precisam levar, então abrir a API direto, sem o app, também esbarra no PIN. Depois de 5 erros seguidos, o servidor faz esperar 30 s, e a espera dobra a cada erro até 15 min. Trocar o PIN derruba todos os aparelhos destravados.
+
+O app trava sozinho depois de 5 min sem uso ou no fundo. Em **Computador → Sobre → Segurança** dá para mudar o tempo (1, 5, 15 ou 30 min, ou **Ao sair**, que trava assim que o app vai para o fundo), desligar o travamento automático ou **Travar agora**. Esses ajustes valem para o aparelho. Fechar o app também trava; recarregar a página não.
+
+Com várias máquinas, rode `cald -pin` em cada uma com o mesmo PIN: você digita uma vez e o app destrava todas. Uma máquina com PIN diferente fica sem conexão no app até você acertar o dela.
 
 ### Várias máquinas
 
@@ -358,7 +374,7 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 - Cada sessão controlada pelo celular tem um único dono: um processo headless do Claude Code dirigido pelo Agent SDK.
 - Sessões abertas no PC aparecem no celular só para leitura. **Assumir** encerra a sessão no PC (apenas se estiver ociosa) e a retoma no painel. **Liberar** devolve a sessão ao terminal (`claude --resume <id>`).
 - O estado real das sessões do PC vem de `claude agents --json`.
-- Não há tela de login: o servidor escuta só em `127.0.0.1`, e o acesso remoto passa pelo `tailscale serve` com a identidade do dono.
+- Não há conta nem senha: o servidor escuta só em `127.0.0.1`, e o acesso remoto passa pelo `tailscale serve` com a identidade do dono. Com PIN (ver [PIN](#pin)), a API e o WebSocket pedem também o token de quem acertou, no cabeçalho `Authorization: Bearer` ou em `?t=` (WebSocket, imagens e links de arquivo).
 
 ## Operação do serviço
 
@@ -410,6 +426,9 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 
 | Método | Rota | Uso |
 |---|---|---|
+| GET | `/api/pin` | `{enabled, length?, retryAfter?, unlocked}`: se há PIN e se o token enviado ainda vale (aberta mesmo com PIN) |
+| POST | `/api/pin/unlock` | `{pin}` → `{token}` (`403 pin_wrong` com `attemptsLeft`, `429 pin_blocked` com `retryAfter`) |
+| POST | `/api/pin/lock` | O token enviado deixa de valer, e os WebSockets abertos com ele caem (código `4401`) |
 | GET | `/api/sessions` | Catálogo: salvas + vivas no PC + do painel, com `owner` e `state` |
 | GET | `/api/projects` | Diretórios disponíveis para sessões novas |
 | GET | `/api/sessions/:id/history` | Histórico salvo, normalizado |

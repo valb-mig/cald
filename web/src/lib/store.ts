@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { onAudio, onAudioReady, quietAudio, type Spectrum } from './audio'
 import { useLooks } from './claudinho'
+import { pinRejected, useLock } from './lock'
 import { HOME, baseOf, machineOf, noteSession, noteSessions, useMachines } from './machines'
+import { withToken } from './pin-tokens'
 import type { CatalogEntry, LoggedEvent, SessionSettings, SessionState, SystemSnapshot, UsageSnapshot } from './types'
 
 export type Connection = 'connecting' | 'open' | 'closed'
@@ -139,8 +141,8 @@ class MachineSocket {
 
   private url(): string {
     const base = baseOf(this.machine)
-    if (base) return `${base.replace(/^http/, 'ws')}/ws`
-    return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
+    if (base) return withToken(`${base.replace(/^http/, 'ws')}/ws`)
+    return withToken(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`)
   }
 
   connect(): void {
@@ -163,8 +165,10 @@ class MachineSocket {
       this.lastMessageAt = Date.now()
       handle(this.machine, JSON.parse(String(e.data)))
     }
-    socket.onclose = () => {
+    socket.onclose = (e) => {
       if (this.ws !== socket) return
+      // O servidor derrubou por falta de PIN (travou em outro lugar, PIN trocado): destrava de novo ou trava o app.
+      if (e.code === 4401) void pinRejected(socket.url)
       this.ws = null
       setConnection(this.machine, 'closed')
       if (!this.disposed) this.retryTimer = setTimeout(() => this.connect(), Math.min(15_000, 1_000 * 2 ** this.retry++))
@@ -252,6 +256,8 @@ export function connect(): void {
   started = true
   syncSockets()
   useMachines.subscribe(syncSockets)
+  // Destravou de novo: reabre já, com o token novo, sem esperar o backoff.
+  useLock.subscribe((s, prev) => s.round !== prev.round && reconnectNow(true))
 }
 
 /** Reconecta já com todas as máquinas: `force` derruba até as que parecem vivas. */

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Redirect, Route, Switch, useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
 import { ComputerSheet } from '@/components/computer-sheet'
+import { LockScreen } from '@/components/lock-screen'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
 import { ProjectViewer } from '@/components/project/viewer'
@@ -14,6 +15,7 @@ import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { setComputerOpen } from '@/lib/computer'
 import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
+import { checkLock, startLock, useLock } from '@/lib/lock'
 import { HOME, loadMachines, MachineContext } from '@/lib/machines'
 import { openInbox, openTab, openWorkspace, WORKBENCH_PATH } from '@/lib/workbench'
 import {
@@ -53,7 +55,27 @@ const OfficePage = lazy(() => import('@/pages/office').then((m) => ({ default: m
 /** Quanto cada toque nas setas do teclado muda a largura da lista. */
 const KEY_STEP = 24
 
+/**
+ * Com PIN (ver lib/lock.ts), o painel só monta depois da primeira destravada: antes disso nada pede
+ * à API. Travado de novo depois, a tela de bloqueio cobre o painel, que segue montado por baixo.
+ */
 export default function App() {
+  const status = useLock((s) => s.status)
+  const started = useLock((s) => s.started)
+  useEffect(() => {
+    void checkLock()
+    startLock()
+  }, [])
+  if (status === 'checking') return <div className="h-dvh bg-background" />
+  return (
+    <>
+      {started && <Panel />}
+      {status === 'locked' && <LockScreen />}
+    </>
+  )
+}
+
+function Panel() {
   const [location, navigate] = useLocation()
   const wide = useWide()
   // Modo zen: vale enquanto a conversa em que ele foi ligado estiver na tela (ver lib/zen.ts).

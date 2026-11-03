@@ -631,6 +631,26 @@
   }
 }
 
+/* PIN errado na tela de bloqueio (ver lock-screen.tsx). */
+@keyframes lock-shake {
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+.lock-shake {
+  animation: lock-shake 0.35s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lock-shake {
+    animation: none;
+  }
+}
+
 @keyframes tab-panel-in {
   from {
     opacity: 0;

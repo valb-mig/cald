@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useDarkMode } from '@/lib/hooks'
 import { useCodeFont } from '@/lib/code-font'
 import { baseOf } from '@/lib/machines'
+import { withToken } from '@/lib/pin-tokens'
 
 /**
  * Fundo transparente (o da janela aparece) e o texto nos cinzas do app; as cores ANSI, as do terminal
@@ -80,7 +81,7 @@ const FONT = 'Cascadia Code Variable'
 const socketUrl = (machine: string, cwd: string) => {
   const base = baseOf(machine)
   const origin = base ? base.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
-  return `${origin}/ws/terminal?cwd=${encodeURIComponent(cwd)}`
+  return withToken(`${origin}/ws/terminal?cwd=${encodeURIComponent(cwd)}`)
 }
 
 type Status = 'connecting' | 'open' | 'exited' | 'failed'

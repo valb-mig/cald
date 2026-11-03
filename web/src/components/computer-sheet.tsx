@@ -1,4 +1,4 @@
-import { Activity, Armchair, Bell, ChevronRight, Gauge, Info, Monitor, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
+import { Activity, Armchair, Bell, ChevronRight, Gauge, Info, Lock, Monitor, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
@@ -10,9 +10,11 @@ import { SoundSettings } from '@/components/sound-settings'
 import { WallpaperSettings } from '@/components/wallpaper-settings'
 import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 import { setComputerOpen, useComputer } from '@/lib/computer'
+import { AUTOLOCK_MINUTES, lockNow, setAutoLock, useAutoLock, useLock } from '@/lib/lock'
 import { bytes, relativeTime, uptime } from '@/lib/format'
 import { HOME, baseOf, useMachineFilter } from '@/lib/machines'
 import { reconnectNow, useStore } from '@/lib/store'
@@ -310,8 +312,38 @@ function AboutSection() {
       <UpdateCard key={machine} machine={machine} />
       <Group title="Segurança" note={`Versão ${__BUILD_TIME__}`}>
         <SettingRow label="Só pela sua rede Tailscale" hint="E apenas para a conta dona do PC." />
+        <PinSettings />
         <SettingRow label="Credenciais no PC" hint="As do Claude Code não saem de lá." />
       </Group>
+    </>
+  )
+}
+
+/** O PIN (ver lib/lock.ts): definido no PC, com `cald -pin`; aqui, quando o app trava sozinho. Vale para este aparelho. */
+function PinSettings() {
+  const enabled = useLock((s) => s.enabled)
+  const { on, minutes } = useAutoLock()
+  if (!enabled) return <SettingRow label="PIN desligado" hint={<>Para pedir um PIN ao abrir, rode <code>cald -pin</code> no PC.</>} />
+  return (
+    <>
+      <SettingRow label="PIN ao abrir" hint={<>Troque com <code>cald -pin</code> no PC.</>}>
+        <Button variant="ghost" size="sm" onClick={lockNow}>
+          <Lock />
+          Travar agora
+        </Button>
+      </SettingRow>
+      <SettingRow label="Travar sozinho" hint="Sem uso ou com o app no fundo, neste aparelho." htmlFor="autolock">
+        <Switch id="autolock" checked={on} onCheckedChange={(checked) => setAutoLock({ on: checked })} />
+      </SettingRow>
+      {on && (
+        <div className="px-1 pb-1">
+          <Segmented
+            value={String(minutes)}
+            onChange={(v) => setAutoLock({ minutes: Number(v) })}
+            options={AUTOLOCK_MINUTES.map((m) => ({ key: String(m), label: m === 0 ? 'Ao sair' : `${m} min` }))}
+          />
+        </div>
+      )}
     </>
   )
 }

@@ -1,4 +1,6 @@
+import { pinRejected } from './lock'
 import { HOME, baseOf, machineOf } from './machines'
+import { authHeader, withToken } from './pin-tokens'
 import type {
   Activity,
   AttachmentPayload,
@@ -46,8 +48,17 @@ export class ApiError extends Error {
   }
 }
 
+/** `fetch` com o token do PIN da máquina; recusado, destrava ela de novo (ver lock.ts) e tenta mais uma vez. */
+async function send(url: string, init: RequestInit, retry = true): Promise<Response> {
+  const res = await fetch(url, { ...init, headers: { ...init.headers, ...authHeader(url) } })
+  if (res.status !== 401 || !retry) return res
+  const body = (await res.clone().json().catch(() => ({}))) as { error?: string }
+  if (body.error === 'pin_required' && (await pinRejected(url))) return send(url, init, false)
+  return res
+}
+
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
+  const res = await send(url, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -65,13 +76,14 @@ const at = (machine: string) => `${baseOf(machine)}/api`
 const project = (cwd: string, path?: string) =>
   `cwd=${encodeURIComponent(cwd)}${path !== undefined ? `&path=${encodeURIComponent(path)}` : ''}`
 
+// Os endereços abaixo vão em `<img>` e links, que não mandam cabeçalho: o token do PIN segue na URL.
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
-export const fileRawUrl = (m: string, cwd: string, path: string) => `${at(m)}/file/raw?${project(cwd, path)}`
+export const fileRawUrl = (m: string, cwd: string, path: string) => withToken(`${at(m)}/file/raw?${project(cwd, path)}`)
 /** Um anexo de um item do TODO, para ver (imagem) ou baixar. */
 export const workspaceFileUrl = (m: string, id: string, file: WorkspaceFile) =>
-  `${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`
+  withToken(`${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`)
 export const todoFileUrl = (m: string, file: { id: string; mediaType: string }) =>
-  `${at(m)}/todos/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`
+  withToken(`${at(m)}/todos/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`)
 
 export const api = {
   health: (m: string) =>
@@ -210,6 +222,8 @@ export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err)
   const status = String(err.details.status ?? '')
   switch (err.code) {
+    case 'pin_required':
+      return 'Essa máquina pede PIN. Destrave o app para continuar.'
     case 'busy_on_pc':
       return status === 'waiting'
         ? 'A sessão está esperando uma resposta no PC. Responda lá ou aguarde.'
@@ -317,10 +331,10 @@ export function errorMessage(err: unknown): string {
 
 /** URL de uma imagem do chat: chave no cache do PC ou data URL já pronta. */
 export function imageUrl(sessionId: string, key: string): string {
-  return key.startsWith('data:') ? key : `${sid(sessionId)}/images/${encodeURIComponent(key)}`
+  return key.startsWith('data:') ? key : withToken(`${sid(sessionId)}/images/${encodeURIComponent(key)}`)
 }
 
 /** Versão reduzida para miniaturas (o PC gera, até 512 px); a ampliada usa `imageUrl`. */
 export function thumbUrl(sessionId: string, key: string): string {
-  return key.startsWith('data:') ? key : `${imageUrl(sessionId, key)}?thumb=1`
+  return key.startsWith('data:') ? key : withToken(`${sid(sessionId)}/images/${encodeURIComponent(key)}?thumb=1`)
 }
