@@ -357,7 +357,7 @@ function TabPages({ wide }: { wide: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col compact:flex-row-reverse">
       {/* As listas (conversas, projetos) ficam soltas na casca, sem janela: a cor da janela passa a ser a
-          dela, para o que pinta com a cor da janela (o contorno da bolinha do claudinho) seguir combinando. */}
+          dela, para o que pinta com a cor da janela (o contorno do balão e das mãos do claudinho) seguir combinando. */}
       <Pane className="[--background:var(--shell)]">{main}</Pane>
       <BottomNav />
     </div>

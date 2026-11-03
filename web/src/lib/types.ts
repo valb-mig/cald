@@ -90,6 +90,8 @@ export type CatalogEntry = {
   pending?: { requestId: string; kind: PendingKind }[];
   /** Subagentes trabalhando agora (só sessões do painel). */
   agents?: number;
+  /** Turno em andamento sem ferramenta aberta: o claudinho pensa em vez de executar (só sessões do painel). */
+  thinking?: boolean;
   /** Outras tarefas em segundo plano (monitores, comandos): o turno acabou, mas o Claude vai voltar. */
   tasks?: { type: string; description: string }[];
   pinned?: boolean;

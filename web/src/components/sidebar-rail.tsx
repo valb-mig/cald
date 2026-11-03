@@ -247,7 +247,7 @@ function RailChat({ id, active }: { id: string; active: boolean }) {
   const name = claudinhoName(id, entry?.claudinhoName)
   return (
     <RailItem label={entry?.title ? `${name} · ${entry.title}` : name} href={`/s/${id}`} active={active}>
-      <Claudinho seed={id} state={entry?.state} status size={20} />
+      <Claudinho seed={id} state={entry?.state} thinking={entry?.thinking} status size={20} />
     </RailItem>
   )
 }

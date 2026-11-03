@@ -1,3 +1,4 @@
+import { useEffect, useState, type ReactNode } from 'react'
 import { lookOf, phaseOf, useLooks, type Eyes, type Look } from '@/lib/claudinho'
 import type { CatalogState, SessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -54,10 +55,135 @@ export function Eye({ x, y, s, kind, side }: { x: number; y: number; s: number; 
   }
 }
 
+/** A pose do claudinho: pensando (a mão no queixo) ou o joinha de quando termina. */
+export type Pose = 'think' | 'done'
+
+/** Quanto dura o joinha do fim do turno. */
+export const CHEER_MS = 2400
+// Pensando só depois de um tempo assim: entre ferramentas rápidas, ele não fica trocando de pose.
+const PONDER_MS = 1000
+
+/** `true` por CHEER_MS depois que `busy` passa a falso com `ok`: a hora do joinha. */
+function useCheer(busy: boolean, ok = true): boolean {
+  const [was, setWas] = useState(busy)
+  const [on, setOn] = useState(false)
+  if (busy !== was) {
+    setWas(busy)
+    setOn(!busy && ok)
+  }
+  useEffect(() => {
+    if (!on) return
+    const timer = setTimeout(() => setOn(false), CHEER_MS)
+    return () => clearTimeout(timer)
+  }, [on])
+  return on
+}
+
+/** `on` depois de `ms` seguidos ligado; desliga na hora. */
+function useSettled(on: boolean, ms: number): boolean {
+  const [settled, setSettled] = useState(false)
+  if (!on && settled) setSettled(false)
+  useEffect(() => {
+    if (!on) return
+    const timer = setTimeout(() => setSettled(true), ms)
+    return () => clearTimeout(timer)
+  }, [on, ms])
+  return on && settled
+}
+
+/**
+ * Os traços por cima do corpo (mão, balão) ganham um contorno da cor do fundo, para se destacarem
+ * dele mesmo em 16 px: o desenho vai duas vezes, primeiro só o contorno, depois na cor.
+ */
+function Outlined({ children, fill, className }: { children: ReactNode; fill?: string; className?: string }) {
+  return (
+    <>
+      <g fill="var(--background)" stroke="var(--background)" strokeWidth="2.5" strokeLinejoin="round">
+        {children}
+      </g>
+      <g fill={fill} className={className}>
+        {children}
+      </g>
+    </>
+  )
+}
+
+/** O balão no canto de cima, com o rabinho apontando para ele: "…" executando, "!" esperando você. */
+function Bubble({ kind }: { kind: 'dots' | 'alert' }) {
+  const shape = (
+    <>
+      <path d="M22.5 -1.8h5a4.5 4.5 0 0 1 0 9h-5a4.5 4.5 0 0 1 0 -9z" />
+      <path d="M20.2 5.6L18.9 8.9L23.6 7z" />
+    </>
+  )
+  if (kind === 'dots') {
+    return (
+      <g aria-hidden>
+        <Outlined className="fill-sky-500">{shape}</Outlined>
+        <g fill="#fff" className="claudinho-typing">
+          <circle cx="21.6" cy="2.7" r="1.3" />
+          <circle cx="25" cy="2.7" r="1.3" />
+          <circle cx="28.4" cy="2.7" r="1.3" />
+        </g>
+      </g>
+    )
+  }
+  return (
+    <g aria-hidden className="claudinho-nudge">
+      <Outlined className="fill-amber-500">{shape}</Outlined>
+      <path d="M25 0.4v3.2" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" />
+      <circle cx="25" cy="5.7" r="1.1" fill="#fff" />
+    </g>
+  )
+}
+
+/** Pensando: a mão fechada debaixo do queixo, com o indicador encostado nele, dando batidinhas. */
+function ThinkingHand({ look }: { look: Look }) {
+  const x = 16 - look.gap * 0.15
+  const chin = Math.min(look.eyeY + 6 * look.eyeScale, 24)
+  return (
+    <g aria-hidden className="claudinho-hmm">
+      <Outlined fill={look.color}>
+        <rect x={x - 5} y={chin + 2.6} width="6.6" height="5.4" rx="2.5" />
+        <rect x={x - 1.5} y={chin} width="2.5" height="5" rx="1.25" />
+      </Outlined>
+    </g>
+  )
+}
+
+/** A sobrancelha erguida de quem pensa, sobre o olho da esquerda. */
+function Brow({ x, y, s }: { x: number; y: number; s: number }) {
+  return (
+    <path
+      d={`M${x - 2.6 * s} ${y - 4.6 * s}Q${x - 0.2 * s} ${y - 7 * s} ${x + 2.6 * s} ${y - 5.4 * s}`}
+      fill="none"
+      stroke="#fff"
+      strokeWidth={1.5 * s}
+      strokeLinecap="round"
+    />
+  )
+}
+
+/** O joinha: o punho no canto de baixo, polegar para cima, surgindo com um balanço. */
+function ThumbsUp({ color }: { color: string }) {
+  return (
+    <g aria-hidden className="claudinho-thumb">
+      <Outlined fill={color}>
+        <rect x="23.4" y="25" width="8" height="6" rx="2.6" />
+        <rect x="25.1" y="19.9" width="3" height="7.2" rx="1.5" />
+      </Outlined>
+      {/* As dobras dos dedos, para o punho não virar só um bloco. */}
+      <path d="M27.1 27.1h3.6M27.1 29h3.6" stroke="var(--background)" strokeWidth="0.8" strokeLinecap="round" opacity="0.55" />
+    </g>
+  )
+}
+
 /**
  * O claudinho de uma conversa (ver lib/claudinho.ts). O estado mexe na expressão: trabalhando, ele
- * pisca de vez em quando (cada um no seu tempo); esperando você, olha para cima. `status` põe a
- * bolinha do estado no canto (azul trabalhando, âmbar esperando), para onde não há outro sinal dele.
+ * pisca de vez em quando (cada um no seu tempo); esperando você, olha para cima. `status` mostra o
+ * estado nele mesmo, para onde não há outro sinal: o balão com "…" executando, a mão no queixo
+ * pensando (`thinking`), o balão com "!" esperando você e o joinha quando o turno acaba. `pose`
+ * força uma pose, para quem acompanha o turno por conta própria (o fim do chat).
  */
 export function Claudinho({
   seed,
@@ -65,6 +191,8 @@ export function Claudinho({
   name,
   state,
   status = false,
+  thinking = false,
+  pose,
   className,
 }: {
   seed: string
@@ -73,6 +201,9 @@ export function Claudinho({
   size?: number
   state?: CatalogState | SessionState
   status?: boolean
+  /** Turno em andamento sem ferramenta rodando (ver CatalogEntry.thinking); só vale com `status`. */
+  thinking?: boolean
+  pose?: Pose
   className?: string
 }) {
   // A conversa que continua outra (um /clear) veste o claudinho de lá: o mesmo personagem.
@@ -80,7 +211,12 @@ export function Claudinho({
   const look = lookOf(worn)
   const running = state === 'running' || state === 'starting'
   const waiting = state === 'waiting'
+  const cheer = useCheer(status && running, state === 'idle')
+  const pondering = useSettled(status && running && thinking, PONDER_MS)
+  const shown = pose ?? (cheer ? 'done' : pondering ? 'think' : undefined)
+  const bubble = status && !shown ? (waiting ? 'alert' : running ? 'dots' : undefined) : undefined
   const half = look.gap / 2
+  const eyes = shown === 'done' ? 'happy' : look.eyes
   return (
     <svg
       viewBox="0 0 32 32"
@@ -92,20 +228,25 @@ export function Claudinho({
       className={cn('shrink-0 overflow-visible', className)}
     >
       {name && <title>{name}</title>}
-      <g transform={look.tilt ? `rotate(${look.tilt.toFixed(1)} 16 16)` : undefined}>
-        <Body look={look} />
-        <g
-          className={running ? 'claudinho-blink' : undefined}
-          style={running ? { animationDelay: `${(-phaseOf(worn) * 4).toFixed(2)}s` } : undefined}
-          transform={waiting ? 'translate(0 -1.6)' : undefined}
-        >
-          <Eye x={16 - half} y={look.eyeY} s={look.eyeScale} kind={look.eyes} side={-1} />
-          <Eye x={16 + half} y={look.eyeY} s={look.eyeScale} kind={look.eyes} side={1} />
+      <g className={shown === 'done' ? 'claudinho-cheer' : undefined}>
+        <g transform={look.tilt ? `rotate(${look.tilt.toFixed(1)} 16 16)` : undefined}>
+          <Body look={look} />
+          {/* Esperando, olha para cima; pensando, para o alto e de lado. */}
+          <g transform={waiting ? 'translate(0 -1.6)' : shown === 'think' ? 'translate(0.9 -1.3)' : undefined}>
+            <g
+              className={running ? 'claudinho-blink' : undefined}
+              style={running ? { animationDelay: `${(-phaseOf(worn) * 4).toFixed(2)}s` } : undefined}
+            >
+              <Eye x={16 - half} y={look.eyeY} s={look.eyeScale} kind={eyes} side={-1} />
+              <Eye x={16 + half} y={look.eyeY} s={look.eyeScale} kind={eyes} side={1} />
+            </g>
+            {shown === 'think' && <Brow x={16 - half} y={look.eyeY} s={look.eyeScale} />}
+          </g>
+          {shown === 'think' && <ThinkingHand look={look} />}
         </g>
       </g>
-      {status && (running || waiting) && (
-        <circle cx="27.5" cy="27.5" r="4.2" className={running ? 'fill-sky-500' : 'fill-amber-500'} stroke="var(--background)" strokeWidth="2.5" />
-      )}
+      {shown === 'done' && <ThumbsUp color={look.color} />}
+      {bubble && <Bubble kind={bubble} />}
     </svg>
   )
 }

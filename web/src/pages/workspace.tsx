@@ -359,7 +359,7 @@ export function WorkspacePage({ machine, id }: { machine: string; id: string }) 
                 {sessions.map((c) => (
                   <li key={c.sessionId}>
                     <Link href={`/s/${c.sessionId}`} className="flex min-w-0 items-center gap-2.5 px-3 py-2 hover:bg-muted/50">
-                      <Claudinho seed={c.sessionId} size={26} state={c.state} status />
+                      <Claudinho seed={c.sessionId} size={26} state={c.state} thinking={c.thinking} status />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{c.title}</div>
                         <div className="truncate text-xs text-muted-foreground">
