@@ -31,6 +31,7 @@ import { thumbnail } from './thumbs.ts';
 import { openTerminal } from './terminal.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
+import { buildInbox, InboxState, type StateAction } from './inbox.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
@@ -43,6 +44,8 @@ const todos = new TodoStore();
 await todos.load();
 const teams = new TeamStore();
 await teams.load();
+const inboxState = new InboxState();
+await inboxState.load();
 const workspaces = new WorkspaceStore();
 await workspaces.load();
 const manager = new Manager(live, meta, teams, workspaces);
@@ -267,6 +270,44 @@ app.post<{ Body: TeamInput }>(
     },
   },
   async (req) => teams.save(req.body),
+);
+
+// A inbox (ver inbox.ts): PRs e issues do GitHub da conta, projetos com mudanças e TODOs a fazer;
+// `refresh=1` busca de novo no GitHub e consulta o remoto de cada projeto.
+app.get<{ Querystring: { refresh?: string } }>('/api/inbox', async (req) =>
+  buildInbox(await manager.projects(), todos, req.query.refresh === '1'),
+);
+
+// O que você fez com cada item (visto, adiado), guardado no PC principal.
+app.get('/api/inbox/state', async () => inboxState.all());
+
+app.post<{ Body: { actions: StateAction[] } }>(
+  '/api/inbox/state',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['actions'],
+        properties: {
+          actions: {
+            type: 'array',
+            maxItems: 200,
+            items: {
+              type: 'object',
+              required: ['key', 'action'],
+              properties: {
+                key: { type: 'string', minLength: 1, maxLength: 4200 },
+                action: { type: 'string', enum: ['seen', 'snooze', 'clear'] },
+                mark: { type: 'string', maxLength: 300 },
+                until: { type: 'integer', minimum: 0 },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => inboxState.apply(req.body.actions),
 );
 
 // Workspaces (ver workspaces.ts): moldes de conversa com projetos, contexto, regras, comandos e time padrão.

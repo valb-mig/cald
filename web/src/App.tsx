@@ -15,7 +15,7 @@ import { setComputerOpen } from '@/lib/computer'
 import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
 import { HOME, loadMachines, MachineContext } from '@/lib/machines'
-import { openTab, openWorkspace, WORKBENCH_PATH } from '@/lib/workbench'
+import { openInbox, openTab, openWorkspace, WORKBENCH_PATH } from '@/lib/workbench'
 import {
   saveSidebarWidth,
   setSidebarCollapsed,
@@ -43,6 +43,8 @@ import { SessionsPage } from '@/pages/sessions'
 import { SharePage } from '@/pages/share'
 import { ChatSplit } from '@/pages/split'
 import { Workbench } from '@/pages/workbench'
+import { InboxView } from '@/components/inbox/inbox-view'
+import { startInbox } from '@/lib/inbox'
 import { WorkspacePage } from '@/pages/workspace'
 
 // A salinha é uma tela à parte, para deixar de fundo: o desenho dela só chega quando for aberta.
@@ -66,6 +68,7 @@ export default function App() {
     refresh()
     const machines = setInterval(refresh, 60_000)
     connect()
+    startInbox()
     startOutbox()
     startSounds()
     startTitle()
@@ -338,6 +341,7 @@ function TabPages({ wide }: { wide: boolean }) {
               <SessionsPage />
             </Route>
             <Route path="/projetos">{wide ? <OpenProjects /> : <ProjectsPage />}</Route>
+            <Route path="/inbox">{wide ? <OpenInbox /> : <InboxView />}</Route>
             <Route path="/computador">
               <OpenComputer />
             </Route>
@@ -361,6 +365,15 @@ function TabPages({ wide }: { wide: boolean }) {
 }
 
 /** No PC, os projetos ficam na barra lateral: o endereço deles (link da home, favoritos) abre ela neles. */
+/** O endereço da inbox no PC: abre a aba dela, como o hub de um projeto. */
+function OpenInbox() {
+  useEffect(() => {
+    openInbox()
+    navigate(WORKBENCH_PATH, { replace: true })
+  }, [])
+  return null
+}
+
 function OpenProjects() {
   const [, navigate] = useLocation()
   useEffect(() => {

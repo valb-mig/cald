@@ -1,13 +1,15 @@
-import { FolderGit2, Loader2, MessagesSquare, Monitor } from 'lucide-react'
+import { FolderGit2, Inbox, Loader2, MessagesSquare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { setComputerOpen } from '@/lib/computer'
+import { useInboxCount } from '@/lib/inbox'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 // Sem início: no celular, o app abre nas conversas (ver App.tsx).
 const TABS = [
   { href: '/conversas', label: 'Conversas', icon: MessagesSquare },
+  { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/projetos', label: 'Projetos', icon: FolderGit2 },
 ]
 const tabClass =
@@ -21,8 +23,9 @@ const tabClass =
 export function BottomNav() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
+  const inbox = useInboxCount()
   return (
-    <nav className="m-frame mb-[max(var(--frame),env(safe-area-inset-bottom))] grid shrink-0 grid-cols-3 gap-1 rounded-full bg-background p-1 shadow-island compact:w-20 compact:grid-cols-1 compact:content-center compact:rounded-[1.5rem]">
+    <nav className="m-frame mb-[max(var(--frame),env(safe-area-inset-bottom))] grid shrink-0 grid-cols-4 gap-1 rounded-full bg-background p-1 shadow-island compact:w-20 compact:grid-cols-1 compact:content-center compact:rounded-[1.5rem]">
       {TABS.map(({ href, label, icon: Icon }) => {
         const active =
           href === '/conversas'
@@ -39,6 +42,12 @@ export function BottomNav() {
             {href === '/conversas' && attention > 0 && (
               <span className="absolute top-1 left-1/2 ml-2 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white">
                 {attention}
+              </span>
+            )}
+            {/* Os novos da inbox (nem vistos nem adiados), em azul: o âmbar é de quem espera você. */}
+            {href === '/inbox' && inbox > 0 && (
+              <span className="absolute top-1 left-1/2 ml-2 min-w-4 rounded-full bg-sky-600 px-1 text-center text-[10px] leading-4 font-semibold text-white">
+                {inbox > 99 ? '99+' : inbox}
               </span>
             )}
           </Link>

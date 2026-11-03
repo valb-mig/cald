@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { HttpError } from './errors.ts';
 import { gitStatus } from './git.ts';
@@ -497,6 +498,104 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
   }
 }
 
+// ---- a inbox: o que pede você em todo o GitHub da conta, não só nos repositórios dos projetos ----
+
+/**
+ * Por que um PR ou uma issue está na inbox: pedem sua revisão; um PR seu com check falhando, mudança
+ * pedida, conflito ou aprovado e pronto para o merge; uma issue atribuída a você; ou te mencionaram.
+ */
+export type InboxReason = 'review' | 'checks' | 'changes' | 'conflict' | 'ready' | 'assigned' | 'mentioned';
+export type InboxGithubItem = {
+  kind: 'pr' | 'issue';
+  reason: InboxReason;
+  /** "dono/nome" e o endereço do repositório, para achar o projeto local que é clone dele. */
+  repo: string;
+  repoUrl: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  updatedAt: string;
+  labels: GithubLabel[];
+};
+export type GithubInbox = { ok: true; viewer: string; items: InboxGithubItem[]; fetchedAt: number } | Failure;
+
+const INBOX_QUERY = `query {
+  rateLimit { remaining limit resetAt }
+  viewer { login }
+  review: search(type: ISSUE, first: 25, query: "is:open is:pr archived:false review-requested:@me sort:updated-desc") { nodes { ...pr } }
+  mine: search(type: ISSUE, first: 40, query: "is:open is:pr archived:false author:@me sort:updated-desc") { nodes { ...pr } }
+  assigned: search(type: ISSUE, first: 25, query: "is:open is:issue archived:false assignee:@me sort:updated-desc") { nodes { ...issue } }
+  mentioned: search(type: ISSUE, first: 25, query: "is:open archived:false mentions:@me sort:updated-desc") { nodes { ...issue ...pr } }
+}
+fragment pr on PullRequest {
+  __typename number title url updatedAt isDraft reviewDecision mergeable
+  repository { nameWithOwner url } author { login } labels(first: 6) { nodes { name color } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}
+fragment issue on Issue {
+  __typename number title url updatedAt repository { nameWithOwner url } author { login } labels(first: 6) { nodes { name color } }
+}`;
+
+type InboxNode = {
+  __typename?: 'PullRequest' | 'Issue';
+  number: number;
+  title: string;
+  url: string;
+  updatedAt: string;
+  isDraft?: boolean;
+  reviewDecision?: GithubPull['review'];
+  mergeable?: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+  repository: { nameWithOwner: string; url: string };
+  author: { login: string } | null;
+  labels?: { nodes: GithubLabel[] };
+  commits?: { nodes: { commit: { statusCheckRollup: { state: GithubPull['checks'] } | null } }[] };
+};
+type InboxRaw = { data?: { viewer: { login: string }; review: { nodes: InboxNode[] }; mine: { nodes: InboxNode[] }; assigned: { nodes: InboxNode[] }; mentioned: { nodes: InboxNode[] } } };
+
+/** O que um PR seu pede de você; `null` se está esperando outra pessoa (revisão, checks rodando). */
+function mineReason(n: InboxNode): InboxReason | null {
+  const checks = n.commits?.nodes[0]?.commit.statusCheckRollup?.state;
+  if (checks === 'FAILURE' || checks === 'ERROR') return 'checks';
+  if (n.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
+  if (n.mergeable === 'CONFLICTING') return 'conflict';
+  if (!n.isDraft && n.reviewDecision === 'APPROVED' && checks !== 'PENDING' && checks !== 'EXPECTED') return 'ready';
+  return null;
+}
+
+async function loadInbox(): Promise<GithubInbox> {
+  const fetchedAt = Date.now();
+  try {
+    const data = (await graphql<InboxRaw>(homedir(), INBOX_QUERY, {})).data;
+    if (!data) return { ok: false, reason: 'error', message: 'O GitHub não respondeu à busca.', fetchedAt };
+    const items = new Map<string, InboxGithubItem>();
+    // Na ordem de urgência: o mesmo PR pedindo sua revisão e te mencionando fica como revisão.
+    const add = (n: InboxNode, reason: InboxReason | null) => {
+      if (!reason || !n?.url || items.has(n.url)) return;
+      items.set(n.url, {
+        kind: n.__typename === 'Issue' ? 'issue' : 'pr',
+        reason,
+        repo: n.repository.nameWithOwner,
+        repoUrl: n.repository.url,
+        number: n.number,
+        title: n.title,
+        url: n.url,
+        author: n.author?.login ?? null,
+        updatedAt: n.updatedAt,
+        labels: n.labels?.nodes ?? [],
+      });
+    };
+    for (const n of data.review.nodes) add(n, 'review');
+    for (const n of data.mine.nodes) add(n, mineReason(n));
+    for (const n of data.assigned.nodes) add(n, 'assigned');
+    // Mencionado num PR seu ou que você revisa já entrou acima; o resto é menção mesmo.
+    for (const n of data.mentioned.nodes) if (n.author?.login !== data.viewer.login) add(n, 'mentioned');
+    return { ok: true, viewer: data.viewer.login, items: [...items.values()], fetchedAt };
+  } catch (err) {
+    return failure(err, fetchedAt);
+  }
+}
+
 // ---- cache ----
 
 /** Quanto uma resposta vale: abrir de novo, trocar de aba ou o celular e o PC juntos usam a mesma. */
@@ -519,6 +618,11 @@ function cached<T extends Result>(key: string, refresh: boolean, load: () => Pro
   void entry.value.then((v) => (entry.failed = !v.ok && v.reason === 'error'));
   cache.set(key, entry);
   return entry.value;
+}
+
+/** O que pede você em todo o GitHub da conta (a inbox), com o mesmo cache e a mesma cota das listas. */
+export function githubInbox(refresh: boolean): Promise<GithubInbox> {
+  return cached('inbox', refresh, loadInbox);
 }
 
 /** PRs e issues abertos do projeto (as listas da barra do projeto). */

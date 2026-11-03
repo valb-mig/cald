@@ -1,4 +1,4 @@
-import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
+import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
 import { createElement, Fragment, useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
@@ -9,6 +9,8 @@ import { Crash, ErrorBoundary } from '@/components/error-boundary'
 import { GithubItemView } from '@/components/project/github-item'
 import { ProjectHub } from '@/components/project/hub'
 import { WorkspacePage } from '@/pages/workspace'
+import { InboxView } from '@/components/inbox/inbox-view'
+import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { fileIcon, splitPath } from '@/components/project/status'
 import { ViewerBody } from '@/components/project/viewer'
@@ -150,7 +152,9 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
           ? `Nova conversa em ${tab.cwd ? projectName(tab.cwd) : 'sem projeto (~)'}`
           : tab.kind === 'workspace'
             ? 'Workspace'
-            : `Projeto ${projectName(tab.cwd)}`
+            : tab.kind === 'inbox'
+              ? 'Inbox'
+              : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -245,6 +249,8 @@ function TabItem({
           </>
         ) : tab.kind === 'workspace' ? (
           <WorkspaceTabLabel tab={tab} />
+        ) : tab.kind === 'inbox' ? (
+          <InboxTabLabel />
         ) : (
           <>
             <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -412,6 +418,17 @@ function NewTabContent({ tab, focused }: { tab: Extract<Tab, { kind: 'new' }>; f
   )
 }
 
+function InboxTabLabel() {
+  const count = useInboxCount()
+  return (
+    <>
+      <Inbox className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">Inbox</span>
+      {count > 0 && <span className="shrink-0 rounded-full bg-sky-600 px-1.5 text-[10px] leading-4 font-semibold text-white tabular-nums">{count > 99 ? '99+' : count}</span>}
+    </>
+  )
+}
+
 function WorkspaceTabLabel({ tab }: { tab: Extract<Tab, { kind: 'workspace' }> }) {
   const ws = useWorkspaces((s) => s.byMachine[tab.machine]?.find((w) => w.id === tab.id))
   return (
@@ -564,6 +581,12 @@ function GroupView({
                   <MachineContext value={tab.machine}>
                     <WorkspacePage machine={tab.machine} id={tab.id} />
                   </MachineContext>
+                ) : tab.kind === 'inbox' ? (
+                  <div className="h-full overflow-y-auto [scrollbar-width:thin]">
+                    <div className="mx-auto w-full max-w-3xl">
+                      <InboxView />
+                    </div>
+                  </div>
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}

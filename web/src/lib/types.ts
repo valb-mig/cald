@@ -462,3 +462,29 @@ export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'sta
   model?: string
   machine?: string
 }
+
+/** Por que um PR ou uma issue está na inbox (ver server/src/github.ts). */
+export type InboxReason = 'review' | 'checks' | 'changes' | 'conflict' | 'ready' | 'assigned' | 'mentioned'
+/** Um item da inbox, como a máquina manda (ver server/src/inbox.ts). `mark` muda quando o item muda. */
+export type InboxItem =
+  | {
+      type: 'github'
+      key: string
+      mark: string
+      cwd?: string
+      kind: 'pr' | 'issue'
+      reason: InboxReason
+      repo: string
+      repoUrl: string
+      number: number
+      title: string
+      url: string
+      author: string | null
+      updatedAt: string
+      labels: { name: string; color: string }[]
+    }
+  | { type: 'git'; key: string; mark: string; cwd: string; branch: string | null; changed: number; ahead: number; behind: number }
+  | { type: 'todo'; key: string; mark: string; cwd: string; n: number; title: string; createdAt: number }
+export type InboxPayload = { items: InboxItem[]; github: { ok: true } | { ok: false; reason: string; message?: string } }
+export type InboxItemState = { seen?: string; snoozedUntil?: number; at: number }
+export type InboxAction = { key: string; action: 'seen' | 'snooze' | 'clear'; mark?: string; until?: number }

@@ -79,6 +79,11 @@ export class TodoStore {
     return this.projects[cwd]?.items ?? [];
   }
 
+  /** Os itens a fazer de todos os projetos, para a inbox. */
+  open(): { cwd: string; todo: Todo }[] {
+    return Object.entries(this.projects).flatMap(([cwd, p]) => p.items.filter((t) => !t.done).map((todo) => ({ cwd, todo })));
+  }
+
   /**
    * A lista como o app mandou. Item sem número ganha o próximo do projeto; os anexos de um item que
    * saiu (ou que tiraram do item) são apagados do disco.

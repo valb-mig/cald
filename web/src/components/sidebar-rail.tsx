@@ -1,4 +1,4 @@
-import { FolderGit2, House, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
+import { FolderGit2, House, Inbox, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { useShallow } from 'zustand/react/shallow'
 import { ClaudeMark } from '@/components/chat/claude-spinner'
@@ -9,12 +9,13 @@ import { setComputerOpen, useComputer } from '@/lib/computer'
 import { claudinhoName } from '@/lib/claudinho'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
+import { useInboxCount } from '@/lib/inbox'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
 import { useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { focusedChat, onWorkbench, useWorkbench } from '@/lib/workbench'
+import { focusedChat, onWorkbench, openInbox, useWorkbench, WORKBENCH_PATH } from '@/lib/workbench'
 
 // As medidas ficam no cinza da ilha: a cor (a do quadro do PC, pc-status.tsx) é só para o alerta e o
 // crítico, e o verde para a meta de horas batida, em que encher é bom.
@@ -282,6 +283,9 @@ function RailChats() {
 export function SidebarRail() {
   const [location] = useLocation()
   const attention = useStore((s) => s.catalog.reduce((n, c) => n + (c.state === 'waiting' ? 1 : 0), 0))
+  const inbox = useInboxCount()
+  // A aba da inbox em foco: o ícone fica marcado, como o Início na página inicial.
+  const inboxOpen = useWorkbench((w) => location === WORKBENCH_PATH && w.groups.find((g) => g.id === w.focused)?.active === 'i:')
   const collapsed = useSidebar((s) => s.collapsed)
   const view = useSidebar((s) => s.view)
   const computer = useComputer((s) => s.open)
@@ -305,6 +309,15 @@ export function SidebarRail() {
           onClick={() => toggleSidebarView('sessions')}
         >
           <MessagesSquare />
+        </RailItem>
+        <RailItem
+          label={'Inbox' + (inbox ? ` · ${inbox} ${inbox === 1 ? 'novo' : 'novos'}` : '')}
+          active={inboxOpen}
+          badge={inbox}
+          badgeClassName="bg-sky-600"
+          onClick={openInbox}
+        >
+          <Inbox />
         </RailItem>
         <RailItem label="Projetos" shown={!collapsed && view === 'projects'} onClick={() => toggleSidebarView('projects')}>
           <FolderGit2 />
