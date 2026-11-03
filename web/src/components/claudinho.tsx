@@ -3,7 +3,7 @@ import type { CatalogState, SessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 /** O corpo, num desenho de 32 × 32. Hexágono, gota e arco arredondam as pontas com um traço grosso da mesma cor (na gota, bem grosso: a ponta vira um cocuruto). */
-function Body({ look }: { look: Look }) {
+export function Body({ look }: { look: Look }) {
   const c = look.color
   switch (look.shape) {
     case 'square':
@@ -24,7 +24,7 @@ function Body({ look }: { look: Look }) {
 }
 
 /** Um olho; `side`: -1 o da esquerda, 1 o da direita (o piscadinho e o olhar de lado dependem dele). */
-function Eye({ x, y, s, kind, side }: { x: number; y: number; s: number; kind: Eyes; side: -1 | 1 }) {
+export function Eye({ x, y, s, kind, side }: { x: number; y: number; s: number; kind: Eyes; side: -1 | 1 }) {
   const arc = (
     <path
       d={`M${x - 2.5 * s} ${y + 1.3 * s}Q${x} ${y - 2.8 * s} ${x + 2.5 * s} ${y + 1.3 * s}`}
