@@ -26,12 +26,14 @@ import { imageStore, type StoredImage } from './images.ts';
 import { transcriptCwd, transcriptEfforts, transcriptFile } from './transcript.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
 import type { Fork, MetaStore } from './meta.ts';
+import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
+import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
 
 /** Um setor da salinha: uma conversa aberta (no painel ou no PC) e quem trabalha nela. */
-export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> &
+export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor' | 'team' | 'workspace'> &
   OfficeSnapshot & { owner: 'panel' | 'pc' };
 
 export type CatalogEntry = {
@@ -58,6 +60,10 @@ export type CatalogEntry = {
   claudinhoName?: string;
   /** O id de onde vem o claudinho desta conversa, quando ela continua outra (ver meta.ts). */
   look?: string;
+  /** O time de agentes da conversa (só as que começaram no painel com um). */
+  team?: TeamSnapshot;
+  /** O workspace de que a conversa faz parte. */
+  workspace?: WorkspaceTag;
 };
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
@@ -103,11 +109,15 @@ export class Manager extends EventEmitter {
   private readonly delivered = new Set<string>();
   private readonly live: LiveRegistry;
   private readonly meta: MetaStore;
+  private readonly teams: TeamStore;
+  private readonly workspaces: WorkspaceStore;
 
-  constructor(live: LiveRegistry, meta: MetaStore) {
+  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore) {
     super();
     this.live = live;
     this.meta = meta;
+    this.teams = teams;
+    this.workspaces = workspaces;
     live.on('change', () => this.emit('catalog'));
   }
 
@@ -195,6 +205,11 @@ export class Manager extends EventEmitter {
       }
       const name = this.meta.nameOf(entry.sessionId);
       if (name) entry.claudinhoName = name;
+      const team = this.meta.teamOf(entry.sessionId);
+      if (team) entry.team = team;
+      const wsId = this.meta.workspaceOf(entry.sessionId);
+      const ws = wsId ? this.workspaces.find(wsId) : undefined;
+      if (ws) entry.workspace = tagOf(ws);
       const fork = this.meta.forkOf(entry.sessionId);
       if (fork) entry.forkedFrom = { sessionId: fork.from, title: byId.get(fork.from)?.title };
     }
@@ -219,7 +234,7 @@ export class Manager extends EventEmitter {
             : live
               ? await pcOffice(e.sessionId, live).catch(() => empty)
               : empty;
-        return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, ...snap };
+        return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, team: e.team, workspace: e.workspace, ...snap };
       }),
     );
   }
@@ -307,15 +322,21 @@ export class Manager extends EventEmitter {
   }
 
   async create(
-    opts: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] },
+    opts: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string },
   ): Promise<PanelSession> {
-    const { prompt, attachments, ...rest } = opts;
-    // Sem projeto: a sessão abre na pasta pessoal.
-    const cwd = resolve(opts.cwd || homedir());
+    const { prompt, attachments, teamId, workspaceId, ...rest } = opts;
+    // O time vai copiado: editá-lo depois não muda esta conversa.
+    const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
+    const ws = workspaceId ? this.workspaces.get(workspaceId) : undefined;
+    // Sem projeto: a sessão abre na pasta pessoal (no workspace, no projeto principal dele).
+    const cwd = resolve(opts.cwd || ws?.projects[0] || homedir());
     if (!isAllowedCwd(cwd)) throw new HttpError(403, 'cwd_outside_roots', { roots: PROJECT_ROOTS });
     const info = await stat(cwd).catch(() => null);
     if (!info?.isDirectory()) throw new HttpError(400, 'cwd_not_a_directory');
-    const session = this.adopt(new PanelSession({ ...rest, cwd, label: opts.title || prompt.slice(0, 80) }));
+    const workspace = ws ? ((await this.workspaces.context(ws.id, cwd)) ?? undefined) : undefined;
+    const session = this.adopt(new PanelSession({ ...rest, cwd, team, workspace, label: opts.title || prompt.slice(0, 80) }));
+    if (team) await this.meta.setTeam(session.id, team);
+    if (ws) await this.meta.setWorkspace(session.id, ws.id);
     await this.send(session.id, prompt, attachments);
     return session;
   }
@@ -405,6 +426,8 @@ export class Manager extends EventEmitter {
     await rm(join(UPLOADS_DIR, sessionId), { recursive: true, force: true });
     if (this.meta.isPinned(sessionId)) await this.meta.setPinned(sessionId, false);
     if (this.meta.nameOf(sessionId)) await this.meta.setName(sessionId, null);
+    if (this.meta.teamOf(sessionId)) await this.meta.setTeam(sessionId, undefined);
+    if (this.meta.workspaceOf(sessionId)) await this.meta.setWorkspace(sessionId, undefined);
     this.savedCache = undefined;
     this.emit('catalog');
   }
@@ -499,11 +522,52 @@ export class Manager extends EventEmitter {
     if (opts.at && cut < 0) throw new HttpError(404, 'fork_point_not_found');
     const priorMessages = cut >= 0 ? cut + 1 : messages.length;
     const session = this.adopt(
-      new PanelSession({ ...opts, cwd, resume: sessionId, resumeAt: opts.at, priorMessages, origin: opts.fork ? sessionId : undefined }),
+      new PanelSession({
+        ...opts,
+        cwd,
+        resume: sessionId,
+        resumeAt: opts.at,
+        priorMessages,
+        origin: opts.fork ? sessionId : undefined,
+        // Retomada (ou bifurcada) com o time que ela tinha e o contexto atual do workspace dela.
+        team: this.meta.teamOf(sessionId),
+        workspace: await this.workspaceContext(sessionId, cwd),
+      }),
     );
     // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.
     if (opts.fork) await this.meta.setFork(session.id, { from: sessionId, at: opts.at });
+    if (opts.fork && session.team) await this.meta.setTeam(session.id, session.team);
+    const wsId = this.meta.workspaceOf(sessionId);
+    if (opts.fork && wsId) await this.meta.setWorkspace(session.id, wsId);
     return session;
+  }
+
+  /**
+   * Troca (ou tira, com `null`) o time de uma conversa que já começou. O SDK fixa os subagentes quando o
+   * processo sobe: aberta no painel, ela precisa estar parada, e o processo é encerrado e retomado com
+   * o time novo, com os mesmos modelo, esforço e modo. Fechada (ou no PC), o time vale quando ela for
+   * aberta no painel.
+   */
+  async changeTeam(sessionId: string, teamId: string | null): Promise<void> {
+    const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
+    const own = this.sessions.get(sessionId);
+    if (own) await own.release();
+    await this.meta.setTeam(sessionId, team);
+    if (own) {
+      const { model, effort, permissionMode } = own.settings;
+      await this.open(sessionId, {
+        model,
+        effort: (effort ?? undefined) as EffortLevel | undefined,
+        permissionMode: permissionMode as PermissionMode | undefined,
+      });
+    }
+    this.emit('catalog');
+  }
+
+  /** O contexto do workspace da conversa, montado do workspace como ele está agora. */
+  private async workspaceContext(sessionId: string, cwd: string): Promise<{ prompt: string; directories: string[] } | undefined> {
+    const wsId = this.meta.workspaceOf(sessionId);
+    return wsId ? ((await this.workspaces.context(wsId, cwd)) ?? undefined) : undefined;
   }
 
   /** Assumir: encerra a sessão ociosa no PC e a retoma no painel. */
@@ -562,6 +626,10 @@ export class Manager extends EventEmitter {
       // conversa seguindo, e veste o mesmo claudinho.
       if (session.origin) void this.meta.setFork(to, { from: session.origin, at: session.resumeAt });
       else void this.meta.inherit(to, from);
+      // O time e o workspace seguem com ela, num caso e no outro.
+      if (session.team) void this.meta.setTeam(to, session.team);
+      const wsId = this.meta.workspaceOf(session.origin ?? from);
+      if (wsId) void this.meta.setWorkspace(to, wsId);
       this.emit('rekey', from, to);
       this.emit('catalog');
     });

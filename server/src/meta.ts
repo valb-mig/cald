@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { TeamSnapshot } from './teams.ts';
 
 /** De onde uma conversa bifurcou, e em que ponto do log da origem ela foi cortada. */
 export type Fork = { from: string; at?: string };
@@ -17,12 +18,16 @@ type Meta = {
   looks: Record<string, string>;
   /** Conversas esvaziadas por um /clear, com a que continuou no lugar delas: saem da lista do painel. */
   cleared: Record<string, string>;
+  /** O time de agentes de cada conversa, copiado de quando ela começou (ver teams.ts). */
+  teams: Record<string, TeamSnapshot>;
+  /** O workspace de cada conversa (só o id: o contexto é montado do workspace atual, ver workspaces.ts). */
+  workspaces: Record<string, string>;
 };
 
 const FILE = process.env.META_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {} };
+  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {} };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -34,6 +39,8 @@ export class MetaStore {
         names: data.names && typeof data.names === 'object' ? data.names : {},
         looks: data.looks && typeof data.looks === 'object' ? data.looks : {},
         cleared: data.cleared && typeof data.cleared === 'object' ? data.cleared : {},
+        teams: data.teams && typeof data.teams === 'object' ? data.teams : {},
+        workspaces: data.workspaces && typeof data.workspaces === 'object' ? data.workspaces : {},
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -103,6 +110,29 @@ export class MetaStore {
   async setPinned(sessionId: string, pinned: boolean): Promise<void> {
     const others = this.meta.pinned.filter((id) => id !== sessionId);
     this.meta = { ...this.meta, pinned: pinned ? [...others, sessionId] : others };
+    await this.save();
+  }
+
+  /** O time de agentes da conversa, se ela tem um. */
+  teamOf(sessionId: string): TeamSnapshot | undefined {
+    return this.meta.teams[sessionId];
+  }
+
+  /** `undefined` tira o time da conversa (ela foi apagada). */
+  async setTeam(sessionId: string, team: TeamSnapshot | undefined): Promise<void> {
+    const { [sessionId]: _old, ...teams } = this.meta.teams;
+    this.meta = { ...this.meta, teams: team ? { ...teams, [sessionId]: team } : teams };
+    await this.save();
+  }
+
+  /** O workspace da conversa, se ela é de um. */
+  workspaceOf(sessionId: string): string | undefined {
+    return this.meta.workspaces[sessionId];
+  }
+
+  async setWorkspace(sessionId: string, workspaceId: string | undefined): Promise<void> {
+    const { [sessionId]: _old, ...workspaces } = this.meta.workspaces;
+    this.meta = { ...this.meta, workspaces: workspaceId ? { ...workspaces, [sessionId]: workspaceId } : workspaces };
     await this.save();
   }
 
