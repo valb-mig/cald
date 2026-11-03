@@ -1,8 +1,8 @@
 import type { AgentDefinition, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 
 /**
@@ -34,7 +34,7 @@ export const MAX_MEMBERS = 8;
 export const MAX_INSTRUCTIONS = 8_000;
 
 // Dado seu, como os TODOs: fica com os dados do app, não no cache.
-const FILE = process.env.TEAMS_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'teams.json');
+const FILE = process.env.TEAMS_FILE ?? join(DATA_DIR, 'teams.json');
 
 // Tipos que o Claude Code já tem: um membro com o mesmo nome taparia o de sempre.
 const RESERVED = new Set(['general-purpose', 'explore', 'plan', 'statusline-setup', 'claude', 'output-style-setup']);

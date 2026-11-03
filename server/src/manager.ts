@@ -741,7 +741,7 @@ function isUnderAny(dir: string, roots: string[]): boolean {
 }
 
 /**
- * Nome provisório que o Claude Code dá à sessão ("claude-remote-86") até gerar o título;
+ * Nome provisório que o Claude Code dá à sessão ("cald-86") até gerar o título;
  * nesse intervalo o primeiro prompt descreve melhor a conversa.
  */
 function isDerivedName(title: string, cwd?: string): boolean {

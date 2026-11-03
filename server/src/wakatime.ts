@@ -16,7 +16,7 @@ import { WAKATIME_CLI, WAKATIME_GOAL_HOURS } from './config.ts';
 export type WakaCategory = 'code reviewing' | 'planning';
 
 const EVERY_MS = 2 * 60_000;
-const PLUGIN = 'claude-remote/1.0.0 claude-remote-wakatime/1.0.0';
+const PLUGIN = 'cald/1.0.0 cald-wakatime/1.0.0';
 
 const sent = new Map<string, number>();
 let cli: string | null | undefined;

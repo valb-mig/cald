@@ -21,13 +21,13 @@ import termios
 
 # O serviço do systemd costuma vir sem $SHELL: aí vale o shell de login do usuário (o do /etc/passwd).
 shell = os.environ.get("SHELL") or pwd.getpwuid(os.getuid()).pw_shell or "/bin/bash"
-# A cara do painel (ver shell/claude-remote.zsh): no zsh, os arquivos de início passam a ser os de lá,
+# A cara do painel (ver shell/cald.zsh): no zsh, os arquivos de início passam a ser os de lá,
 # que carregam os do usuário e põem o prompt do painel por cima. Outros shells abrem como são.
-integration = os.environ.get("CR_SHELL_DIR")
+integration = os.environ.get("CALD_SHELL_DIR")
 pid, master = pty.fork()
 if pid == 0:
     if integration and os.path.basename(shell) == "zsh":
-        os.environ["CR_USER_ZDOTDIR"] = os.environ.get("ZDOTDIR") or os.path.expanduser("~")
+        os.environ["CALD_USER_ZDOTDIR"] = os.environ.get("ZDOTDIR") or os.path.expanduser("~")
         os.environ["ZDOTDIR"] = os.path.join(integration, "zsh")
     # Shell de login: o mesmo ambiente de um terminal aberto no PC.
     os.execvp(shell, [shell, "-l"])

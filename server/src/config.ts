@@ -1,6 +1,7 @@
+import { existsSync, lstatSync, renameSync, symlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir, hostname } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const env = process.env;
@@ -14,15 +15,33 @@ export const HOST = '127.0.0.1';
 
 export const CLAUDE_HOME = env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
 
+// Pastas do painel no PC: o que dura (listas, histórico), o estado (fixadas, avisos) e o cache.
+export const DATA_DIR = join(homedir(), '.local', 'share', 'cald');
+export const STATE_DIR = join(homedir(), '.local', 'state', 'cald');
+export const CACHE_DIR = join(homedir(), '.cache', 'cald');
+
+// O projeto se chamava claude-remote: na primeira subida, as pastas antigas mudam de nome e ficam
+// como atalho para as novas, porque conversas e listas guardadas apontam para os caminhos antigos.
+for (const dir of [DATA_DIR, STATE_DIR, CACHE_DIR]) {
+  const legacy = join(dirname(dir), 'claude-remote');
+  try {
+    if (existsSync(dir) || !lstatSync(legacy).isDirectory()) continue;
+    renameSync(legacy, dir);
+    symlinkSync(basename(dir), legacy);
+  } catch {
+    // Instalação nova, sem pasta antiga.
+  }
+}
+
 // Arquivos anexados pelo celular (um subdiretório por sessão).
-export const UPLOADS_DIR = env.UPLOADS_DIR ?? join(homedir(), '.cache', 'claude-remote', 'uploads');
+export const UPLOADS_DIR = env.UPLOADS_DIR ?? join(CACHE_DIR, 'uploads');
 
 // Build do frontend servido na mesma origem (sobrescrevível para testar outra versão).
 export const WEB_DIST = env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url));
 
 // Histórico de uso por dia (ver activity.ts): fica fora do cache, porque os transcripts de onde ele
 // sai são apagados pelo Claude Code depois de ~30 dias.
-export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'activity.json');
+export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(DATA_DIR, 'activity.json');
 
 // Raízes onde o painel pode iniciar sessões novas (separadas por ':').
 export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).split(':').filter(Boolean);
@@ -30,13 +49,13 @@ export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).
 // Origens extras aceitas pelo guard (ex.: Vite em dev), separadas por ','.
 export const EXTRA_ORIGINS = (env.EXTRA_ORIGINS ?? '').split(',').filter(Boolean);
 
-// Máquinas extras com o Claude Remote, além das achadas no Tailscale (ex.: outra instância em
+// Máquinas extras com o cald, além das achadas no Tailscale (ex.: outra instância em
 // teste: `http://127.0.0.1:7338`), separadas por ','.
 export const EXTRA_MACHINES = (env.EXTRA_MACHINES ?? '').split(',').filter(Boolean);
 
 // Ditado pelo Whisper (whisper.cpp) para navegadores sem reconhecimento de voz, como o Firefox:
 // o binário `whisper-cli` e o modelo (ver transcribe.ts e o README).
-const WHISPER_DIR = join(homedir(), '.local', 'share', 'claude-remote', 'whisper');
+const WHISPER_DIR = join(DATA_DIR, 'whisper');
 export const WHISPER_CLI = env.WHISPER_CLI ?? join(WHISPER_DIR, 'whisper.cpp', 'build', 'bin', 'whisper-cli');
 export const WHISPER_MODEL = env.WHISPER_MODEL ?? join(WHISPER_DIR, 'models', 'ggml-small-q5_1.bin');
 
@@ -72,7 +91,7 @@ const INHERITED_CLAUDE_VARS = [
 ];
 
 export function childEnv(): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'claude-remote/0.1' };
+  const out: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'cald/0.1' };
   for (const key of INHERITED_CLAUDE_VARS) delete out[key];
   return out;
 }

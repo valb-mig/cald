@@ -1,4 +1,4 @@
-# O terminal do Claude Remote (ver server/src/terminal.ts e web/src/components/terminal.tsx).
+# O terminal do cald (ver server/src/terminal.ts e web/src/components/terminal.tsx).
 #
 # Cada comando vira um bloco: antes do prompt, uma linha de cabeçalho com a pasta e a branch (e uma
 # bolinha âmbar com mudança sem commit), e o prompt é um `›` no laranja do Claude. As marcas OSC 133
