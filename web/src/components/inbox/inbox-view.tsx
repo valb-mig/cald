@@ -107,6 +107,23 @@ function projectOf(e: InboxEntry): string {
 
 const labelsOf = (e: InboxEntry) => (e.item.type === 'github' ? e.item.labels : [])
 
+const DAY = 86_400_000
+
+/**
+ * O filtro por data, sobre a data do item: a última atividade do PR ou da issue, a criação do TODO, a
+ * última mensagem da conversa. As mudanças nos projetos não têm data e só aparecem em "Qualquer data".
+ */
+const PERIODS: { key: string; label: string; has: (at: number, now: number) => boolean }[] = [
+  { key: 'today', label: 'Hoje', has: (at, now) => at >= new Date(now).setHours(0, 0, 0, 0) },
+  { key: 'week', label: 'Últimos 7 dias', has: (at, now) => at >= now - 7 * DAY },
+  { key: 'month', label: 'Últimos 30 dias', has: (at, now) => at >= now - 30 * DAY },
+  // O que ficou esquecido: nada de novo há mais de um mês.
+  { key: 'stale', label: 'Parados há mais de 30 dias', has: (at, now) => at < now - 30 * DAY },
+]
+type Period = (typeof PERIODS)[number]
+
+const inPeriod = (e: InboxEntry, period: Period, now: number) => e.at > 0 && period.has(e.at, now)
+
 /** Onde a busca procura: título, o porquê, o projeto, o repositório e as labels. */
 function searchText(e: InboxEntry): string {
   const d = describe(e)
@@ -311,9 +328,14 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
   const [group, setGroup] = useState<InboxGroup | null>(null)
   const [project, setProject] = useState<string | null>(null)
   const [label, setLabel] = useState<string | null>(null)
+  const [period, setPeriod] = useState<Period | null>(null)
   const state = useInbox((s) => s.state)
   const loading = useInbox((s) => s.loading)
   const at = useInbox((s) => s.at)
+  // "Agora", para o período: a última atualização, como no adiado (ver abaixo); antes da primeira, a
+  // hora em que a inbox abriu.
+  const [opened] = useState(Date.now)
+  const now = Math.max(at, opened)
   const github = useInbox((s) => Object.values(s.byMachine).find((p) => p && !p.github.ok)?.github)
   const actions = useActions()
   useEffect(() => {
@@ -321,7 +343,7 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
     void refreshInbox()
   }, [])
 
-  // Os projetos e as labels que aparecem, para os menus de filtro.
+  // Os períodos, os projetos e as labels que aparecem, para os menus de filtro.
   const options = useMemo(() => {
     const projects = new Map<string, number>()
     const labels = new Map<string, { color: string; n: number }>()
@@ -331,16 +353,23 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
       for (const l of labelsOf(e)) labels.set(l.name, { color: l.color, n: (labels.get(l.name)?.n ?? 0) + 1 })
     }
     return {
+      periods: PERIODS.map((p) => [p, all.filter((e) => inPeriod(e, p, now)).length] as const),
       projects: [...projects].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
       labels: [...labels].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0])),
     }
-  }, [all])
+  }, [all, now])
 
-  // Busca, projeto e label valem para tudo; o tipo (os chips) só escolhe qual grupo aparece.
+  // Busca, período, projeto e label valem para tudo; o tipo (os chips) só escolhe qual grupo aparece.
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return all.filter((e) => (!project || projectOf(e) === project) && (!label || labelsOf(e).some((l) => l.name === label)) && (!q || searchText(e).includes(q)))
-  }, [all, query, project, label])
+    return all.filter(
+      (e) =>
+        (!period || inPeriod(e, period, now)) &&
+        (!project || projectOf(e) === project) &&
+        (!label || labelsOf(e).some((l) => l.name === label)) &&
+        (!q || searchText(e).includes(q)),
+    )
+  }, [all, now, query, period, project, label])
 
   const { byGroup, seen, snoozed, fresh, counts } = useMemo(() => {
     // "Agora" é a última atualização (a cada 2 min): o adiado volta sozinho quando passa a hora.
@@ -361,7 +390,7 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
     return { byGroup, seen, snoozed, fresh, counts }
   }, [entries, state, at, group])
   const total = [...counts.values()].reduce((n, c) => n + c, 0)
-  const filtered = Boolean(query.trim() || project || label || group)
+  const filtered = Boolean(query.trim() || period || project || label || group)
 
   const header = (
     <PageHeader
@@ -392,11 +421,22 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant={project || label ? 'secondary' : 'ghost'} size="icon" aria-label="Filtrar por projeto ou label" title="Filtrar">
+              <Button variant={period || project || label ? 'secondary' : 'ghost'} size="icon" aria-label="Filtrar por período, projeto ou label" title="Filtrar">
                 <ListFilter />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-[70dvh] w-64 overflow-y-auto">
+              <DropdownMenuLabel>Período</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={period?.key ?? ''} onValueChange={(v) => setPeriod(PERIODS.find((p) => p.key === v) ?? null)}>
+                <DropdownMenuRadioItem value="">Qualquer data</DropdownMenuRadioItem>
+                {options.periods.map(([p, n]) => (
+                  <DropdownMenuRadioItem key={p.key} value={p.key}>
+                    <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{n}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>Projeto</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={project ?? ''} onValueChange={(v) => setProject(v || null)}>
                 <DropdownMenuRadioItem value="">Todos</DropdownMenuRadioItem>
@@ -437,8 +477,13 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
             </Chip>
           ))}
         </div>
-        {(project || label) && (
+        {(period || project || label) && (
           <div className="flex flex-wrap gap-1.5">
+            {period && (
+              <Chip active onClick={() => setPeriod(null)}>
+                {period.label} <X className="size-3" />
+              </Chip>
+            )}
             {project && (
               <Chip active onClick={() => setProject(null)}>
                 {project} <X className="size-3" />
