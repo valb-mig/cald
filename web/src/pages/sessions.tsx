@@ -1,4 +1,4 @@
-import { ChevronRight, Columns2, Plus, Server } from 'lucide-react'
+import { ChevronRight, Plus, Server } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation } from 'wouter'
@@ -36,7 +36,7 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
   const focused = split.focused === s.sessionId
   return (
     <div
-      className="group relative"
+      className="relative"
       // Ctrl/⌘ + clique, como no explorador do VSCode: abre ao lado, num grupo novo. Na captura, antes do
       // link: com a tecla, o Link do wouter deixa o navegador abrir outra aba e nem chama o onClick.
       onClickCapture={(e) => {
@@ -72,20 +72,6 @@ function SessionRow({ s, onMenu }: { s: CatalogEntry; onMenu: OnMenu }) {
       >
         <SessionInfo s={s} grouped />
       </Link>
-      {wide && split.ids.length > 0 && !shown && (
-        <Button
-          variant="secondary"
-          size="icon-sm"
-          onClick={() =>
-            split.canAdd ? openBeside(s.sessionId) : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
-          }
-          aria-label="Abrir ao lado"
-          title="Abrir ao lado"
-          className="absolute top-1/2 right-4 -translate-y-1/2 border opacity-0 shadow-sm group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
-        >
-          <Columns2 />
-        </Button>
-      )}
     </div>
   )
 }
