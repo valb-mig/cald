@@ -1,9 +1,12 @@
 import { CornerDownRight, List, Network } from 'lucide-react'
 import { lazy, Suspense, useState } from 'react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { TeamRoster } from '@/components/teams/team-roster'
+import type { TeamSnapshot } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import type { AgentNode, AgentTree } from './model'
 import { agentMeta, countLine, useNow } from './status'
+import { AgentFace, typeLabel, useMember } from './agent-face'
 import { AgentStatusIcon } from './status-icon'
 
 // O grafo só aparece com a folha aberta na aba dele: chega quando for desenhado.
@@ -22,6 +25,7 @@ function savedView(): View {
 }
 
 function ListRow({ node, now, onOpen }: { node: AgentNode; now: number; onOpen: (id: string) => void }) {
+  const member = useMember(node)
   const working = node.status === 'running' || node.status === 'waiting'
   const line = node.summary ?? node.now
   return (
@@ -33,10 +37,10 @@ function ListRow({ node, now, onOpen }: { node: AgentNode; now: number; onOpen: 
         onClick={() => onOpen(node.id)}
         className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg border bg-card px-3 py-2.5 text-left hover:bg-muted/50"
       >
-        <AgentStatusIcon status={node.status} className="mt-0.5" />
+        {member ? <AgentFace node={node} member={member} size={22} /> : <AgentStatusIcon status={node.status} className="mt-0.5" />}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{node.name}</div>
-          <div className="truncate text-xs text-muted-foreground">{agentMeta(node, now)}</div>
+          <div className="truncate text-xs text-muted-foreground">{agentMeta(node, now, { label: typeLabel(node, member) })}</div>
           {line && (
             <div
               className={cn(
@@ -49,6 +53,8 @@ function ListRow({ node, now, onOpen }: { node: AgentNode; now: number; onOpen: 
             </div>
           )}
         </div>
+        {/* Com a cara do membro no lugar do ícone, o estado vai para o canto. */}
+        {member && <AgentStatusIcon status={node.status} className="mt-0.5" />}
       </button>
     </li>
   )
@@ -61,9 +67,12 @@ export function AgentsSheet({
   open,
   onOpenChange,
   onOpenAgent,
+  team,
 }: {
   tree: AgentTree
   rootLabel: string
+  /** O time da conversa, se ela tem um: aparece no alto, com o que cada membro faz. */
+  team?: TeamSnapshot
   open: boolean
   onOpenChange: (open: boolean) => void
   onOpenAgent: (id: string) => void
@@ -102,11 +111,16 @@ export function AgentsSheet({
           <SheetDescription>{tree.all.length ? countLine(tree.count) : 'Nenhum subagente nesta conversa ainda.'}</SheetDescription>
         </SheetHeader>
         <div className="space-y-3 px-4 pb-6">
+          {team && <TeamRoster team={team} tree={tree} onOpen={onOpenAgent} />}
           {tree.all.length === 0 ? (
+            team ? (
+              <p className="text-sm text-muted-foreground">O Claude chama cada membro quando o pedido for da área dele; o que eles fizerem aparece aqui.</p>
+            ) : (
             <p className="text-sm text-muted-foreground">
               Quando o Claude delegar parte do trabalho a um subagente (a ferramenta Agent), ele aparece aqui, com o que está fazendo e
               ligado a quem o chamou.
             </p>
+            )
           ) : (
             <>
               <div role="tablist" className="flex gap-1 rounded-lg bg-muted p-1">

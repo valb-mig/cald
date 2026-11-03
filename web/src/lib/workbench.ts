@@ -28,7 +28,9 @@ export type TabRef =
    * Uma conversa nova, ainda sem sessão (sem `cwd`, na pasta pessoal): a primeira mensagem cria a sessão,
    * e a aba vira a dela, no mesmo lugar (ver `replaceTab`). Uma por projeto: abrir de novo volta para ela.
    */
-  | { kind: 'new'; machine: string; cwd?: string }
+  | { kind: 'new'; machine: string; cwd?: string; workspace?: string }
+  /** A página de um workspace: projetos, contexto, regras, comandos, time e as conversas dele. */
+  | { kind: 'workspace'; machine: string; id: string }
 
 export type Tab = TabRef & { key: string; preview?: boolean }
 
@@ -59,8 +61,10 @@ export const keyOf = (ref: TabRef) =>
       : ref.kind === 'github'
         ? `g:${ref.machine}\n${ref.cwd}\n${ref.item}\n${ref.number}`
         : ref.kind === 'new'
-          ? `n:${ref.machine}\n${ref.cwd ?? ''}`
-          : `p:${ref.machine}\n${ref.cwd}`
+          ? `n:${ref.machine}\n${ref.cwd ?? ''}${ref.workspace ? `\n${ref.workspace}` : ''}`
+          : ref.kind === 'workspace'
+            ? `w:${ref.machine}\n${ref.id}`
+            : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0
@@ -157,6 +161,7 @@ export function openPanelTab(ref: Exclude<TabRef, { kind: 'chat' }>, opts: { pre
 
 /** Abre o hub do projeto numa aba de prévia (pelo nome dele na lista de sessões ou na de projetos). */
 export const openProjectHub = (machine: string, cwd: string) => openPanelTab({ kind: 'project', machine, cwd }, { preview: true })
+export const openWorkspace = (machine: string, id: string) => openPanelTab({ kind: 'workspace', machine, id }, { preview: true })
 
 /**
  * Abre `ref`. Já aberta em algum grupo: só vai para ela (e, sem `preview`, ela vira fixa). Senão,

@@ -2,7 +2,7 @@ import { createContext, use } from 'react'
 import type { ActivityEntry, Item } from '@/components/chat/items'
 import type { ToolEntry } from '@/components/chat/turn'
 import { toolSummary } from '@/lib/format'
-import type { AgentUsage } from '@/lib/types'
+import type { AgentUsage, TeamSnapshot } from '@/lib/types'
 
 export type AgentStatus = 'running' | 'waiting' | 'done' | 'failed' | 'stopped'
 
@@ -181,5 +181,6 @@ export function agentTree(items: Item[], alive: boolean): AgentTree {
 export const EMPTY_TREE: AgentTree = agentTree([], false)
 
 /** Agentes da conversa na tela e como abrir um deles; o chat põe, a atividade e os painéis usam. */
-export const AgentsContext = createContext<{ tree: AgentTree; open: (id: string) => void } | null>(null)
+/** `team`: o time da conversa, para os subagentes dele aparecerem com o claudinho e o nome do membro. */
+export const AgentsContext = createContext<{ tree: AgentTree; open: (id: string) => void; team?: TeamSnapshot } | null>(null)
 export const useAgents = () => use(AgentsContext)

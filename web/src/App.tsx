@@ -14,8 +14,8 @@ import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { setComputerOpen } from '@/lib/computer'
 import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
-import { HOME, loadMachines } from '@/lib/machines'
-import { openTab, WORKBENCH_PATH } from '@/lib/workbench'
+import { HOME, loadMachines, MachineContext } from '@/lib/machines'
+import { openTab, openWorkspace, WORKBENCH_PATH } from '@/lib/workbench'
 import {
   saveSidebarWidth,
   setSidebarCollapsed,
@@ -43,6 +43,7 @@ import { SessionsPage } from '@/pages/sessions'
 import { SharePage } from '@/pages/share'
 import { ChatSplit } from '@/pages/split'
 import { Workbench } from '@/pages/workbench'
+import { WorkspacePage } from '@/pages/workspace'
 
 // A salinha é uma tela à parte, para deixar de fundo: o desenho dela só chega quando for aberta.
 const OfficePage = lazy(() => import('@/pages/office').then((m) => ({ default: m.OfficePage })))
@@ -155,6 +156,18 @@ export default function App() {
                   <NewChatPage />
                 </Pane>
               )}
+            </Route>
+            {/* O workspace: no PC, numa aba (como o hub do projeto); no celular, uma tela. */}
+            <Route path="/w/:id">
+              {(params) =>
+                wide ? (
+                  <WorkspaceTab id={params.id} />
+                ) : (
+                  <Pane>
+                    <WorkspaceScreen id={params.id} />
+                  </Pane>
+                )
+              }
             </Route>
             <Route path="/compartilhar">
               <Pane>
@@ -272,10 +285,28 @@ function NewChatTab() {
   const search = useSearch()
   useEffect(() => {
     const q = new URLSearchParams(search)
-    openTab({ kind: 'new', machine: q.get('maquina') ?? HOME, cwd: q.get('cwd') ?? undefined })
+    openTab({ kind: 'new', machine: q.get('maquina') ?? HOME, cwd: q.get('cwd') ?? undefined, workspace: q.get('workspace') ?? undefined })
     navigate(WORKBENCH_PATH, { replace: true })
   }, [search])
   return null
+}
+
+function WorkspaceTab({ id }: { id: string }) {
+  const search = useSearch()
+  useEffect(() => {
+    openWorkspace(new URLSearchParams(search).get('maquina') ?? HOME, id)
+    navigate(WORKBENCH_PATH, { replace: true })
+  }, [id, search])
+  return null
+}
+
+function WorkspaceScreen({ id }: { id: string }) {
+  const machine = new URLSearchParams(useSearch()).get('maquina') ?? HOME
+  return (
+    <MachineContext value={machine}>
+      <WorkspacePage machine={machine} id={id} />
+    </MachineContext>
+  )
 }
 
 /**

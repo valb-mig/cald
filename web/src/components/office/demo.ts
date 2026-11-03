@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { OfficeActivity, OfficeEvent, OfficeEventKind, OfficeRoom, OfficeWorker } from '@/lib/types'
+import type { OfficeActivity, OfficeEvent, OfficeEventKind, OfficeRoom, OfficeWorker, TeamMember } from '@/lib/types'
 
 /**
  * Escritório de mentira para ver a salinha cheia (`/salinha?demo`): salas fictícias cujos
@@ -25,6 +25,14 @@ const AGENTS = [
   ['Procurar testes antigos', 'Explore'],
   ['Comparar bibliotecas', 'general-purpose'],
 ] as const
+
+// O time da sala do README: quem não foi chamado descansa na área, e cada chamada leva o membro à estação.
+const TEAM: TeamMember[] = [
+  { id: 'demo-thor', key: 'thor', name: 'Thor', role: 'Frontend', model: 'claude-sonnet-5-5', effort: 'medium', instructions: '' },
+  { id: 'demo-atena', key: 'atena', name: 'Atena', role: 'Backend', model: 'claude-opus-5-5', effort: 'high', instructions: '' },
+  { id: 'demo-hermes', key: 'hermes', name: 'Hermes', role: 'Testes', model: 'claude-haiku-5-5', instructions: '' },
+]
+const TEAM_TASKS = ['Ajustar o layout do README', 'Rever a rota de exemplos', 'Rodar os testes da doc']
 
 // O que cada estação costuma render: folha na pilha, teste, commit, push, erro, skill.
 const EVENTS: Partial<Record<OfficeActivity, OfficeEventKind[]>> = {
@@ -59,7 +67,10 @@ function initial(): OfficeRoom[] {
     },
     room('b', 'Deploy da landing', 'site', 'waiting', 'claude-sonnet-5-5', [worker('lead', 'Gestor', 'gestor', 'ask')]),
     room('c', 'Monitorar o build', 'api', 'idle', 'claude-haiku-5-5', [worker('lead', 'Gestor', 'gestor', 'background')]),
-    room('d', 'Escrever o README', 'lib', 'running', 'claude-fable-5-1', [worker('lead', 'Gestor', 'gestor', 'edit')]),
+    {
+      ...room('d', 'Escrever o README', 'lib', 'running', 'claude-fable-5-1', [worker('lead', 'Gestor', 'gestor', 'plan'), worker('d-call-0', TEAM_TASKS[0]!, 'thor', 'edit')]),
+      team: { id: 'demo-time', name: 'Squad', members: TEAM },
+    },
     room('e', 'Pesquisa de mercado', 'notas', 'idle', 'claude-opus-5-5', [worker('lead', 'Gestor', 'gestor', 'idle')]),
   ]
 }
@@ -92,6 +103,15 @@ function evolve(rooms: OfficeRoom[], tick: number): OfficeRoom[] {
       r.state = resting ? 'running' : 'idle'
       r.workers = [worker('lead', 'Gestor', 'gestor', resting ? 'think' : 'idle')]
     }
+  }
+  // O time do README: de tempos em tempos alguém é chamado, e quem terminou volta a descansar.
+  const d = next.find((r) => r.sessionId === 'demo-d')
+  if (d && tick % 3 === 1) {
+    const calls = d.workers.filter((w) => w.role !== 'gestor')
+    if (calls.length < 2 && Math.random() < 0.7) {
+      const i = Math.floor(Math.random() * TEAM.length)
+      d.workers.push(worker(`d-call-${tick}`, TEAM_TASKS[i]!, TEAM[i]!.key, pick(WORK)))
+    } else if (calls.length) d.workers.splice(d.workers.indexOf(pick(calls)), 1)
   }
   const a = next[0]
   if (a.todos && tick % 2 === 0) a.todos = { ...a.todos, done: (a.todos.done + 1) % (a.todos.total + 1) }

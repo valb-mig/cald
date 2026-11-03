@@ -21,6 +21,7 @@ import { UPLOADS_DIR, childEnv } from './config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
 import { HttpError } from './errors.ts';
+import { agentsOf, teamPrompt, type TeamSnapshot } from './teams.ts';
 import {
   fromSdkMessage,
   stampAssistant,
@@ -97,7 +98,14 @@ export type PanelSessionOptions = {
   title?: string;
   /** Mensagens que a conversa já tinha antes deste processo (o resto chega pelo log de eventos). */
   priorMessages?: number;
+  /** Time de agentes da conversa (ver teams.ts): vira os subagentes dela e um trecho do prompt de sistema. */
+  team?: TeamSnapshot;
+  /** Contexto do workspace da conversa, montado agora (ver workspaces.ts): mais prompt de sistema e pastas extras. */
+  workspace?: { prompt: string; directories: string[] };
 };
+
+/** O que vai no fim do prompt de sistema: o time e o workspace da conversa. */
+const append = (opts: PanelSessionOptions) => [opts.team && teamPrompt(opts.team), opts.workspace?.prompt].filter(Boolean).join('\n\n');
 
 /**
  * Sessão cujo único dono é o painel: um processo headless do Claude Code
@@ -112,6 +120,8 @@ export class PanelSession extends EventEmitter {
   readonly priorMessages: number;
   /** Conversa de onde esta bifurcou, enquanto a nova ainda não tem log próprio. */
   readonly origin?: string;
+  /** O time de agentes desta conversa, para passar adiante quando ela ganha id novo. */
+  readonly team?: TeamSnapshot;
   /** Ponto do log da origem onde esta bifurcação cortou. */
   readonly resumeAt?: string;
   readonly label?: string;
@@ -152,6 +162,7 @@ export class PanelSession extends EventEmitter {
     this.cwd = opts.cwd;
     this.priorMessages = opts.priorMessages ?? 0;
     this.origin = opts.origin;
+    this.team = opts.team;
     this.resumeAt = opts.resumeAt;
     this.label = opts.label;
     // Sessão nova recebe um ID conhecido de antemão, e a bifurcação também: o SDK aceita escolher o
@@ -174,9 +185,11 @@ export class PanelSession extends EventEmitter {
         effort: opts.effort,
         permissionMode: opts.permissionMode,
         title: opts.title,
-        // Anexos do celular ficam fora do projeto; liberados para leitura sem pedir aprovação.
-        additionalDirectories: [UPLOADS_DIR],
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        // Anexos do celular ficam fora do projeto; liberados para leitura sem pedir aprovação. Os outros
+        // projetos e os arquivos do workspace também.
+        additionalDirectories: [UPLOADS_DIR, ...(opts.workspace?.directories ?? [])],
+        systemPrompt: { type: 'preset', preset: 'claude_code', ...(append(opts) ? { append: append(opts) } : {}) },
+        agents: opts.team ? agentsOf(opts.team) : undefined,
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
         // O celular mostra o que cada subagente faz: falas e raciocínio também, não só as ferramentas,

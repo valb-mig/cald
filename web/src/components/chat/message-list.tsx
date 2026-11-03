@@ -19,7 +19,7 @@ import { Activity, LineCounts } from './activity'
 import { ApprovalCard } from './approval-card'
 import { Arrival, useArrivals } from './arrival'
 import { BackgroundTasks } from './background-tasks'
-import { ClaudeSpinner } from './claude-spinner'
+import { Claudinho } from '@/components/claudinho'
 import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
@@ -372,13 +372,14 @@ function ItemView({
  * "Trabalhando…" com o que está rodando agora: a ferramenta em uso no turno (um comando longo, um
  * subagente) e há quanto tempo, para não parecer travado.
  */
-function WorkingLine({ items }: { items: Item[] }) {
+function WorkingLine({ sessionId, items }: { sessionId: string; items: Item[] }) {
   const last = items.at(-1)
   const running = last?.type === 'activity' ? last.entries.findLast((e): e is ToolEntry => e.kind === 'tool' && !e.result) : undefined
   const now = useNow(Boolean(running?.at))
   return (
     <div className="chat-enter flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
-      <ClaudeSpinner className="size-4" />
+      {/* O claudinho da conversa, pulando enquanto trabalha, no lugar da estrelinha do Claude Code. */}
+      <Claudinho seed={sessionId} size={18} state="running" className="claudinho-hop" />
       {running ? (
         <>
           <span className="shrink-0">Rodando</span>
@@ -404,7 +405,7 @@ function LiveTail({ sessionId, working, items }: { sessionId: string; working: b
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
   const text = streaming && typed
   if (text) return <Markdown text={text} className="chat-enter opacity-90" />
-  return working ? <WorkingLine items={items} /> : null
+  return working ? <WorkingLine sessionId={sessionId} items={items} /> : null
 }
 
 /**

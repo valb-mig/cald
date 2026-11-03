@@ -58,7 +58,7 @@ function bodyBottom(seated: Pose['seated'], slump: boolean): number {
 /** Topo da cabeça (no mundo, na área): para o nome e o balão ficarem logo acima dele. */
 export function headTop(world: World, a: Actor): number {
   const b = BOUNDS[lookOf(a.seed).shape]
-  const hat = a.lead && world.rooms.get(a.room)?.family ? HAT : 0
+  const hat = a.family ? HAT : 0
   return a.y + bodyBottom(world.seatOf(a), world.slumped(a)) - (b.bottom - b.top) * K - hat
 }
 

@@ -8,7 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AgentRow } from './agent-row'
-import { toolLine, type AgentNode } from './model'
+import { AgentFace, typeLabel } from './agent-face'
+import { toolLine, useAgents, type AgentNode } from './model'
 import { agentMeta, useNow } from './status'
 import { AgentStatusBadge } from './status-icon'
 
@@ -120,6 +121,7 @@ export function AgentSheet({
   const n = node ?? shown
   const working = n?.status === 'running' || n?.status === 'waiting'
   const now = useNow(Boolean(node) && working)
+  const member = useAgents()?.team?.members.find((m) => m.key === n?.type)
 
   return (
     <Sheet open={Boolean(node)} onOpenChange={onOpenChange}>
@@ -128,10 +130,11 @@ export function AgentSheet({
           <>
             <SheetHeader>
               <div className="flex items-start gap-2 pr-8">
+                {member && <AgentFace node={n} member={member} size={28} className="-mt-0.5" />}
                 <SheetTitle className="min-w-0 flex-1 leading-snug">{n.name}</SheetTitle>
                 <AgentStatusBadge status={n.status} className="mt-0.5" />
               </div>
-              <SheetDescription>{[agentMeta(n, now), n.model].filter(Boolean).join(' · ')}</SheetDescription>
+              <SheetDescription>{[agentMeta(n, now, { label: typeLabel(n, member) }), n.model].filter(Boolean).join(' · ')}</SheetDescription>
             </SheetHeader>
 
             <div className="space-y-5 px-4 pb-6">

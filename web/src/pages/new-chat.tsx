@@ -1,7 +1,8 @@
 import { ArrowLeft, ChevronDown, MessageSquarePlus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
 import { Composer } from '@/components/chat/composer'
+import { TeamPill } from '@/components/teams/team-pill'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { ProjectPanelButton } from '@/components/project/panel'
 import { ProjectPicker } from '@/components/project-picker'
@@ -14,6 +15,7 @@ import { useGitStatus, useHome } from '@/lib/hooks'
 import { HOME, MachineContext, newChatUrl, noteSession, useMachines } from '@/lib/machines'
 import { useShowProject } from '@/lib/project-panel'
 import type { RunOptions } from '@/lib/types'
+import { loadWorkspaces, useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { backHref } from '@/lib/tabs'
 
 /**
@@ -24,14 +26,16 @@ export function NewChatPage() {
   const search = new URLSearchParams(useSearch())
   const machine = search.get('maquina') ?? HOME
   const cwd = search.get('cwd') ?? undefined
+  const workspace = search.get('workspace') ?? undefined
   const [, navigate] = useLocation()
   return (
     <NewChatView
       machine={machine}
       cwd={cwd}
+      workspace={workspace}
       showProject
       onCreated={(sessionId) => navigate(`/s/${sessionId}`, { replace: true })}
-      onPick={(dir, m) => navigate(newChatUrl(dir, m), { replace: true })}
+      onPick={(dir, m) => navigate(newChatUrl(dir, m, workspace), { replace: true })}
     />
   )
 }
@@ -44,6 +48,8 @@ export function NewChatPage() {
 export function NewChatView(props: {
   machine: string
   cwd?: string
+  /** Conversa nova num workspace: os projetos dele, o time padrão e o contexto (que o PC monta). */
+  workspace?: string
   showProject: boolean
   onCreated: (sessionId: string) => void
   onPick: (cwd: string | undefined, machine: string) => void
@@ -58,12 +64,14 @@ export function NewChatView(props: {
 function NewChat({
   machine,
   cwd,
+  workspace,
   showProject,
   onCreated,
   onPick,
 }: {
   machine: string
   cwd?: string
+  workspace?: string
   showProject: boolean
   onCreated: (sessionId: string) => void
   onPick: (cwd: string | undefined, machine: string) => void
@@ -72,11 +80,24 @@ function NewChat({
   // Com várias máquinas, o cabeçalho diz em qual a conversa vai rodar.
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const [pending, setPending] = useState<RunOptions>({})
+  const [teamId, setTeamId] = useState<string>()
+  const workspaces = useWorkspaces((s) => s.byMachine[machine])
+  const ws = workspace ? workspaces?.find((w) => w.id === workspace) : undefined
+  useEffect(() => {
+    if (workspace && !workspaces) loadWorkspaces(machine).catch(() => {})
+  }, [workspace, workspaces, machine])
+  // O time padrão do workspace já vem escolhido, uma vez, quando ele chega (dá para trocar depois).
+  const [seeded, setSeeded] = useState(false)
+  if (ws && !seeded) {
+    setSeeded(true)
+    if (ws.teamId) setTeamId(ws.teamId)
+  }
   const [picker, setPicker] = useState(false)
   const git = useGitStatus(machine, cwd, null)
   useShowProject(machine, cwd, `new:${cwd ?? '~'}`, showProject)
   const project = cwd ? projectName(cwd) : 'Sem projeto (~)'
-  const label = machineLabel ? `${project} · ${machineLabel}` : project
+  const inWorkspace = ws ? `${ws.name} · ${project}` : project
+  const label = machineLabel ? `${inWorkspace} · ${machineLabel}` : inWorkspace
 
   const draftId = `new:${cwd ?? '~'}`
   const drop = useFileDrop((list) => void attachInto(draftId, list))
@@ -94,6 +115,7 @@ function NewChat({
         <button type="button" onClick={() => setPicker(true)} className="min-w-0 flex-1 text-left">
           <div className="text-sm font-medium">Nova conversa</div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {ws && <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(ws.color) }} />}
             <span className="truncate">{label}</span>
             <ChevronDown className="size-3 shrink-0" />
           </div>
@@ -124,8 +146,9 @@ function NewChat({
         settings={pending}
         context={null}
         onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+        extra={<TeamPill machine={machine} value={teamId} onChange={setTeamId} />}
         onSend={async (text, attachments) => {
-          const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, ...pending })
+          const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, teamId, workspaceId: ws?.id, ...pending })
           // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
           noteSession(sessionId, machine)
           onCreated(sessionId)
@@ -137,6 +160,8 @@ function NewChat({
         onOpenChange={setPicker}
         machine={machine}
         onPick={onPick}
+        // No workspace, só os projetos dele.
+        only={ws?.projects}
       />
     </div>
   )

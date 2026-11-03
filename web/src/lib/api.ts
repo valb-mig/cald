@@ -18,11 +18,16 @@ import type {
   PushPrefs,
   RunOptions,
   SessionCost,
+  Team,
+  TeamInput,
   Todo,
   TodoFile,
   TreeEntry,
   UpdateStatus,
   WakaToday,
+  Workspace,
+  WorkspaceFile,
+  WorkspaceInput,
 } from './types'
 
 export class ApiError extends Error {
@@ -60,6 +65,8 @@ const project = (cwd: string, path?: string) =>
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
 export const fileRawUrl = (m: string, cwd: string, path: string) => `${at(m)}/file/raw?${project(cwd, path)}`
 /** Um anexo de um item do TODO, para ver (imagem) ou baixar. */
+export const workspaceFileUrl = (m: string, id: string, file: WorkspaceFile) =>
+  `${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`
 export const todoFileUrl = (m: string, file: { id: string; mediaType: string }) =>
   `${at(m)}/todos/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`
 
@@ -94,8 +101,25 @@ export const api = {
   agent: (id: string, toolUseId: string, agentId?: string) =>
     request<LoggedEvent[]>('GET', `${sid(id)}/agents/${encodeURIComponent(toolUseId)}${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`),
 
-  create: (m: string, body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[] }) =>
+  create: (
+    m: string,
+    body: RunOptions & { cwd?: string; prompt: string; title?: string; attachments?: AttachmentPayload[]; teamId?: string; workspaceId?: string },
+  ) =>
     post<{ sessionId: string }>(`${at(m)}/sessions`, body),
+  /** Times de agentes (ver server/src/teams.ts). */
+  teams: (m: string) => request<Team[]>('GET', `${at(m)}/teams`),
+  saveTeam: (m: string, team: TeamInput) => post<Team>(`${at(m)}/teams`, team),
+  deleteTeam: (m: string, id: string) => post(`${at(m)}/teams/${encodeURIComponent(id)}/delete`),
+  /** Workspaces (ver server/src/workspaces.ts). */
+  workspaces: (m: string) => request<Workspace[]>('GET', `${at(m)}/workspaces`),
+  saveWorkspace: (m: string, ws: WorkspaceInput) => post<Workspace>(`${at(m)}/workspaces`, ws),
+  deleteWorkspace: (m: string, id: string) => post(`${at(m)}/workspaces/${encodeURIComponent(id)}/delete`),
+  addWorkspaceFile: (m: string, id: string, file: { name: string; mediaType: string; data: string }) =>
+    post<Workspace>(`${at(m)}/workspaces/${encodeURIComponent(id)}/files`, file),
+  removeWorkspaceFile: (m: string, id: string, fileId: string) =>
+    post<Workspace>(`${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/delete`),
+  /** Troca o time de uma conversa que já começou (`null` tira); aberta no painel, ela é retomada com ele. */
+  setTeam: (id: string, teamId: string | null) => post(`${sid(id)}/team`, { teamId }),
   /** `at`: entrada do log onde cortar, para bifurcar no meio da conversa em vez de no fim. */
   open: (id: string, body: RunOptions & { fork?: boolean; at?: string } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
   takeover: (id: string) => post<{ sessionId: string }>(`${sid(id)}/takeover`),
@@ -208,6 +232,22 @@ export function errorMessage(err: unknown): string {
       return String(err.details.message ?? 'O GitHub recusou.')
     case 'agent_not_found':
       return 'O registro deste subagente não está no PC.'
+    case 'workspace_not_found':
+      return 'Esse workspace não existe mais.'
+    case 'workspace_name_required':
+      return 'Dê um nome ao workspace.'
+    case 'workspace_too_many_files':
+      return `Um workspace vai até ${String(err.details.max ?? 30)} arquivos.`
+    case 'unknown_project':
+      return 'Essa pasta não é um projeto conhecido do PC.'
+    case 'team_not_found':
+      return 'Esse time não existe mais. Escolha outro.'
+    case 'team_name_required':
+      return 'Dê um nome ao time.'
+    case 'member_name_required':
+      return 'Todo membro do time precisa de um nome.'
+    case 'team_too_big':
+      return `Um time vai até ${String(err.details.max ?? 8)} membros.`
     case 'cwd_outside_roots':
       return 'Esse diretório está fora das pastas de projetos permitidas.'
     case 'invalid_project_name':

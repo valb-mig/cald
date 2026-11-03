@@ -30,6 +30,8 @@ import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { openTerminal } from './terminal.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
+import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
+import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
 
@@ -39,7 +41,11 @@ const meta = new MetaStore();
 await meta.load();
 const todos = new TodoStore();
 await todos.load();
-const manager = new Manager(live, meta);
+const teams = new TeamStore();
+await teams.load();
+const workspaces = new WorkspaceStore();
+await workspaces.load();
+const manager = new Manager(live, meta, teams, workspaces);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
@@ -204,7 +210,7 @@ app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: str
 /** Tokens e custo estimado da conversa inteira, subagentes incluídos (ver session-cost.ts). */
 app.get<{ Params: IdParams }>('/api/sessions/:id/cost', async (req) => sessionCost(req.params.id));
 
-app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[] } }>(
+app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string } }>(
   '/api/sessions',
   {
     bodyLimit: ATTACHMENT_BODY_LIMIT,
@@ -217,6 +223,8 @@ app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attac
           prompt: { type: 'string' },
           title: { type: 'string' },
           attachments: attachmentsSchema,
+          teamId: { type: 'string', maxLength: 64 },
+          workspaceId: { type: 'string', maxLength: 64 },
           ...runOptions,
         },
       },
@@ -224,6 +232,130 @@ app.post<{ Body: RunBody & { cwd?: string; prompt: string; title?: string; attac
   },
   async (req) => ({ sessionId: (await manager.create(req.body)).id }),
 );
+
+// Times de agentes (ver teams.ts): a conversa nova escolhe um e leva uma cópia dele.
+app.get('/api/teams', async () => teams.list());
+
+app.post<{ Body: TeamInput }>(
+  '/api/teams',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'members'],
+        properties: {
+          id: { type: 'string', maxLength: 64 },
+          name: { type: 'string', minLength: 1, maxLength: 60 },
+          members: {
+            type: 'array',
+            maxItems: MAX_MEMBERS,
+            items: {
+              type: 'object',
+              required: ['name', 'role', 'instructions'],
+              properties: {
+                id: { type: 'string', maxLength: 64 },
+                name: { type: 'string', minLength: 1, maxLength: 40 },
+                role: { type: 'string', maxLength: 60 },
+                model: { type: 'string', maxLength: 100 },
+                effort: runOptions.effort,
+                instructions: { type: 'string', maxLength: MAX_INSTRUCTIONS },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => teams.save(req.body),
+);
+
+// Workspaces (ver workspaces.ts): moldes de conversa com projetos, contexto, regras, comandos e time padrão.
+app.get('/api/workspaces', async () => workspaces.list());
+
+app.post<{ Body: WorkspaceInput }>(
+  '/api/workspaces',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'projects', 'instructions', 'rules', 'commands'],
+        properties: {
+          id: { type: 'string', maxLength: 64 },
+          name: { type: 'string', minLength: 1, maxLength: 60 },
+          color: { type: 'integer', minimum: 0, maximum: 64 },
+          projects: { type: 'array', maxItems: MAX_PROJECTS, items: { type: 'string', maxLength: 4096 } },
+          instructions: { type: 'string', maxLength: MAX_WS_INSTRUCTIONS },
+          rules: { type: 'array', maxItems: MAX_RULES, items: { type: 'string', maxLength: 1000 } },
+          commands: {
+            type: 'array',
+            maxItems: MAX_COMMANDS,
+            items: {
+              type: 'object',
+              required: ['label', 'command'],
+              properties: { label: { type: 'string', maxLength: 60 }, command: { type: 'string', maxLength: 1000 }, cwd: { type: 'string', maxLength: 4096 } },
+            },
+          },
+          teamId: { type: 'string', maxLength: 64 },
+        },
+      },
+    },
+  },
+  async (req) => {
+    // Só projetos que o painel já aceita: uma pasta qualquer não vira cwd de conversa por aqui.
+    await Promise.all(req.body.projects.map((p) => manager.knownCwd(p)));
+    return workspaces.save(req.body);
+  },
+);
+
+app.post<{ Params: IdParams }>('/api/workspaces/:id/delete', async (req) => {
+  await workspaces.remove(req.params.id);
+  return { ok: true };
+});
+
+app.post<{ Params: IdParams; Body: { name: string; mediaType: string; data: string } }>(
+  '/api/workspaces/:id/files',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'mediaType', 'data'],
+        properties: { name: { type: 'string', minLength: 1, maxLength: 300 }, mediaType: { type: 'string' }, data: { type: 'string' } },
+      },
+    },
+  },
+  async (req) => workspaces.addFile(req.params.id, req.body),
+);
+
+app.post<{ Params: IdParams & { fileId: string } }>('/api/workspaces/:id/files/:fileId/delete', async (req) =>
+  workspaces.removeFile(req.params.id, req.params.fileId),
+);
+
+app.get<{ Params: IdParams & { fileId: string }; Querystring: { type?: string } }>('/api/workspaces/:id/files/:fileId', async (req, reply) => {
+  const path = await workspaces.filePath(req.params.id, req.params.fileId);
+  if (!path) throw new HttpError(404, 'workspace_file_not_found');
+  const type = req.query.type && /^[\w.+-]+\/[\w.+-]+$/.test(req.query.type) ? req.query.type : 'application/octet-stream';
+  return reply
+    .header('content-type', type)
+    .header('cache-control', 'private, max-age=86400')
+    .header('content-security-policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
+    .send(createReadStream(path));
+});
+
+// Trocar o time de uma conversa que já começou (`null` tira): aberta no painel, ela precisa estar parada.
+app.post<{ Params: IdParams; Body: { teamId: string | null } }>(
+  '/api/sessions/:id/team',
+  { schema: { body: { type: 'object', required: ['teamId'], properties: { teamId: { type: ['string', 'null'], maxLength: 64 } } } } },
+  async (req) => {
+    await manager.changeTeam(req.params.id, req.body.teamId);
+    return { ok: true };
+  },
+);
+
+app.post<{ Params: IdParams }>('/api/teams/:id/delete', async (req) => {
+  await teams.remove(req.params.id);
+  return { ok: true };
+});
 
 app.post<{ Params: IdParams; Body: RunBody & { fork?: boolean; at?: string } }>(
   '/api/sessions/:id/open',

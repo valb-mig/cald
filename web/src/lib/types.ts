@@ -101,7 +101,48 @@ export type CatalogEntry = {
   claudinhoName?: string;
   /** O id de onde vem o claudinho desta conversa, quando ela continua outra (um /clear). */
   look?: string;
+  /** O time de agentes da conversa, como era quando ela começou (ver server/src/teams.ts). */
+  team?: TeamSnapshot;
+  /** O workspace de que a conversa faz parte (ver server/src/workspaces.ts). */
+  workspace?: WorkspaceTag;
 };
+
+export type WorkspaceFile = { id: string; name: string; mediaType: string; size: number }
+export type WorkspaceCommand = { label: string; command: string; cwd?: string }
+/** Um molde de conversa, como uma gem: projetos, contexto, regras, comandos, arquivos e time padrão. */
+export type Workspace = {
+  id: string
+  name: string
+  color: number
+  /** O primeiro é o principal, onde a conversa nova abre. */
+  projects: string[]
+  instructions: string
+  rules: string[]
+  commands: WorkspaceCommand[]
+  teamId?: string
+  files: WorkspaceFile[]
+  updatedAt: number
+}
+export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'updatedAt'> & { id?: string }
+export type WorkspaceTag = Pick<Workspace, 'id' | 'name' | 'color'>
+
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/** Um membro do time: um subagente seu, com modelo, esforço e instruções próprios. */
+export type TeamMember = {
+  id: string
+  /** O `subagent_type` dele, que sai do nome ("Thor" → "thor"). */
+  key: string
+  name: string
+  role: string
+  model?: string
+  effort?: Effort
+  instructions: string
+}
+export type Team = { id: string; name: string; members: TeamMember[]; updatedAt: number }
+export type TeamSnapshot = Pick<Team, 'id' | 'name' | 'members'>
+/** O time como o editor manda: membros novos ainda sem `id` e nenhum com `key` (o PC é quem dá). */
+export type TeamInput = { id?: string; name: string; members: (Omit<TeamMember, 'id' | 'key'> & { id?: string })[] }
 
 export type RunOptions = {
   model?: string;
@@ -412,7 +453,7 @@ export type OfficeEventKind = 'edit' | 'error' | 'test-pass' | 'test-fail' | 'co
 export type OfficeEvent = { id: string; at: number; kind: OfficeEventKind; worker: string; detail?: string }
 export type OfficeTodos = { done: number; total: number; current?: string }
 /** Um setor: uma conversa aberta e quem trabalha nela. `machine` é posto pelo app. */
-export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor'> & {
+export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor' | 'team' | 'workspace'> & {
   owner: 'panel' | 'pc'
   workers: OfficeWorker[]
   /** Ausentes em servidores antigos. */
