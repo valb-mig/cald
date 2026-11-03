@@ -8,6 +8,8 @@ import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { Crash, ErrorBoundary } from '@/components/error-boundary'
 import { GithubItemView } from '@/components/project/github-item'
 import { ProjectHub } from '@/components/project/hub'
+import { WorkspacePage } from '@/pages/workspace'
+import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { fileIcon, splitPath } from '@/components/project/status'
 import { ViewerBody } from '@/components/project/viewer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -146,7 +148,9 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
         ? `${tab.item === 'pr' ? 'PR' : 'Issue'} #${tab.number}${tab.title ? `: ${tab.title}` : ''}`
         : tab.kind === 'new'
           ? `Nova conversa em ${tab.cwd ? projectName(tab.cwd) : 'sem projeto (~)'}`
-          : `Projeto ${projectName(tab.cwd)}`
+          : tab.kind === 'workspace'
+            ? 'Workspace'
+            : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -239,6 +243,8 @@ function TabItem({
             <span className="truncate">Nova conversa</span>
             <span className="shrink-0 text-[11px] text-muted-foreground">{tab.cwd ? projectName(tab.cwd) : '~'}</span>
           </>
+        ) : tab.kind === 'workspace' ? (
+          <WorkspaceTabLabel tab={tab} />
         ) : (
           <>
             <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -398,10 +404,21 @@ function NewTabContent({ tab, focused }: { tab: Extract<Tab, { kind: 'new' }>; f
     <NewChatView
       machine={tab.machine}
       cwd={tab.cwd}
+      workspace={tab.workspace}
       showProject={focused}
       onCreated={(id) => replaceTab(tab.key, { kind: 'chat', id })}
-      onPick={(cwd, machine) => replaceTab(tab.key, { kind: 'new', machine, cwd })}
+      onPick={(cwd, machine) => replaceTab(tab.key, { kind: 'new', machine, cwd, workspace: tab.workspace })}
     />
+  )
+}
+
+function WorkspaceTabLabel({ tab }: { tab: Extract<Tab, { kind: 'workspace' }> }) {
+  const ws = useWorkspaces((s) => s.byMachine[tab.machine]?.find((w) => w.id === tab.id))
+  return (
+    <>
+      <span className="size-2.5 shrink-0 rounded-full" style={{ background: workspaceColor(ws?.color ?? 0) }} />
+      <span className="truncate">{ws?.name ?? 'Workspace'}</span>
+    </>
   )
 }
 
@@ -543,6 +560,10 @@ function GroupView({
                   <GithubTabContent tab={tab} visible={active} focused={focused && active} />
                 ) : tab.kind === 'new' ? (
                   <NewTabContent tab={tab} focused={focused && active} />
+                ) : tab.kind === 'workspace' ? (
+                  <MachineContext value={tab.machine}>
+                    <WorkspacePage machine={tab.machine} id={tab.id} />
+                  </MachineContext>
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}

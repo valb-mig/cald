@@ -3,6 +3,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useWidth } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
+import { AgentFace, typeLabel, useMember } from './agent-face'
 import type { AgentNode, AgentStatus, AgentTree } from './model'
 import { STATUS, elapsed, useNow } from './status'
 import { AgentStatusIcon } from './status-icon'
@@ -104,7 +105,7 @@ function GraphNode({ box, now, onOpen }: { box: Box; now: number; onOpen: (id: s
     >
       <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
         <AgentStatusIcon status={n.status} className="size-3" />
-        <span className="truncate font-medium">{n.type}</span>
+        <NodeType node={n} />
         <span className="ml-auto shrink-0 tabular-nums">{elapsed(n, now)}</span>
       </div>
       <div className="truncate text-[13px] leading-tight font-medium">{n.name}</div>
@@ -257,5 +258,16 @@ export function AgentGraph({
         </div>
       </div>
     </div>
+  )
+}
+
+/** O tipo no alto do nó: com o claudinho e o nome, se o subagente é um membro do time. */
+function NodeType({ node }: { node: AgentNode }) {
+  const member = useMember(node)
+  return (
+    <>
+      {member && <AgentFace node={node} member={member} size={14} />}
+      <span className="truncate font-medium">{typeLabel(node, member)}</span>
+    </>
   )
 }

@@ -4,6 +4,7 @@ import { ActorShape, Bubble, headTop } from './actor'
 import { Elevator } from './backdrop'
 import { Cabinet, Chair, Coffee, Papers, PcDesk, Rack, Sofa, TestLight, Tv, Whiteboard, Workbench } from './furniture'
 import { AREA_W, CORRIDOR_W, FLOOR_FRONT, LANE_FAR, LANE_NEAR, ROOF_H, SPOTS, WALK_H, groundOf, signBox, type AreaLive, type Layout, type Occupancy } from './layout'
+import { workspaceColor } from '@/lib/workspaces'
 import { PAL } from './palette'
 import { seeded, type Sky } from './sky'
 import { LEN, type Car, type Street, type Walker } from './street'
@@ -403,7 +404,8 @@ function clip(text: string, maxW: number, size: number, weight: number, font: st
   return t
 }
 
-type PillOpts = { text: string; size: number; maxW: number; dot?: string; sub?: string; dim?: boolean }
+/** `accent`: a cor do workspace da conversa, numa faixa na borda esquerda da placa. */
+type PillOpts = { text: string; size: number; maxW: number; dot?: string; sub?: string; dim?: boolean; accent?: string }
 
 /** Medidas de uma etiqueta escura arredondada, em pixels de tela; com `sub`, uma segunda linha menor. */
 function pillBox(o: PillOpts, font: string) {
@@ -426,6 +428,7 @@ function Pill({ o, box, x, y, k }: { o: PillOpts; box: ReturnType<typeof pillBox
   return (
     <g transform={`translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${s.toFixed(4)})`}>
       <rect width={box.w} height={box.h} rx={o.size * 0.6} fill="rgb(16,18,28)" opacity={o.dim ? 0.55 : 0.86} />
+      {o.accent && <rect x={o.size * 0.18} y={o.size * 0.35} width={o.size * 0.2} height={box.h - o.size * 0.7} rx={o.size * 0.1} fill={o.accent} />}
       {o.dot && <circle cx={box.pad + o.size * 0.3} cy={line1} r={o.size * 0.28} fill={o.dot} />}
       <text x={box.pad + box.dotW} y={line1} dominantBaseline="central" fontSize={o.size} fontWeight={600} fill={o.dim ? 'rgba(242,244,247,0.6)' : '#f2f4f7'}>
         {box.title}
@@ -454,8 +457,18 @@ function Labels({ f, font }: { f: Frame; font: string }) {
     }
     const lead = p.room.workers[0]
     const crew = p.room.workers.length - 1
-    const sub = [lead?.detail, projectName(p.room.cwd), crew > 0 && `${crew} ${crew === 1 ? 'funcionário' : 'funcionários'}`].filter(Boolean).join(' · ')
-    const o: PillOpts = { text: p.room.title, sub, size: 10.5, maxW: (AREA_W - 40) * k, dot: stateOf(p.room).color }
+    // Com time, a placa diz qual é; sem, quantos subagentes estão na área.
+    const crewLine = p.room.team ? `time ${p.room.team.name}` : crew > 0 && `${crew} ${crew === 1 ? 'funcionário' : 'funcionários'}`
+    // Conversa de um workspace: o nome dele na placa, e a cor dele na bolinha de cima (a do estado fica no título).
+    const sub = [lead?.detail, p.room.workspace?.name, projectName(p.room.cwd), crewLine].filter(Boolean).join(' · ')
+    const o: PillOpts = {
+      text: p.room.title,
+      sub,
+      size: 10.5,
+      maxW: (AREA_W - 40) * k,
+      dot: stateOf(p.room).color,
+      accent: p.room.workspace ? workspaceColor(p.room.workspace.color) : undefined,
+    }
     items.push(<Pill key={`a${s}`} o={o} box={pillBox(o, font)} x={area.x + 30} y={area.y + 9} k={k} />)
   }
 
@@ -564,7 +577,6 @@ export function LiveFront({ f, font }: { f: Frame; font: string }) {
     const o = areaOf.get(a.room)
     if (!o) continue
     const walking = a.path.length > 0
-    const rs = world.rooms.get(a.room)
     draws.push({
       y: o.y + a.y,
       key: a.key,
@@ -581,7 +593,7 @@ export function LiveFront({ f, font }: { f: Frame; font: string }) {
             arms: world.arms(a, tick),
             blink: world.time < a.blinkUntil,
             slump: world.slumped(a),
-            hat: a.lead ? rs?.family : undefined,
+            hat: a.family,
             carry: a.task?.carry && a.arrived === null ? a.task.carry : undefined,
           }}
         />

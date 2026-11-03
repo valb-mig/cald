@@ -75,9 +75,10 @@ export function useMachineFilter(): string | null {
 }
 
 /** Endereço da nova conversa num projeto (`undefined` = pasta pessoal) de uma máquina. */
-export function newChatUrl(cwd?: string, machine: string = HOME): string {
+export function newChatUrl(cwd?: string, machine: string = HOME, workspace?: string): string {
   const params = new URLSearchParams()
   if (cwd) params.set('cwd', cwd)
+  if (workspace) params.set('workspace', workspace)
   if (machine !== HOME) params.set('maquina', machine)
   const query = params.toString()
   return query ? `/nova?${query}` : '/nova'

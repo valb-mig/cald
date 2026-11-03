@@ -117,6 +117,7 @@ export function VectorOffice({ rooms, clock }: { rooms: OfficeRoom[]; clock?: { 
           state: p.room.state,
           seed: looks[id] ?? id,
           leadName: claudinhoName(id, names.get(id)),
+          team: p.room.team?.members,
           entryX: layout.entryX(side),
           askX: layout.askX(side),
           coolerX: layout.coolerX(side),

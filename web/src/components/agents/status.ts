@@ -63,9 +63,9 @@ export function elapsed(node: AgentNode, now: number): string {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /** "Explore · 12 ferramentas · 1min 3s · segundo plano" */
-export function agentMeta(node: AgentNode, now: number, { type = true }: { type?: boolean } = {}): string {
+export function agentMeta(node: AgentNode, now: number, { type = true, label }: { type?: boolean; label?: string } = {}): string {
   return [
-    type && node.type,
+    type && (label ?? node.type),
     node.tools > 0 && plural(node.tools, 'ferramenta', 'ferramentas'),
     elapsed(node, now),
     node.background && 'segundo plano',

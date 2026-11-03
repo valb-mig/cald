@@ -5,6 +5,7 @@ import { Link } from 'wouter'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
+import { WorkspacesSection } from '@/components/workspaces/workspaces-section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -165,6 +166,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
         </div>
       ) : (
         <>
+          {!query.trim() && <WorkspacesSection machine={machine} />}
           {changed.length > 0 && (
             <section className="mb-4">
               <h2 className="px-5 pb-1.5 text-xs font-medium text-muted-foreground">Com mudanças</h2>

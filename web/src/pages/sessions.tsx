@@ -33,6 +33,7 @@ import { keyOf, openProjectHub, pinTab, revealChat } from '@/lib/workbench'
 import { useStore } from '@/lib/store'
 import type { CatalogEntry, GitSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { workspaceColor } from '@/lib/workspaces'
 
 type OnMenu = (s: CatalogEntry, x: number, y: number) => void
 
@@ -75,10 +76,14 @@ function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEn
         onDoubleClick={() => wide && pinTab(keyOf({ kind: 'chat', id: s.sessionId }))}
         aria-current={focused ? 'page' : undefined}
         {...press}
+        // Conversa de workspace: um tom da cor dele no fundo e uma faixa na borda, para destacar na lista.
+        style={s.workspace ? { '--ws': workspaceColor(s.workspace.color) } as React.CSSProperties : undefined}
         className={cn(
           // Segurar o dedo não seleciona o texto nem abre o menu de link do iPhone.
           // O claudinho fica embaixo da setinha do grupo, e o título, recuado sob o nome do projeto.
-          'mx-2 flex items-start gap-3 rounded-xl transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
+          'relative mx-2 flex items-start gap-3 rounded-xl transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
+          s.workspace &&
+            'bg-[color-mix(in_oklab,var(--ws)_7%,transparent)] before:absolute before:inset-y-2.5 before:left-0 before:w-[3px] before:rounded-full before:bg-(--ws)',
           roomy ? 'px-2 py-3' : 'py-2.5 pr-3 pl-1.5',
           shown && 'bg-foreground/[0.04]',
           // A em foco ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta dela).

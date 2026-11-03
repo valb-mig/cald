@@ -32,6 +32,7 @@ export function Composer({
   onSend,
   onInterrupt,
   onEdit,
+  extra,
 }: {
   sessionId: string
   cwd?: string
@@ -48,6 +49,8 @@ export function Composer({
   onInterrupt?: () => Promise<void>
   /** O texto mudou pela mão de quem usa (digitar, colar, mencionar): no PC, a aba de prévia vira fixa. */
   onEdit?: () => void
+  /** Ao lado do modelo, na barra de baixo: o time de agentes da conversa. */
+  extra?: React.ReactNode
 }) {
   // Rascunho por conversa: trocar de chat, recarregar a tela ou o Android fechar o app não perde o
   // que foi digitado ou anexado. Sem ele na memória, vem do banco; até lá nada é gravado, para não
@@ -266,6 +269,7 @@ export function Composer({
                 </button>
                 {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
                 <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
+                {extra}
                 <div className="flex-1" />
                 <ModeMenu settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
               </>

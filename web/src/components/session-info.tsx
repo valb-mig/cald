@@ -1,10 +1,12 @@
-import { Bot, GitFork, Hourglass, Monitor, Pin, Server } from 'lucide-react'
+import { Bot, GitFork, Hourglass, Layers, Monitor, Pin, Server } from 'lucide-react'
 import { Claudinho } from '@/components/claudinho'
+import { TeamFaces } from '@/components/teams/team-faces'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName, relativeTime, shortTime, stateInfo } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
 import type { CatalogEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { workspaceColor } from '@/lib/workspaces'
 
 /**
  * Conteúdo de uma conversa numa lista, como numa lista de mensagens: o claudinho dela, com a bolinha
@@ -24,9 +26,14 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
   const state = background ? 'running' : s.state
   const { label, tone } = stateInfo(state, background ? 'background' : s.waitingFor)
   const name = claudinhoName(s.sessionId, s.claudinhoName)
+  const size = roomy ? 40 : grouped ? 28 : 32
   return (
     <>
-      <Claudinho seed={s.sessionId} name={name} state={state} status size={roomy ? 40 : grouped ? 28 : 32} className="mt-0.5" />
+      {/* Com time, os claudinhos dele ficam ao lado do da conversa, menores, como quem está junto. */}
+      <span className="mt-0.5 flex shrink-0 items-end">
+        <Claudinho seed={s.sessionId} name={name} state={state} status size={size} />
+        {s.team && <TeamFaces team={s.team} size={Math.round(size * 0.55)} max={3} className="-ml-0.5 pb-px" />}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {s.pinned && <Pin className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixada" />}
@@ -38,6 +45,15 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
         </div>
         <div className={cn('mt-0.5 flex items-center gap-1.5 text-muted-foreground', roomy ? 'text-[13px]' : 'text-xs')}>
           <span className="shrink-0 font-medium text-foreground/70">{name}</span>
+          {s.workspace && (
+            <>
+              <span>·</span>
+              <span className="flex min-w-0 shrink items-center gap-1 font-medium" style={{ color: workspaceColor(s.workspace.color) }}>
+                <Layers className="size-3 shrink-0" />
+                <span className="truncate">{s.workspace.name}</span>
+              </span>
+            </>
+          )}
           {!grouped && (
             <>
               <span>·</span>

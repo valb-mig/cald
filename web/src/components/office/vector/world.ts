@@ -1,4 +1,5 @@
-import type { CatalogState, OfficeActivity, OfficeEvent, OfficeTodos, OfficeWorker } from '@/lib/types'
+import { memberSeed } from '@/components/teams/model'
+import type { CatalogState, OfficeActivity, OfficeEvent, OfficeTodos, OfficeWorker, TeamMember } from '@/lib/types'
 import { LANE_Y, PILE, REST_SPOTS, familyOf, spotFor, stationOf, type BubbleKind, type Carry, type Facing, type Family, type Occupancy, type Spot } from './layout'
 
 type Point = { x: number; y: number }
@@ -35,8 +36,10 @@ export type Actor = {
   room: string
   name: string
   lead: boolean
-  /** De onde sai o claudinho dele (ver lib/claudinho.ts): o da conversa, ou um sorteado para o subagente. */
+  /** De onde sai o claudinho dele (ver lib/claudinho.ts): o da conversa, o do membro do time ou um sorteado para o subagente. */
   seed: string
+  /** Chapéu do modelo: o da conversa e os dos membros do time (os outros subagentes vão sem). */
+  family?: Family
   activity: OfficeActivity
   detail?: string
   /** Estação e posição nela (o n-ésimo), que ficam enquanto a atividade não muda. */
@@ -116,6 +119,8 @@ export type RoomInput = {
   /** O claudinho da conversa (o que ela veste) e o nome dele. */
   seed: string
   leadName: string
+  /** O time de agentes da conversa: os membros ficam na área mesmo parados. */
+  team?: TeamMember[]
   entryX: number
   askX: number
   coolerX: number
@@ -133,8 +138,9 @@ export class World {
   /** Alguém deu push (o caminhão passa na rua). */
   onPush?: () => void
 
-  sync(rooms: RoomInput[]): void {
+  sync(input: RoomInput[]): void {
     const present = new Set<string>()
+    const rooms = input.map(withTeam)
     const roomKeys = new Set(rooms.map((r) => r.key))
     for (const key of [...this.rooms.keys()]) if (!roomKeys.has(key)) this.rooms.delete(key)
 
@@ -172,13 +178,17 @@ export class World {
         const base = spotFor(w.activity, slot, room.askX)
         const lead = w.role === 'gestor'
         const name = lead ? room.leadName : w.name
+        const seed = lead ? room.seed : w.member ? memberSeed(w.member) : `${room.seed}:${w.id}`
+        // O membro sem modelo próprio usa o da conversa, e o chapéu é o dela.
+        const family = lead ? familyOf(room.model) : w.member ? (familyOf(w.member.model) ?? familyOf(room.model)) : undefined
         if (!a) {
           a = {
             key,
             room: room.key,
             name,
             lead,
-            seed: lead ? room.seed : `${room.seed}:${w.id}`,
+            seed,
+            family,
             activity: w.activity,
             station,
             slot,
@@ -210,7 +220,8 @@ export class World {
         }
         a.entry = room.entryX
         a.name = name
-        if (lead) a.seed = room.seed
+        a.seed = seed
+        a.family = family
         a.detail = w.detail
         const changed = a.leaving || a.activity !== w.activity || a.base.x !== base.x || a.base.y !== base.y
         if (changed) {
@@ -219,6 +230,9 @@ export class World {
             a.task = undefined
             a.urgent = true
           }
+          // O membro do time terminou o que pediram: leva a pasta ao claudinho da conversa e vai descansar.
+          const resting = (x: OfficeActivity) => x === 'idle' || x === 'background'
+          if (w.member && !a.leaving && !resting(a.activity) && resting(w.activity) && !this.calm) a.task = this.delivery(a)
           a.activity = w.activity
           a.station = station
           a.slot = slot
@@ -246,12 +260,15 @@ export class World {
     a.leaving = true
     a.urgent = true
     a.dirty = true
-    a.task = undefined
+    a.task = this.calm ? undefined : this.delivery(a)
+  }
+
+  /** Ir entregar a pasta ao claudinho da conversa, se ele está na área. */
+  private delivery(a: Actor): Task | undefined {
     const lead = [...this.actors.values()].find((b) => b.room === a.room && b.lead && !b.leaving)
-    if (lead && !this.calm) {
-      const side = lead.work.x > a.x ? -16 : 16
-      a.task = { kind: 'deliver', spot: { x: lead.work.x + side, y: LANE_Y - 1, facing: side < 0 ? 'right' : 'left' }, stay: 1.2, carry: 'folder' }
-    }
+    if (!lead) return undefined
+    const side = lead.work.x > a.x ? -16 : 16
+    return { kind: 'deliver', spot: { x: lead.work.x + side, y: LANE_Y - 1, facing: side < 0 ? 'right' : 'left' }, stay: 1.2, carry: 'folder' }
   }
 
   /** Eventos novos da conversa viram animação; mudanças de estado viram balão no claudinho da conversa. */
@@ -563,6 +580,38 @@ export class World {
     }
     return occ
   }
+}
+
+type Worker = OfficeWorker & { member?: TeamMember }
+
+/**
+ * Com time, cada membro é um claudinho só, que fica na área: a primeira chamada dele em andamento vira
+ * ele (com o id `member:<id>`, para ele sair do sofá até a estação em vez de chegar pelo elevador), e
+ * quem não foi chamado descansa. Os eventos das chamadas trocadas passam a ser dele.
+ */
+function withTeam(room: RoomInput): Omit<RoomInput, 'workers'> & { workers: Worker[] } {
+  if (!room.team?.length) return room
+  const alias = new Map<string, string>()
+  const seen = new Set<string>()
+  const workers: Worker[] = []
+  for (const w of room.workers) {
+    const m = room.team.find((t) => t.key === w.role)
+    if (!m) {
+      workers.push(w)
+    } else if (!seen.has(m.id)) {
+      seen.add(m.id)
+      alias.set(w.id, `member:${m.id}`)
+      workers.push({ ...w, id: `member:${m.id}`, name: m.name, member: m })
+    } else {
+      // Duas chamadas dele ao mesmo tempo: a segunda vem como um ajudante com a cara dele.
+      workers.push({ ...w, name: m.name, member: m })
+    }
+  }
+  for (const m of room.team) {
+    if (!seen.has(m.id)) workers.push({ id: `member:${m.id}`, name: m.name, role: m.key, activity: 'idle', detail: m.role ? `${m.role} · livre` : 'Livre', member: m })
+  }
+  const events = room.events.map((e) => (alias.has(e.worker) ? { ...e, worker: alias.get(e.worker)! } : e))
+  return { ...room, workers, events }
 }
 
 /** Sai até a faixa da frente do chão, anda por ela e entra no lugar: ninguém atravessa os móveis. */

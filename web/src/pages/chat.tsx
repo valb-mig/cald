@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { AgentSheet } from '@/components/agents/agent-sheet'
 import { AgentsSheet } from '@/components/agents/agents-sheet'
+import { TeamPill } from '@/components/teams/team-pill'
 import { AgentsContext, agentTree } from '@/components/agents/model'
 import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
@@ -77,6 +78,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { dropTools, publishTools } from '@/lib/chat-tools'
 import { claudinhoName } from '@/lib/claudinho'
+import { workspaceColor } from '@/lib/workspaces'
 import { projectName, stateInfo } from '@/lib/format'
 import { useGitStatus, useHome, usePressMenu, useWide, useWidth } from '@/lib/hooks'
 import { useBackToClose } from '@/lib/back-close'
@@ -426,7 +428,7 @@ export function ChatPage({ id }: { id: string }) {
   useEffect(() => () => dropTools(id), [id])
   // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
-  const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId }), [agents])
+  const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId, team: entry?.team }), [agents, entry?.team])
   const agentsWorking = agents.count.running + agents.count.waiting
   // O que roda em segundo plano agora (monitores, comandos, subagentes): a última lista do processo do painel.
   const background = useMemo(() => {
@@ -495,7 +497,7 @@ export function ChatPage({ id }: { id: string }) {
   const shown = display === 'both' && !roomy ? 'map' : display
   const { label: stateLabel, tone: stateTone } = stateInfo(shownState, shownWaiting)
   // No topo enxuto, os subagentes só quando trabalham (o número deles é um estado); parados, no menu.
-  const agentsOnTop = agents.all.length > 0 && (!slim || agentsWorking > 0)
+  const agentsOnTop = (agents.all.length > 0 || Boolean(entry?.team)) && (!slim || agentsWorking > 0)
   // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
   // refaria a árvore e o layout a cada delta.
   const streamHead = useStore((s) => {
@@ -631,6 +633,14 @@ export function ChatPage({ id }: { id: string }) {
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
               <span className="shrink-0 font-medium text-foreground/70">{name}</span>
               <span>·</span>
+              {/* Conversa de um workspace: a cor e o nome dele antes do projeto. */}
+              {entry?.workspace && (
+                <span className="flex min-w-0 shrink items-center gap-1">
+                  <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(entry.workspace.color) }} />
+                  <span className="truncate text-foreground/70">{entry.workspace.name}</span>
+                  <span>·</span>
+                </span>
+              )}
               <span className="min-w-0 truncate">{projectName(cwd)}</span>
               {machineLabel && (
                 <span className="flex shrink-0 items-center gap-0.5">
@@ -731,7 +741,7 @@ export function ChatPage({ id }: { id: string }) {
                         </a>
                       </DropdownMenuItem>
                     )}
-                    {agents.all.length > 0 && !agentsOnTop && (
+                    {(agents.all.length > 0 || entry?.team) && !agentsOnTop && (
                       <DropdownMenuItem onSelect={() => setAgentsOpen(true)}>
                         <Bot /> Agentes
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">{agents.all.length}</span>
@@ -961,6 +971,23 @@ export function ChatPage({ id }: { id: string }) {
                 onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
                 // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
                 onEdit={pin}
+                extra={
+                  // No celular a barra não tem espaço: o time fica no botão de agentes do topo.
+                  <TeamPill
+                    machine={machine}
+                    current={entry?.team}
+                    className="max-sm:hidden"
+                    onShow={() => setAgentsOpen(true)}
+                    onChange={(teamId) => {
+                      if ((teamId ?? null) === (entry?.team?.id ?? null)) return
+                      toast.promise(api.setTeam(id, teamId ?? null), {
+                        loading: teamId ? 'Trocando o time…' : 'Tirando o time…',
+                        success: teamId ? 'Time trocado: vale a partir da próxima mensagem.' : 'Conversa sem time.',
+                        error: (err) => errorMessage(err),
+                      })
+                    }}
+                  />
+                }
                 onSend={(text, attachments) => {
                   pin()
                   return enqueue(id, text, attachments)
@@ -994,6 +1021,7 @@ export function ChatPage({ id }: { id: string }) {
           open={agentsOpen}
           onOpenChange={setAgentsOpen}
           onOpenAgent={setAgentId}
+          team={entry?.team}
         />
         <AgentSheet
           sessionId={id}
