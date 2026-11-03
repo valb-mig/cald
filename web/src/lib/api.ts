@@ -6,6 +6,7 @@ import type {
   ContextUsage,
   DiffSide,
   FileView,
+  FolderListing,
   GithubInfo,
   GithubAction,
   GithubItem,
@@ -76,6 +77,14 @@ export const api = {
   /** Git de cada projeto; `fetch` consulta antes o remoto (mais lento). */
   projectsGit: (m: string, fetch = false) =>
     request<Record<string, GitSummary>>('GET', `${at(m)}/projects/git${fetch ? '?fetch=1' : ''}`),
+  /** As raízes de projetos (pasta nova vai na primeira) e as pastas adicionadas à mão. */
+  projectSources: (m: string) => request<{ roots: string[]; added: string[] }>('GET', `${at(m)}/projects/sources`),
+  createProject: (m: string, name: string, git: boolean) => post<{ path: string }>(`${at(m)}/projects`, { name, git }),
+  addProject: (m: string, path: string) => post<{ path: string }>(`${at(m)}/projects/add`, { path }),
+  removeProject: (m: string, path: string) => post(`${at(m)}/projects/remove`, { path }),
+  /** As subpastas de uma pasta do PC (sem `path`, a pasta pessoal). */
+  folders: (m: string, path?: string) =>
+    request<FolderListing>('GET', `${at(m)}/folders${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
   office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
@@ -241,6 +250,18 @@ export function errorMessage(err: unknown): string {
       return `Um time vai até ${String(err.details.max ?? 8)} membros.`
     case 'cwd_outside_roots':
       return 'Esse diretório está fora das pastas de projetos permitidas.'
+    case 'invalid_project_name':
+      return 'Use letras, números, espaço, ponto, hífen ou sublinhado, sem começar por ponto.'
+    case 'project_exists':
+      return 'Já existe uma pasta com esse nome.'
+    case 'folder_not_found':
+      return 'Essa pasta não existe no PC.'
+    case 'folder_not_readable':
+      return 'Sem permissão para abrir essa pasta.'
+    case 'folder_not_project':
+      return 'A pasta pessoal e as de cima dela não podem ser projeto. Use "Sem projeto" para a pasta pessoal.'
+    case 'no_project_root':
+      return 'O PC não tem uma pasta de projetos configurada (PROJECT_ROOTS).'
     case 'attachment_too_large':
       return `O anexo ${String(err.details.name ?? '')} passa de 25 MB.`
     case 'empty_message':

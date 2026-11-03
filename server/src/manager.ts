@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { readdir, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import {
   getSessionInfo,
   deleteSession,
@@ -21,6 +21,7 @@ import { type Attachment, prepareTurn } from './attachments.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from './panel-session.ts';
 import { searchProjectFiles } from './project-files.ts';
+import { createProjectDir, expandHome, isDirectory, listFolders, type FolderListing } from './project-folders.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
 import { transcriptCwd, transcriptEfforts, transcriptFile } from './transcript.ts';
@@ -309,7 +310,10 @@ export class Manager extends EventEmitter {
     return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
   }
 
-  /** Diretórios candidatos para sessões novas: subpastas das raízes + cwds de conversas salvas. */
+  /**
+   * Diretórios candidatos para sessões novas: subpastas das raízes, as pastas que você adicionou (as
+   * que ainda existem) e cwds de conversas salvas dentro delas.
+   */
   async projects(): Promise<string[]> {
     const fromSessions = (await this.saved()).map((s) => s.cwd).filter((c): c is string => Boolean(c));
     const fromRoots = await Promise.all(
@@ -318,7 +322,56 @@ export class Manager extends EventEmitter {
         return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => join(root, e.name));
       }),
     );
-    return [...new Set([...fromSessions, ...fromRoots.flat()])].filter(isUnderRoots).sort();
+    const added = (await Promise.all(this.meta.addedProjects().map(async (p) => ((await isDirectory(p)) ? p : null)))).filter(
+      (p): p is string => p !== null,
+    );
+    return [...new Set([...fromSessions, ...fromRoots.flat(), ...added])].filter((d) => this.isProjectDir(d)).sort();
+  }
+
+  /** De onde vêm os projetos: as raízes (a primeira é onde pasta nova é criada) e as pastas adicionadas. */
+  projectSources(): { roots: string[]; added: string[] } {
+    return { roots: PROJECT_ROOTS, added: this.meta.addedProjects() };
+  }
+
+  /** Pasta nova de projeto na primeira raiz (com `git init`, se pedido). */
+  async createProject(name: string, git: boolean): Promise<{ path: string }> {
+    const root = PROJECT_ROOTS[0];
+    if (!root) throw new HttpError(400, 'no_project_root');
+    return { path: await createProjectDir(root, name, git) };
+  }
+
+  /**
+   * Uma pasta que já existe, em qualquer lugar, vira projeto: aparece na lista e aceita conversas.
+   * As que ficam direto numa raiz já aparecem sozinhas; as de mais fundo (~/Projects/cliente/app)
+   * são guardadas como as de fora; a pasta pessoal é o "Sem projeto", e as de cima dela
+   * (/home, a raiz do disco) não são projeto.
+   */
+  async addProject(path: string): Promise<{ path: string }> {
+    const dir = expandHome(path);
+    // A pasta pessoal, ou uma que a contenha, liberaria conversas em qualquer pasta sua.
+    if (dir === homedir() || homedir().startsWith(dir.endsWith(sep) ? dir : dir + sep)) throw new HttpError(400, 'folder_not_project');
+    if (!(await isDirectory(dir))) throw new HttpError(404, 'folder_not_found');
+    if (!listedByRoots(dir)) await this.meta.setProjectAdded(dir, true);
+    return { path: dir };
+  }
+
+  /** Tira da lista uma pasta adicionada (a pasta fica no PC, intacta). */
+  async removeProject(path: string): Promise<void> {
+    await this.meta.setProjectAdded(resolve(path), false);
+  }
+
+  folders(path: string | undefined): Promise<FolderListing> {
+    return listFolders(path ?? '~');
+  }
+
+  /** Dentro de uma raiz ou de uma pasta adicionada. */
+  private isProjectDir(dir: string): boolean {
+    return isUnderRoots(dir) || isUnderAny(dir, this.meta.addedProjects());
+  }
+
+  /** Onde dá para abrir conversa: projetos e a pasta pessoal em si (não as subpastas dela). */
+  private isAllowedCwd(dir: string): boolean {
+    return dir === homedir() || this.isProjectDir(dir);
   }
 
   async create(
@@ -330,7 +383,7 @@ export class Manager extends EventEmitter {
     const ws = workspaceId ? this.workspaces.get(workspaceId) : undefined;
     // Sem projeto: a sessão abre na pasta pessoal (no workspace, no projeto principal dele).
     const cwd = resolve(opts.cwd || ws?.projects[0] || homedir());
-    if (!isAllowedCwd(cwd)) throw new HttpError(403, 'cwd_outside_roots', { roots: PROJECT_ROOTS });
+    if (!this.isAllowedCwd(cwd)) throw new HttpError(403, 'cwd_outside_roots', { roots: PROJECT_ROOTS });
     const info = await stat(cwd).catch(() => null);
     if (!info?.isDirectory()) throw new HttpError(400, 'cwd_not_a_directory');
     const workspace = ws ? ((await this.workspaces.context(ws.id, cwd)) ?? undefined) : undefined;
@@ -488,10 +541,10 @@ export class Manager extends EventEmitter {
     if (patch.permissionMode) await session.setPermissionMode(patch.permissionMode);
   }
 
-  /** Só diretórios de projetos conhecidos: raízes configuradas, a pasta pessoal ou cwd de alguma conversa. */
+  /** Só diretórios de projetos conhecidos: raízes configuradas, pastas adicionadas, a pasta pessoal ou cwd de alguma conversa. */
   async knownCwd(cwd: string): Promise<string> {
     const dir = resolve(cwd);
-    if (isAllowedCwd(dir) || (await this.saved()).some((s) => s.cwd === dir)) return dir;
+    if (this.isAllowedCwd(dir) || (await this.saved()).some((s) => s.cwd === dir)) return dir;
     throw new HttpError(403, 'unknown_project');
   }
 
@@ -672,14 +725,19 @@ async function listSaved(): Promise<SDKSessionInfo[]> {
   return rows;
 }
 
-/** Raízes de projetos e a pasta pessoal em si (não as subpastas dela). */
-function isAllowedCwd(dir: string): boolean {
-  return dir === homedir() || isUnderRoots(dir);
+function isUnderRoots(dir: string): boolean {
+  return isUnderAny(dir, PROJECT_ROOTS);
 }
 
-function isUnderRoots(dir: string): boolean {
+/** Subpasta direta (e não oculta) de uma raiz: já entra na lista de projetos sem ser guardada. */
+function listedByRoots(dir: string): boolean {
   const abs = resolve(dir);
-  return PROJECT_ROOTS.some((root) => abs === resolve(root) || abs.startsWith(resolve(root) + sep));
+  return !basename(abs).startsWith('.') && PROJECT_ROOTS.some((root) => dirname(abs) === resolve(root));
+}
+
+function isUnderAny(dir: string, roots: string[]): boolean {
+  const abs = resolve(dir);
+  return roots.some((root) => abs === resolve(root) || abs.startsWith(resolve(root) + sep));
 }
 
 /**

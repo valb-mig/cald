@@ -261,6 +261,9 @@ export type GitStatus = {
 }
 
 /** Resumo do git de um projeto, para a lista de projetos (ver server/src/git.ts). */
+/** Uma pasta do PC na navegação de "Adicionar pasta" (ver server/src/project-folders.ts). */
+export type FolderListing = { path: string; parent: string | null; folders: { name: string; path: string; git: boolean }[] }
+
 export type GitSummary = {
   branch: string | null
   upstream: string | null

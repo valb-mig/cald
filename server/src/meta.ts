@@ -22,12 +22,14 @@ type Meta = {
   teams: Record<string, TeamSnapshot>;
   /** O workspace de cada conversa (só o id: o contexto é montado do workspace atual, ver workspaces.ts). */
   workspaces: Record<string, string>;
+  /** Pastas de projeto adicionadas à mão, fora das raízes (PROJECT_ROOTS). */
+  projects: string[];
 };
 
 const FILE = process.env.META_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {} };
+  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [] };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -41,6 +43,7 @@ export class MetaStore {
         cleared: data.cleared && typeof data.cleared === 'object' ? data.cleared : {},
         teams: data.teams && typeof data.teams === 'object' ? data.teams : {},
         workspaces: data.workspaces && typeof data.workspaces === 'object' ? data.workspaces : {},
+        projects: Array.isArray(data.projects) ? data.projects.filter((p) => typeof p === 'string') : [],
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -133,6 +136,17 @@ export class MetaStore {
   async setWorkspace(sessionId: string, workspaceId: string | undefined): Promise<void> {
     const { [sessionId]: _old, ...workspaces } = this.meta.workspaces;
     this.meta = { ...this.meta, workspaces: workspaceId ? { ...workspaces, [sessionId]: workspaceId } : workspaces };
+    await this.save();
+  }
+
+  /** As pastas de projeto que você adicionou, fora das raízes. */
+  addedProjects(): string[] {
+    return this.meta.projects;
+  }
+
+  async setProjectAdded(dir: string, added: boolean): Promise<void> {
+    const others = this.meta.projects.filter((p) => p !== dir);
+    this.meta = { ...this.meta, projects: added ? [...others, dir].sort() : others };
     await this.save();
   }
 

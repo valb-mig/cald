@@ -129,6 +129,39 @@ app.get<{ Querystring: { cwd?: string } }>(
 app.get('/api/office', async () => manager.office());
 
 app.get('/api/projects', async () => manager.projects());
+app.get('/api/projects/sources', async () => manager.projectSources());
+
+// Pasta nova de projeto, na primeira raiz (com `git init`, se pedido).
+app.post<{ Body: { name: string; git?: boolean } }>(
+  '/api/projects',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, git: { type: 'boolean' } },
+      },
+    },
+  },
+  async (req) => manager.createProject(req.body.name, req.body.git ?? false),
+);
+
+// Uma pasta que já existe vira projeto (ou deixa de ser, sem apagar nada).
+const projectPathBody = {
+  schema: { body: { type: 'object', required: ['path'], properties: { path: { type: 'string', minLength: 1, maxLength: 4096 } } } },
+};
+app.post<{ Body: { path: string } }>('/api/projects/add', projectPathBody, async (req) => manager.addProject(req.body.path));
+app.post<{ Body: { path: string } }>('/api/projects/remove', projectPathBody, async (req) => {
+  await manager.removeProject(req.body.path);
+  return { ok: true };
+});
+
+// As subpastas de uma pasta do PC, para escolher a de um projeto (sem `path`, a pasta pessoal).
+app.get<{ Querystring: { path?: string } }>(
+  '/api/folders',
+  { schema: { querystring: { type: 'object', properties: { path: { type: 'string', maxLength: 4096 } } } } },
+  async (req) => manager.folders(req.query.path),
+);
 // Arquivos alterados e commits a enviar/receber de cada projeto; `fetch=1` consulta antes o remoto.
 app.get<{ Querystring: { fetch?: string } }>('/api/projects/git', async (req) =>
   gitSummaries(await manager.projects(), req.query.fetch === '1'),
