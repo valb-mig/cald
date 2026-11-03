@@ -17,7 +17,7 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'favicon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'cald',
         short_name: 'cald',
