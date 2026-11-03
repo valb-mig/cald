@@ -1,7 +1,8 @@
-import { GitBranch, House, Loader2, Plus } from 'lucide-react'
+import { FolderPlus, GitBranch, House, Loader2, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Link } from 'wouter'
+import { Link, useLocation } from 'wouter'
+import { AddProjectDialog } from '@/components/add-project-dialog'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
@@ -86,11 +87,20 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const [git, setGit] = useState<Record<string, GitSummary>>({})
   const [checking, setChecking] = useState(false)
   const [query, setQuery] = useState('')
+  const [adding, setAdding] = useState(false)
+  // Muda quando um projeto entra ou sai da lista: o git é conferido de novo, com o projeto novo.
+  const [version, setVersion] = useState(0)
+  const [, navigate] = useLocation()
 
   useEffect(() => {
     setProjects(null)
     api.projects(machine).then(setProjects, (err) => toast.error(errorMessage(err)))
   }, [machine])
+
+  const reload = () => {
+    void api.projects(machine).then(setProjects, (err) => toast.error(errorMessage(err)))
+    setVersion((v) => v + 1)
+  }
 
   // Primeiro o git local, que é rápido; depois de novo, com o remoto consultado (git fetch).
   useEffect(() => {
@@ -110,7 +120,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
     return () => {
       alive = false
     }
-  }, [machine])
+  }, [machine, version])
 
   const stats = useMemo(() => {
     const map = new Map<string, Stats>()
@@ -136,11 +146,27 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
         title="Projetos"
         className={sidebar ? 'bg-sidebar/90' : undefined}
         action={
-          checking && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Conferindo o remoto
-            </span>
-          )
+          <div className="flex items-center gap-1">
+            {checking && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" /> Conferindo o remoto
+              </span>
+            )}
+            <Button variant="ghost" size="icon-sm" onClick={() => setAdding(true)} aria-label="Adicionar projeto" title="Adicionar projeto">
+              <FolderPlus />
+            </Button>
+          </div>
+        }
+      />
+      <AddProjectDialog
+        machine={machine}
+        open={adding}
+        onOpenChange={setAdding}
+        onChange={reload}
+        onAdded={(path) =>
+          toast.success(`${projectName(path)} está nos projetos`, {
+            action: { label: 'Nova conversa', onClick: () => navigate(newChatUrl(path, machine)) },
+          })
         }
       />
       <MachineFilter all={false} className="px-4 pb-3" />
