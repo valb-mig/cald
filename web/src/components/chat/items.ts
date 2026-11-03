@@ -1,4 +1,5 @@
-import type { PanelEvent } from '@/lib/types'
+import type { PanelEvent, Question } from '@/lib/types'
+import { questionsOf } from './questions'
 
 type Of<K extends PanelEvent['kind']> = Extract<PanelEvent, { kind: K }>
 /** `ts`: quando chegou ao vivo (o histórico salvo não tem, vem 0). */
@@ -8,8 +9,20 @@ export type Keyed = PanelEvent & { key: string; ts?: number; uuid?: string }
 export type AgentTask = Omit<Of<'agent'>, 'kind' | 'toolUseId'>
 
 export type ActivityEntry =
-  /** `inner` e `task` só nas chamadas que criam subagentes (Agent/Task): o que ele fez fica dentro dela. */
-  | { kind: 'tool'; key: string; use: Of<'tool_use'>; result?: Of<'tool_result'>; at?: number; inner?: ActivityEntry[]; task?: AgentTask }
+  /**
+   * `inner` e `task` só nas chamadas que criam subagentes (Agent/Task): o que ele fez fica dentro dela.
+   * `answer` só na AskUserQuestion respondida pelo painel: a resposta do pedido, já estruturada.
+   */
+  | {
+      kind: 'tool'
+      key: string
+      use: Of<'tool_use'>
+      result?: Of<'tool_result'>
+      at?: number
+      inner?: ActivityEntry[]
+      task?: AgentTask
+      answer?: Of<'question_resolved'>
+    }
   | { kind: 'thinking'; key: string; text: string }
   | { kind: 'subtext'; key: string; text: string }
 
@@ -83,6 +96,8 @@ export function buildItems(events: Keyed[]): Item[] {
 
   // O que cada subagente faz vai para dentro da chamada que o criou, não para o meio do chat.
   const agents = new Map<string, Extract<ActivityEntry, { kind: 'tool' }>>()
+  // As AskUserQuestion da conversa, para cada pedido respondido achar a sua.
+  const asks: Extract<ActivityEntry, { kind: 'tool' }>[] = []
   const place = (entry: ActivityEntry, parent: string | null | undefined) => {
     const agent = parent ? agents.get(parent) : undefined
     if (agent) agent.inner!.push(entry)
@@ -98,6 +113,7 @@ export function buildItems(events: Keyed[]): Item[] {
           entry.task = tasks.get(e.id)
           agents.set(e.id, entry)
         }
+        if (e.name === 'AskUserQuestion' && !e.parentToolUseId) asks.push(entry)
         place(entry, e.parentToolUseId)
         break
       }
@@ -124,9 +140,16 @@ export function buildItems(events: Keyed[]): Item[] {
         push({ type: 'approval', key: e.key, req: e, resolution: approvals.get(e.requestId), agent: name || undefined })
         break
       }
-      case 'question_request':
-        push({ type: 'question', key: e.key, req: e, resolution: questions.get(e.requestId) })
+      case 'question_request': {
+        // Respondida: a resposta vai para a linha da própria AskUserQuestion, que passa a mostrá-la, e o
+        // cartão sai; senão a pergunta apareceria duas vezes, e o bloco de atividade ficaria partido.
+        // Pendente (ou sem a linha dela), segue o cartão, que é onde se responde.
+        const resolution = questions.get(e.requestId)
+        const ask = resolution && asks.findLast((a) => !a.answer && sameQuestions(a.use.input, e.questions))
+        if (ask) ask.answer = resolution
+        else push({ type: 'question', key: e.key, req: e, resolution })
         break
+      }
       case 'result':
         push({ type: 'result', key: e.key, result: e })
         break
@@ -139,4 +162,10 @@ export function buildItems(events: Keyed[]): Item[] {
     }
   }
   return items
+}
+
+/** Se o input da AskUserQuestion traz as mesmas perguntas do pedido, na mesma ordem. */
+function sameQuestions(input: Record<string, unknown>, asked: Question[]): boolean {
+  const own = questionsOf(input)
+  return own.length === asked.length && own.every((q, i) => q.question === asked[i]!.question)
 }

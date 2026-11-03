@@ -34,6 +34,8 @@ import { cn } from '@/lib/utils'
 import { Arrival, useArrivals } from './arrival'
 import { useGallery } from './gallery'
 import type { ActivityEntry } from './items'
+import { QuestionAnswers } from './question-card'
+import { askOf, RECOMMENDED, type Ask } from './questions'
 import { lineCounts } from './turn'
 
 const ICONS: Record<string, LucideIcon> = {
@@ -118,7 +120,7 @@ export function LineCounts({ added, removed, className }: { added: number; remov
 type ToolEntry = Extract<ActivityEntry, { kind: 'tool' }>
 const s = (v: unknown) => (typeof v === 'string' ? v : '')
 
-export function ToolDetails({ use, result }: Pick<ToolEntry, 'use' | 'result'>) {
+export function ToolDetails({ use, result, answer }: Pick<ToolEntry, 'use' | 'result' | 'answer'>) {
   const input = use.input
   const output = result && (result.text ? <Pre tone={result.isError ? 'error' : undefined}>{result.text}</Pre> : null)
 
@@ -162,19 +164,43 @@ export function ToolDetails({ use, result }: Pick<ToolEntry, 'use' | 'result'>) 
       )
     case 'ExitPlanMode':
       return <Markdown text={s(input.plan)} className="rounded border bg-background/60 p-2" />
-    default:
+    case 'AskUserQuestion': {
+      const ask = askOf(input, result, answer)
+      if (!ask.questions.length) break
       return (
         <>
-          <Pre>{JSON.stringify(input, null, 2)}</Pre>
-          {output}
+          <QuestionAnswers {...ask} />
+          {/* Resposta que não deu para recortar, ou erro: o texto do resultado, como veio. */}
+          {!ask.answers && !ask.note && output}
         </>
       )
+    }
   }
+  return (
+    <>
+      <Pre>{JSON.stringify(input, null, 2)}</Pre>
+      {output}
+    </>
+  )
 }
 
-function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> & { sessionId: string }) {
+/** O resumo da AskUserQuestion respondida: o rótulo de cada pergunta e a resposta, em destaque. */
+function AskSummary({ questions, answers }: Ask) {
+  return questions
+    .filter((q) => answers?.[q.question])
+    .map((q, i) => (
+      <Fragment key={q.question}>
+        {i > 0 && ' · '}
+        {q.header || q.question} → <span className="font-medium text-foreground">{answers![q.question]!.replace(RECOMMENDED, '')}</span>
+      </Fragment>
+    ))
+}
+
+function ToolRow({ sessionId, use, result, answer }: Pick<ToolEntry, 'use' | 'result' | 'answer'> & { sessionId: string }) {
   const pending = !result
-  const failed = result?.isError
+  // Pergunta que você recusou volta como erro, mas não é falha: a linha diz o que houve, sem o X.
+  const ask = use.name === 'AskUserQuestion' ? askOf(use.input, result, answer) : undefined
+  const failed = result?.isError && !ask?.note
   const name = use.name.startsWith('mcp__') ? use.name.split('__').slice(1).join(' · ') : use.name
   const { claude } = useGallery()
   // Edição que deu certo: quantas linhas entraram e saíram, como no diff.
@@ -186,7 +212,12 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
           className: cn('size-4 shrink-0 text-muted-foreground', failed && 'text-red-600 dark:text-red-400'),
         })}
         <span className="shrink-0 font-medium">{name}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{toolSummary(use.name, use.input)}</span>
+        {/* Pergunta respondida (ou recusada): no lugar das perguntas, o que houve com elas. */}
+        {ask?.answers || ask?.note ? (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{ask.answers ? <AskSummary {...ask} /> : ask.note}</span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{toolSummary(use.name, use.input)}</span>
+        )}
         {counts && <LineCounts {...counts} />}
         {pending && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />}
         {failed && <XCircle className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />}
@@ -201,7 +232,7 @@ function ToolRow({ sessionId, use, result }: Pick<ToolEntry, 'use' | 'result'> &
         </div>
       )}
       <CollapsibleContent className="space-y-1.5 px-2 pt-1 pb-2">
-        <ToolDetails use={use} result={result} />
+        <ToolDetails use={use} result={result} answer={answer} />
       </CollapsibleContent>
     </Collapsible>
   )
@@ -242,7 +273,7 @@ function EntryRow({ sessionId, entry, agents }: { sessionId: string; entry: Acti
   // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
   const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
   if (agent) return <AgentRow node={agent} onOpen={() => agents!.open(agent.id)} />
-  if (entry.kind === 'tool') return <ToolRow sessionId={sessionId} use={entry.use} result={entry.result} />
+  if (entry.kind === 'tool') return <ToolRow sessionId={sessionId} use={entry.use} result={entry.result} answer={entry.answer} />
   if (entry.kind === 'thinking') return <ThinkingRow text={entry.text} />
   return (
     <div className="mx-2 my-1 border-l-2 pl-2 text-xs text-muted-foreground">

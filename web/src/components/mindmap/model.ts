@@ -1,6 +1,7 @@
 import type { AgentStatus, AgentTree } from '@/components/agents/model'
 import { AGENT_TOOLS, type ActivityEntry, type Item } from '@/components/chat/items'
 import type { ToolEntry } from '@/components/chat/turn'
+import { askOf, picked, questionsOf } from '@/components/chat/questions'
 import { toolSummary } from '@/lib/format'
 import type { Question } from '@/lib/types'
 
@@ -153,67 +154,11 @@ function worst(a: MindStatus, b: MindStatus): MindStatus {
 
 /** `scope`: o passo ou subagente dono das pontas (um arquivo aparece uma vez em cada). */
 /**
- * `asked`: perguntas que já viraram decisão pelo pedido ao vivo do painel. A chamada da ferramenta
- * delas também chega como ação, e sem isto cada pergunta apareceria duas vezes no mapa.
+ * `asked`: perguntas que já viraram decisão pelo cartão do pedido ao vivo do painel (as pendentes; as
+ * respondidas vão para a linha da ferramenta, ver chat/items.ts). A chamada da ferramenta delas
+ * também chega como ação, e sem isto cada pergunta apareceria duas vezes no mapa.
  */
 type Ctx = { branch: number; pending: Set<string>; agents: AgentTree; itemKey: string; scope: string; asked: Set<string> }
-
-/** As perguntas do input da AskUserQuestion, no formato do pedido ao vivo; vazio se não bater. */
-function questionsOf(input: Record<string, unknown>): Question[] {
-  const raw = Array.isArray(input.questions) ? (input.questions as Record<string, unknown>[]) : []
-  return raw.flatMap((q) =>
-    typeof q?.question === 'string' && Array.isArray(q.options)
-      ? [
-          {
-            question: q.question,
-            header: str(q.header),
-            multiSelect: Boolean(q.multiSelect),
-            options: (q.options as Record<string, unknown>[]).map((o) => ({ label: str(o.label), description: str(o.description) })),
-          },
-        ]
-      : [],
-  )
-}
-
-/**
- * As respostas, recortadas do texto que o Claude Code grava no resultado da AskUserQuestion. O
- * histórico só guarda esse texto (o SDK descarta a versão estruturada), mas o miolo é estável —
- * `"pergunta"="resposta"`, uma atrás da outra —, e como as perguntas vêm exatas do input, cada
- * resposta vai do fim da sua pergunta até o começo da próxima.
- */
-export function parseAnswers(text: string, questions: string[]): Record<string, string> {
-  const out: Record<string, string> = {}
-  questions.forEach((q, i) => {
-    const open = `"${q}"="`
-    const at = text.indexOf(open)
-    if (at < 0) return
-    const start = at + open.length
-    const nexts = questions
-      .slice(i + 1)
-      .map((n) => text.indexOf(`", "${n}"="`, start))
-      .filter((p) => p >= 0)
-    const tail = text.indexOf('". ', start)
-    const end = nexts.length ? Math.min(...nexts) : tail >= 0 ? tail : text.lastIndexOf('"')
-    if (end > start) out[q] = text.slice(start, end)
-  })
-  return out
-}
-
-/**
- * Se a opção está entre as escolhidas: a resposta inteira, ou um dos itens de uma múltipla escolha,
- * que chega com os rótulos unidos por vírgula. Compara o rótulo inteiro com fronteira dos dois
- * lados, porque os próprios rótulos podem ter vírgula dentro.
- */
-function picked(answer: string, label: string): boolean {
-  if (!label) return false
-  for (let at = answer.indexOf(label); at >= 0; at = answer.indexOf(label, at + 1)) {
-    const before = at === 0 || answer.slice(at - 2, at) === ', '
-    const end = at + label.length
-    const after = end === answer.length || answer.slice(end, end + 2) === ', '
-    if (before && after) return true
-  }
-  return false
-}
 
 /**
  * Cada pergunta vira um losango, e cada opção um galho dele: o que você escolheu fica aceso, os que
@@ -277,11 +222,12 @@ function leaves(entries: ActivityEntry[], ctx: Ctx): MindNode[] {
 
     if (name === 'AskUserQuestion') {
       const questions = questionsOf(input)
-      // Pergunta do painel ao vivo: o pedido dela já desenha a decisão, com a resposta estruturada.
+      // Pergunta com o cartão do painel (pendente): o pedido dela já desenha a decisão, e é por ele que se responde.
       if (questions.length && questions.every((q) => ctx.asked.has(q.question))) continue
       if (questions.length) {
-        const answers = e.result && !e.result.isError ? parseAnswers(e.result.text, questions.map((q) => q.question)) : undefined
-        out.push(...decisions(questions, answers, { id: e.use.id, branch: ctx.branch, itemKey: ctx.itemKey, open: !e.result }))
+        // Respondida no painel, a resposta estruturada vem junto (ver chat/items.ts); senão, recortada do resultado.
+        const { answers } = askOf(input, e.result, e.answer)
+        out.push(...decisions(questions, answers, { id: e.use.id, branch: ctx.branch, itemKey: ctx.itemKey, open: !e.result && !e.answer }))
         continue
       }
     }
