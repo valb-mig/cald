@@ -2,7 +2,7 @@
 
 <img src="web/public/pwa-192.png" width="96" alt="Logo: notebook com terminal e celular ligados por sinal">
 
-# claude.remote
+# cald
 
 </div>
 
@@ -27,15 +27,15 @@ O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela s
 Com os requisitos acima prontos (e o Tailscale com **MagicDNS** e **HTTPS Certificates** ligados no [painel de DNS](https://login.tailscale.com/admin/dns)):
 
 ```sh
-git clone https://github.com/valb-mig/claude.remote.git ~/Projects/claude.remote
-cd ~/Projects/claude.remote
+git clone https://github.com/valb-mig/cald.git ~/Projects/cald
+cd ~/Projects/cald
 ./deploy/install.sh
 ```
 
-O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `cr`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
+O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `cald`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
 
 ```sh
-cr -link        # mostra o link de acesso remoto da tailnet
+cald -link      # mostra o link de acesso remoto da tailnet
 ```
 
 O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
@@ -43,13 +43,13 @@ O instalador é idempotente, então pode rodar de novo sem medo. Se preferir ent
 ### 1. Baixar e compilar
 
 ```sh
-git clone https://github.com/valb-mig/claude.remote.git ~/Projects/claude.remote
-cd ~/Projects/claude.remote
+git clone https://github.com/valb-mig/cald.git ~/Projects/cald
+cd ~/Projects/cald
 pnpm install
 pnpm build        # gera web/dist, o app que o servidor entrega ao celular
 ```
 
-O serviço do passo 3 espera o projeto em `~/Projects/claude.remote`. Se clonar em outro lugar, ajuste o `WorkingDirectory` dele.
+O serviço do passo 3 espera o projeto em `~/Projects/cald`. Se clonar em outro lugar, ajuste o `WorkingDirectory` dele.
 
 ### 2. Testar à mão
 
@@ -62,16 +62,16 @@ Abrir http://127.0.0.1:7337 no navegador do PC já mostra o painel. Pare com Ctr
 
 ### 3. Deixar rodando como serviço
 
-O arquivo [`deploy/claude-remote.service`](deploy/claude-remote.service) sobe o servidor pelo shell interativo (`zsh -lic`) para herdar o PATH e as variáveis do seu `~/.zshrc`. Assim, o Claude aberto pelo celular enxerga as mesmas ferramentas do terminal (git, node, java…). Antes de instalar, confira o `ExecStart`:
+O arquivo [`deploy/cald.service`](deploy/cald.service) sobe o servidor pelo shell interativo (`zsh -lic`) para herdar o PATH e as variáveis do seu `~/.zshrc`. Assim, o Claude aberto pelo celular enxerga as mesmas ferramentas do terminal (git, node, java…). Antes de instalar, confira o `ExecStart`:
 
 - usa **bash** em vez de zsh? Troque `/usr/bin/zsh -lic` por `/bin/bash -lic`;
 - o Node veio do nvm, fnm, mise ou asdf? Troque `/usr/bin/node` só por `node`, que o shell encontra no PATH.
 
 ```sh
-systemctl --user link ~/Projects/claude.remote/deploy/claude-remote.service
-systemctl --user enable --now claude-remote
+systemctl --user link ~/Projects/cald/deploy/cald.service
+systemctl --user enable --now cald
 loginctl enable-linger "$USER"             # sobe no boot, mesmo sem login no PC
-systemctl --user status claude-remote
+systemctl --user status cald
 ```
 
 Se editar o arquivo depois de instalado, rode `systemctl --user daemon-reload` e reinicie o serviço.
@@ -101,7 +101,7 @@ O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` info
 
 ### Várias máquinas
 
-Instale o Claude Remote em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como Claude Remote. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
+Instale o cald em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como cald. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
 
 As notificações passam pela máquina de onde o app foi instalado: o celular só se inscreve nela, e as outras repassam os avisos para ela. Com ela desligada, os avisos das outras não chegam.
 
@@ -113,17 +113,17 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `PROJECT_ROOTS` | `~/Projects` | Pastas onde o celular pode abrir projetos, separadas por `:` (pasta nova de projeto vai na primeira; outras pastas podem ser adicionadas pela tela de Projetos) |
 | `ALLOWED_LOGINS` | o dono do PC | Logins do Tailscale com acesso, separados por `,` |
 | `EXTRA_ORIGINS` | (nenhuma) | Origens extras aceitas do navegador, separadas por `,` |
-| `UPLOADS_DIR` | `~/.cache/claude-remote/uploads` | Onde ficam os anexos enviados pelo celular |
+| `UPLOADS_DIR` | `~/.cache/cald/uploads` | Onde ficam os anexos enviados pelo celular |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
 | `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
-| `WHISPER_CLI` | `~/.local/share/claude-remote/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
-| `WHISPER_MODEL` | `~/.local/share/claude-remote/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
-| `ACTIVITY_FILE` | `~/.local/share/claude-remote/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
+| `WHISPER_CLI` | `~/.local/share/cald/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
+| `WHISPER_MODEL` | `~/.local/share/cald/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
+| `ACTIVITY_FILE` | `~/.local/share/cald/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
 | `WAKATIME_CLI` | `~/.wakatime/wakatime-cli` | Binário do WakaTime, para o seu tempo no painel contar lá (ver [WakaTime](#wakatime)); `WAKATIME=0` desliga |
 | `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem a medida do WakaTime no PC |
 | `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
 
-No serviço, defina com `systemctl --user edit claude-remote` e depois `systemctl --user restart claude-remote`:
+No serviço, defina com `systemctl --user edit cald` e depois `systemctl --user restart cald`:
 
 ```ini
 [Service]
@@ -180,17 +180,19 @@ Sem o `wakatime-cli` instalado, nada disso acontece: a medida não aparece e o p
 - **Pelo celular, o Claude não acha ferramentas que existem no terminal:** o serviço não carregou o seu shell. Revise o `ExecStart` (passo 3).
 - **Logo depois de ligar o PC, só o acesso local funciona:** o serviço pode subir antes do Tailscale; ele tenta de novo a cada 15 s.
 - **As notificações não chegam:** use **Enviar teste** no painel Computador. Se aparecer erro, ele vem do serviço de push; se não der erro e nada chegar, libere as notificações do app e tire o Chrome da otimização de bateria nas configurações do Android. Falhas de envio aparecem nos logs como `falha ao enviar notificação`.
-- **Qualquer outra coisa:** `journalctl --user -u claude-remote -f` mostra os logs.
+- **Qualquer outra coisa:** `journalctl --user -u cald -f` mostra os logs.
 
 ### Atualizar
 
 ```sh
-cd ~/Projects/claude.remote
+cd ~/Projects/cald
 git pull
 pnpm install
 pnpm build
-systemctl --user restart claude-remote
+systemctl --user restart cald
 ```
+
+Vindo de antes da troca de nome (quando o projeto se chamava claude-remote): rode `./deploy/install.sh` de novo. Ele desliga o serviço `claude-remote`, sobe o `cald` e troca o comando `cr` por `cald`. As pastas de dados (`~/.local/share/claude-remote` e as outras) mudam de nome sozinhas na primeira subida e ficam como atalho para as novas.
 
 Ou pelo celular, no painel **Computador**, cartão **Atualização do PC**: ele mostra as novidades da `main` do GitHub, e **Atualizar e reiniciar** faz os passos acima (trocando para a `main`, se o PC estiver noutra branch). A atualização recusa se o repositório no PC tiver mudanças não commitadas, se a `main` do PC tiver commits que não estão no GitHub ou se alguma conversa do painel estiver trabalhando ou esperando resposta. O painel fica fora do ar por alguns segundos, e as conversas que estavam abertas nele são reabertas sozinhas, com o mesmo modelo e modo.
 
@@ -202,10 +204,10 @@ O que dá para fazer:
 - **Início:** o app abre aqui (no PC, ao lado da lista de conversas, quando nenhuma está aberta). Uma saudação com a data e, numa linha, o que está acontecendo (quantas conversas pedem você, quantas trabalham, quanto do limite de 5 h foi usado). Abaixo:
   - **Pedindo você / Agora**: aprovações e perguntas de todas as conversas do painel, com os mesmos cartões do chat para responder ali mesmo; as abertas no PC que esperam você levam até elas; e as que estão trabalhando ou com algo em segundo plano.
   - **Limites do plano** (5 h, semana e por modelo) com previsão pelo ritmo desde o começo da janela: até onde vai ou, se for acabar antes de renovar, quando (em laranja). Embaixo, CPU, memória e processos do Claude no PC.
-  - **Dias com o Claude Remote**: o ano em quadradinhos, como o grid de contribuições do GitHub, com a cor mais forte nos dias com mais sessões pelo Claude Remote (**Tudo** conta também as do terminal e do VSCode). Mostra os dias de uso, a sequência atual e o recorde; tocar num dia mostra as sessões, as mensagens e o custo.
+  - **Dias com o cald**: o ano em quadradinhos, como o grid de contribuições do GitHub, com a cor mais forte nos dias com mais sessões pelo cald (**Tudo** conta também as do terminal e do VSCode). Mostra os dias de uso, a sequência atual e o recorde; tocar num dia mostra as sessões, as mensagens e o custo.
   - **Últimos 30 dias**: custo estimado, mensagens suas, dias de uso e tokens; o custo de cada dia em colunas; um mapa de calor dos dias da semana e horários em que você mais usa; e os projetos que mais consumiram. O custo é a preço de tabela da API.
   - **Projetos recentes**: branch e arquivos não commitados de cada um, a última conversa, quanto custou em 30 dias e **+** para começar uma conversa nova nele.
-  - O histórico vem dos registros das conversas no PC, que o Claude Code apaga depois de ~30 dias; por isso o servidor guarda um resumo por dia em `~/.local/share/claude-remote/activity.json`, e o grid não perde os dias antigos. Dias de antes dos registros que ainda existem vêm do histórico de mensagens do terminal (`~/.claude/history.jsonl`), sem custo.
+  - O histórico vem dos registros das conversas no PC, que o Claude Code apaga depois de ~30 dias; por isso o servidor guarda um resumo por dia em `~/.local/share/cald/activity.json`, e o grid não perde os dias antigos. Dias de antes dos registros que ainda existem vêm do histórico de mensagens do terminal (`~/.claude/history.jsonl`), sem custo.
 - **Salinha** (`/salinha`; o atalho fica no painel Computador): um prédio de escritórios desenhado em SVG para deixar de fundo e acompanhar tudo de uma vez. Cada conversa aberta (no painel ou no PC) é uma área do escritório, separada das outras por divisórias; cada andar tem áreas dos dois lados do corredor (no celular, uma por andar, com o corredor à esquerda), e conversa nova ganha área nova, no lugar onde fica até fechar.
   - **Estações:** o claudinho da conversa (o mesmo do avatar dela, com o nome dele) e os funcionários (os subagentes, cada um com um claudinho sorteado) chegam pelo elevador e vão até a estação do que estão fazendo: mesa com o PC (web, inclusive `curl`), gaveteiro (lendo e procurando arquivos, inclusive `cat`, `grep` e afins no terminal, e compactando a conversa), bancada (editando), terminal (comandos), quadro (planejando e coordenando), café (pensando) e sofá (descansando, com a TV ligada quando algo roda em segundo plano); quem pede você sai até o corredor com um "!". A última ferramenta segura o claudinho na estação por alguns segundos, porque Read e Edit acabam antes da salinha perguntar, e cada um fica um tempo mínimo onde chegou antes de ir para outra.
   - **O que acontece na conversa vira animação:** cada arquivo editado é uma folha voando para a pilha da bancada; erro solta fumaça e um "!?"; teste acende o semáforo do rack, verde ou vermelho; `git commit` faz o claudinho levar uma caixa ao elevador, e `git push` ou `gh pr create` chama o caminhão de entregas na rua; skill tira um livro da estante; o quadro mostra as tarefas da conversa (TodoWrite) com a barra de progresso; o subagente que termina entrega uma pasta ao claudinho da conversa antes de ir embora; turno encerrado ou pedido respondido ganham um ✓. O claudinho da conversa usa o chapéu do modelo: coroa no Opus, chapéu de mago no Fable, boina no Sonnet e brotinho no Haiku.
@@ -253,7 +255,7 @@ Notificações, mesmo com o app fechado, depois de ativadas no painel Computador
 - **Quando terminar** (opcional): com o começo da última resposta do Claude.
 - **Sessões abertas no PC** (opcional): quando uma sessão do terminal ou do VSCode passa a esperar você, ou termina algo que levou mais de 1 min.
 - **Sons no app** (cartão **Sons**, no painel Computador): com o app aberto, toca um som quando qualquer conversa passa a perguntar algo ou pedir aprovação (duas notas subindo) e outro quando termina (três notas descendo); das sessões abertas no PC, o de fim só depois de algo que levou mais de 1 min. Cada um liga e desliga separado, com **Ouvir** para conhecer. Os sons são gerados no próprio navegador, sem arquivo de áudio. Com o app na tela, a notificação chega sem som, porque o app já tocou o dele; em segundo plano, quem avisa é a notificação. O navegador só libera o som depois do primeiro toque no app.
-- **Título da aba:** enquanto alguma conversa espera você (uma pergunta ou uma aprovação, no painel ou numa sessão aberta no PC, em qualquer máquina), o título da aba vira "(2) Esperando resposta · Claude Remote", com quantas são. Dá para ver de outra aba, sem som nem notificação, e volta a ser só "Claude Remote" quando a última é respondida. É o mesmo sinal do som de atenção.
+- **Título da aba:** enquanto alguma conversa espera você (uma pergunta ou uma aprovação, no painel ou numa sessão aberta no PC, em qualquer máquina), o título da aba vira "(2) Esperando resposta · cald", com quantas são. Dá para ver de outra aba, sem som nem notificação, e volta a ser só "cald" quando a última é respondida. É o mesmo sinal do som de atenção.
 - **Fundo da conversa** (cartão **Fundo da conversa**, no painel Computador): um desenho em ASCII animado atrás da conversa. Ele ocupa a área central inteira — não a alça nem a lista ao lado, e o cabeçalho de cada conversa fica opaco por cima dele —, e é uma cena só: com conversas lado a lado o fundo atravessa a divisória em vez de recomeçar em cada uma. A barra de mensagem fica por cima dele, de vidro, e uma lâmina de vidro embaixo da coluna de mensagens, que desce até o fim da tela por trás da barra, desfoca de leve a cena atrás do texto e a puxa de volta para a cor do fundo do app, para as letras ficarem legíveis; ela é um pouco mais larga que a coluna, para o esfumaçado das laterais não cair atrás das letras, e as margens seguem nítidas, e as laterais da lâmina são esfumaçadas para ela não virar um retângulo com borda dura no meio da cena. O mapa mental também deixa a cena aparecer, sob o mesmo véu, no lugar do chat ou ao lado dele. O quanto ela vela acompanha a intensidade escolhida. São catorze temas, escolhidos por miniaturas que são a própria cena rodando:
   - **Água:** **Aquário** (cardume atravessando, algas no rodapé e os grandes comendo os pequenos), **Lagoa das Tartarugas** (honu planando, uma raia ao fundo e a rede de luz das cáusticas tremendo por cima), **Lago das Carpas** (o lago visto de cima, carpas coleando e vitórias-régias boiando), **Água-viva** (campânulas que apertam para subir e afundam devagar) e **Barquinhos de Papel** (barcos atravessando, com o reflexo tremendo embaixo).
   - **Céu:** **Nuvens**, **Aurora** (cortinas de luz entre o verde e o violeta), **Galáxia** (três camadas de estrelas em paralaxe, nebulosa e riscos cruzando) e **Luar** (a lua, nuvens finas na frente dela e o caminho de luz na água).
@@ -269,7 +271,7 @@ Notificações, mesmo com o app fechado, depois de ativadas no painel Computador
 No chat:
 - **Bifurcar daqui:** o ícone ao lado de cada mensagem sua abre uma conversa nova com o histórico só até antes dela, e devolve o texto ao campo para você reescrever e seguir por outro caminho. A original fica intacta na lista, então dá para comparar as duas respostas depois. É o mesmo que editar uma mensagem antiga no ChatGPT. O corte vai até o último registro do turno que fica de pé, e o Claude Code retoma a conversa só até ali.
   - A bifurcação se identifica: um ícone de ramo antes do título, na lista e no cabeçalho do chat, e uma tarja no alto da conversa dizendo de qual ela saiu — tocar nela abre a original.
-  - O Claude Code só grava o arquivo da conversa bifurcada no primeiro turno dela. Até lá (e depois, se ela for fechada antes disso) o painel mostra o histórico herdado da origem, cortado no ponto, só para consulta. De onde cada bifurcação saiu fica gravado em `~/.local/state/claude-remote/meta.json`, porque o vínculo precisa durar mais que o processo.
+  - O Claude Code só grava o arquivo da conversa bifurcada no primeiro turno dela. Até lá (e depois, se ela for fechada antes disso) o painel mostra o histórico herdado da origem, cortado no ponto, só para consulta. De onde cada bifurcação saiu fica gravado em `~/.local/state/cald/meta.json`, porque o vínculo precisa durar mais que o processo.
 - **Modo zen** (o botão de recolher, no topo da conversa): deixa a conversa sozinha na tela — somem a alça, a lista e o cabeçalho, ficam só as mensagens e a caixa de escrever. É da conversa em que foi ligado: com outras lado a lado, elas saem de vista, sem fechar nem perder o que estava escrito, e voltam quando ele desliga. Para sair, o botão apagado no canto de cima, o Esc no PC ou o voltar do celular. A escolha fica salva neste aparelho.
 - O menu ⋮ tem **Fixar no topo**, **Renomear**, **Resumo da sessão** e **Apagar conversa**. O título é gravado no próprio Claude Code, então aparece também no `/resume` do terminal e no VSCode. Apagar remove o histórico de vez e é recusado se a conversa estiver aberta no PC.
 - **Sua mensagem fixa no topo:** quando a sua mensagem sobe e sai da tela, ela fica numa faixa logo abaixo do cabeçalho (até duas linhas), para você não perder o que pediu enquanto lê a resposta. Subindo até a resposta anterior, a faixa troca para a mensagem de lá; com a mensagem à vista, a faixa some. Mensagem curta: tocar leva até ela. Mensagem que não cabe nas duas linhas (com a ⌄): tocar abre ela inteira ali mesmo, rolando dentro da faixa até metade da tela, sem tirar você do ponto da resposta; embaixo, **Ir até a mensagem** e **Recolher**.
@@ -315,12 +317,12 @@ No chat:
 - **Workspaces:** um molde de conversa, como uma gem, no alto da tela de **Projetos**. Cada workspace junta projetos (o primeiro é o principal, onde a conversa abre; os outros entram como pastas que o Claude também pode ler e editar), um texto de contexto, arquivos, regras, comandos de build, teste e lint e um time padrão. A página dele (uma aba no PC, uma tela no celular) edita tudo isso e lista as conversas dele, com o botão **Nova conversa**.
   - Toda conversa do workspace recebe o contexto no prompt de sistema: as instruções, as regras, os comandos (para validar antes de dar algo por pronto, e passar a quem do time for testar), os outros projetos e os arquivos. Textos pequenos (até uns 30 KB no total) vão inteiros; PDFs, imagens e textos grandes vão como caminhos, que ele lê quando forem relevantes.
   - A conversa guarda só de qual workspace ela é: o contexto é montado do workspace atual toda vez que o processo dela sobe (conversa nova, reabrir, reinício, bifurcar, trocar o time). Editou o workspace, vale a partir da próxima vez que cada conversa for aberta.
-  - A conversa nova do workspace já vem com o time padrão, e "Trocar projeto" oferece só os projetos dele. O topo da conversa mostra o workspace na cor dele, e a placa da área na salinha também. Os workspaces ficam em `~/.local/share/claude-remote/workspaces.json` (`WORKSPACES_FILE`), com os arquivos em `workspace-files/` ao lado.
+  - A conversa nova do workspace já vem com o time padrão, e "Trocar projeto" oferece só os projetos dele. O topo da conversa mostra o workspace na cor dele, e a placa da área na salinha também. Os workspaces ficam em `~/.local/share/cald/workspaces.json` (`WORKSPACES_FILE`), com os arquivos em `workspace-files/` ao lado.
 - **Times de agentes:** subagentes seus, cada um com nome, papel, modelo, esforço e instruções, e um claudinho próprio (o mesmo em todas as conversas). Na conversa nova, o botão de pessoas ao lado do modelo escolhe um time ou abre **Gerenciar times**, onde dá para montar um do zero ou começar cada membro por um papel pronto (Frontend, Backend, Testes, Revisão). O time vira os subagentes da conversa (a opção `agents` do SDK, com o modelo e o esforço de cada membro), e o Claude dela recebe no prompt de sistema quem é quem, para delegar o que for da área de cada um.
   - A conversa guarda uma cópia do time de quando começou: editar ou apagar o time só vale para as conversas novas, e reabrir, retomar depois de reiniciar ou bifurcar traz o mesmo time. O time é escolhido só ao começar: o SDK fixa os subagentes quando o processo sobe.
   - Na conversa, o chip do time na barra da caixa (no PC) e o botão de robô do topo abrem **Agentes** com o time no alto: cada membro com o modelo, o esforço e o que está fazendo agora, ou **Livre**.
   - Na salinha, os membros ficam na área mesmo sem trabalho, descansando; quando são chamados, saem do lugar até a estação, com o chapéu do modelo deles, e ao terminar levam a pasta ao claudinho da conversa.
-  - Só para conversas abertas no painel: as do terminal do PC não recebem subagentes de fora. Os times ficam em `~/.local/share/claude-remote/teams.json` (`TEAMS_FILE`).
+  - Só para conversas abertas no painel: as do terminal do PC não recebem subagentes de fora. Os times ficam em `~/.local/share/cald/teams.json` (`TEAMS_FILE`).
 - **Mapa mental:** o botão de rede no topo troca o chat por um mapa mental da conversa, ao vivo. No centro fica a conversa; cada mensagem sua é um galho numerado, com uma cor; dele saem os passos do Claude, com o que ele disse que ia fazer (ou, se não disse nada, o raciocínio ou o que mais fez: "Lendo 3 arquivos", "Rodando 2 comandos"), as aprovações, as perguntas e a resposta. Nas pontas fica o que cada passo tocou: arquivos (lidos, criados ou editados, com +linhas −linhas), comandos, buscas, sites e subagentes, com o que eles fizeram.
   - Enquanto o Claude trabalha, o galho em andamento fica azul com a linha correndo, e o mapa acompanha sozinho o passo atual, sempre, sem botão para ligar ou desligar. Arrastar ou rolar com a mão segura o mapa onde você deixou por alguns segundos, para dar para olhar outra parte; depois disso, cada passo novo volta a ficar à vista. Com o Claude parado nada muda de foco, então nada puxa você de volta. Um pedido de aprovação ou uma pergunta fica laranja no mapa, e o cartão para responder (**Permitir**, **Negar**, as opções) aparece acima da caixa de mensagem, sem sair do mapa. Dá para mandar mensagem e parar o Claude normalmente.
   - Turnos antigos ficam recolhidos: tocar num turno abre ou fecha os passos dele, e passos com muitas ações mostram as mais recentes (**+N ações** abre o resto). Tocar num passo ou numa ação volta ao chat naquele ponto, que pisca para ser achado; num subagente, abre o painel dele.
@@ -346,10 +348,10 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 - **`@`** lista os arquivos e pastas do projeto. Escolher uma pasta continua a navegação dentro dela.
 - **📎** anexa arquivos. No Android, o seletor oferece câmera, galeria e arquivos.
   - **Imagens** são reduzidas no celular para até 1568 px e vão direto para o Claude. Tocar numa imagem anexada (a do lápis) abre o editor: caneta, seta, círculo e recorte, em cinco cores, com desfazer; **Pronto** troca o anexo pela versão marcada.
-  - **Outros arquivos** (até 25 MB) são gravados no PC em `~/.cache/claude-remote/uploads/<sessão>/` e entram na mensagem como `@caminho`. O Claude Code lê qualquer tipo assim, inclusive PDF.
+  - **Outros arquivos** (até 25 MB) são gravados no PC em `~/.cache/cald/uploads/<sessão>/` e entram na mensagem como `@caminho`. O Claude Code lê qualquer tipo assim, inclusive PDF.
 - No PC, colar um print com Ctrl+V também anexa.
 - O rascunho de cada conversa (texto e anexos) fica guardado no celular: trocar de conversa, tocar em **Atualizar** ou o Android fechar o app não perde o que foi digitado.
-- No Android, o Claude Remote aparece no menu **Compartilhar** dos outros apps (prints, fotos, arquivos, links): escolha a conversa, ou uma nova, e tudo entra no rascunho dela para você revisar antes de enviar. Depois de atualizar, o Android pode levar até um dia para mostrar o app no menu; reinstalar o app faz aparecer na hora.
+- No Android, o cald aparece no menu **Compartilhar** dos outros apps (prints, fotos, arquivos, links): escolha a conversa, ou uma nova, e tudo entra no rascunho dela para você revisar antes de enviar. Depois de atualizar, o Android pode levar até um dia para mostrar o app no menu; reinstalar o app faz aparecer na hora.
 
 ## Como funciona
 
@@ -361,12 +363,12 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 ## Operação do serviço
 
 ```sh
-systemctl --user status claude-remote
-systemctl --user restart claude-remote     # após mudar o código do servidor
-journalctl --user -u claude-remote -f      # logs
-cr -link                                   # link de acesso remoto (atalho)
-tailscale serve status                     # acesso remoto
-tailscale serve --https=443 off            # desligar o acesso remoto
+systemctl --user status cald
+systemctl --user restart cald       # após mudar o código do servidor
+journalctl --user -u cald -f        # logs
+cald -link                          # link de acesso remoto (atalho)
+tailscale serve status              # acesso remoto
+tailscale serve --https=443 off     # desligar o acesso remoto
 ```
 
 Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no painel aparecem como paradas e podem ser retomadas pelo ID.
@@ -380,7 +382,7 @@ pnpm dev:web      # Vite em http://localhost:5173 com proxy para o serviço na 7
 pnpm check        # tipos do server e do web
 ```
 
-O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart claude-remote`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop claude-remote` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
+O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart cald`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop cald` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
 
 Estrutura do frontend (`web/src`):
 - `lib/store.ts`: WebSocket com reconexão automática e retomada pelo último `seq`.
@@ -422,7 +424,7 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/release` | Liberar para o terminal |
 | POST | `/api/sessions/:id/messages` | Enviar `{text, attachments?: [{name, mediaType, data (base64), thumb?}]}` |
 | GET | `/api/commands?cwd=` | Comandos e skills do projeto (cache de 10 min) |
-| POST | `/api/sessions/:id/pin` | `{pinned}`: fixa ou desafixa (guardado em `~/.local/state/claude-remote/meta.json`) |
+| POST | `/api/sessions/:id/pin` | `{pinned}`: fixa ou desafixa (guardado em `~/.local/state/cald/meta.json`) |
 | POST | `/api/sessions/:id/rename` | `{title}`: usa `renameSession` do SDK |
 | POST | `/api/sessions/:id/settings` | `{model?, effort?, permissionMode?}` numa sessão aberta no painel |
 | GET | `/api/sessions/:id/context` | Tokens usados e limite da compactação automática |
@@ -443,11 +445,11 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/approvals/:requestId` | Aprovar ou negar ferramenta: `{allow, message?, always?}` |
 | POST | `/api/sessions/:id/questions/:requestId` | Responder pergunta do Claude: `{answers: {"<pergunta>": "<opção>"}}` ou `{decline: true}` |
 | GET | `/api/push/key` | Chave pública VAPID do PC, para o celular se inscrever |
-| POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/claude-remote/push.json`) |
+| POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/cald/push.json`) |
 | POST | `/api/push/unsubscribe` | `{endpoint}`: remove o aparelho |
 | POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
 | POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
-| GET | `/api/machines` | Nome desta máquina e as outras suas com o Claude Remote (`{name, machines: [{id, name, base}]}`) |
+| GET | `/api/machines` | Nome desta máquina e as outras suas com o cald (`{name, machines: [{id, name, base}]}`) |
 | GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
 | POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, `pnpm build` e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |
