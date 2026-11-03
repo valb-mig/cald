@@ -284,8 +284,33 @@
   transform-box: fill-box;
   transform-origin: center;
 }
+/* O claudinho do "Trabalhando…" (components/chat/message-list.tsx): pulinhos, amassando ao tocar o chão
+   e esticando ao subir, como quem está ocupado. */
+@keyframes claudinho-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1.08, 0.9);
+  }
+  12% {
+    transform: translateY(0) scale(1, 1);
+  }
+  40% {
+    transform: translateY(-3px) scale(0.95, 1.06);
+  }
+  62% {
+    transform: translateY(0) scale(1, 1);
+  }
+  72% {
+    transform: translateY(0) scale(1.06, 0.93);
+  }
+}
+.claudinho-hop {
+  animation: claudinho-hop 0.9s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
 @media (prefers-reduced-motion: reduce) {
-  .claudinho-blink {
+  .claudinho-blink,
+  .claudinho-hop {
     animation: none;
   }
 }
