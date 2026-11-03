@@ -48,8 +48,8 @@ import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { firstSentence, mindTree } from '@/components/mindmap/model'
 import { MapPane } from '@/components/mindmap/pane'
-import { ProjectPanelButton } from '@/components/project/panel'
 import { useChatDisplay } from '@/components/mindmap/view'
+import { ProjectPanelButton } from '@/components/project/panel'
 import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
 import { StateBadge } from '@/components/state-badge'
@@ -484,15 +484,18 @@ export function ChatPage({ id }: { id: string }) {
   })
   const areaWidth = useWidth(areaRef)
   const roomy = areaWidth >= 1000
-  // Estreita (o celular em pé, ou várias lado a lado): só o essencial no topo, o resto vai para o menu.
-  const tight = areaWidth < 480
+  // Estreita (várias lado a lado no PC): só o essencial no topo, o resto vai para o menu. No celular, o
+  // topo fica quase como no zen: o voltar, a conversa, o mapa mental e os arquivos e o git, sem menu.
+  const slim = areaWidth < 480 || !tabs
   const toggleAutoSpeech = () => {
     setAutoSpeech(id, !autoSpeech)
     if (autoSpeech) toast('Leitura automática desligada')
     else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
   }
   const shown = display === 'both' && !roomy ? 'map' : display
-  const stateLabel = stateInfo(shownState, shownWaiting).label
+  const { label: stateLabel, tone: stateTone } = stateInfo(shownState, shownWaiting)
+  // No topo enxuto, os subagentes só quando trabalham (o número deles é um estado); parados, no menu.
+  const agentsOnTop = agents.all.length > 0 && (!slim || agentsWorking > 0)
   // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
   // refaria a árvore e o layout a cada delta.
   const streamHead = useStore((s) => {
@@ -636,11 +639,14 @@ export function ChatPage({ id }: { id: string }) {
                 </span>
               )}
               {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
-              {owner === 'panel' && <Smartphone className="size-3 shrink-0" />}
-              <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
+              {/* No celular, aberta aqui e concluída são o normal: ficam sem marca, como na lista. */}
+              {owner === 'panel' && !slim && <Smartphone className="size-3 shrink-0" />}
+              {(!slim || stateTone !== 'done') && (
+                <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
+              )}
             </div>
           </div>
-          {speechSupported && !tight && (
+          {speechSupported && !slim && (
             <Button
               variant={autoSpeech ? 'default' : 'ghost'}
               size="icon"
@@ -652,24 +658,25 @@ export function ChatPage({ id }: { id: string }) {
               {autoSpeech ? <Volume2 /> : <VolumeOff />}
             </Button>
           )}
-          {!tight && (
-            <>
-              <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
-                <Minimize2 />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
-                aria-pressed={shown !== 'chat'}
-                aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
-              >
-                {shown === 'chat' ? <Network /> : <MessagesSquare />}
-              </Button>
-            </>
+          {!slim && (
+            <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
+              <Minimize2 />
+            </Button>
           )}
-          {agents.all.length > 0 && (
+          {/* O mapa mental fica no topo também no celular, ao lado dos arquivos e do git. */}
+          {(!slim || !tabs) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
+              aria-pressed={shown !== 'chat'}
+              aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+              title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
+            >
+              {shown === 'chat' ? <Network /> : <MessagesSquare />}
+            </Button>
+          )}
+          {agentsOnTop && (
             <Button
               variant="ghost"
               size="icon"
@@ -690,85 +697,96 @@ export function ChatPage({ id }: { id: string }) {
               )}
             </Button>
           )}
-          {project && git.status?.remote && !tight && <RepoLink url={git.status.remote} />}
-          {project && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Mais ações">
-                <EllipsisVertical />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-56">
-              {/* Estreita, os botões do topo que não couberam. */}
-              {tight && (
-                <>
-                  {speechSupported && (
-                    <DropdownMenuItem onSelect={toggleAutoSpeech}>
-                      {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
+          {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
+          {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
+          {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
+          {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: assumir a conversa no
+              botão que toma o lugar da caixa de mensagem, apagar no toque longo da lista. */}
+          {tabs && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Mais ações">
+                  <EllipsisVertical />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-56">
+                {/* Estreita, os botões do topo que não couberam. */}
+                {slim && (
+                  <>
+                    {speechSupported && (
+                      <DropdownMenuItem onSelect={toggleAutoSpeech}>
+                        {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
+                      {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
                     </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
-                    {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => setZen(id)}>
-                    <Minimize2 /> Modo zen
-                  </DropdownMenuItem>
-                  {project && git.status?.remote && (
-                    <DropdownMenuItem asChild>
-                      <a href={git.status.remote} target="_blank" rel="noreferrer">
-                        <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
-                      </a>
+                    <DropdownMenuItem onSelect={() => setZen(id)}>
+                      <Minimize2 /> Modo zen
                     </DropdownMenuItem>
-                  )}
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              {owner === 'panel' && (
-                <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
-                  <LogOut /> Liberar para o PC
+                    {project && git.status?.remote && (
+                      <DropdownMenuItem asChild>
+                        <a href={git.status.remote} target="_blank" rel="noreferrer">
+                          <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
+                        </a>
+                      </DropdownMenuItem>
+                    )}
+                    {agents.all.length > 0 && !agentsOnTop && (
+                      <DropdownMenuItem onSelect={() => setAgentsOpen(true)}>
+                        <Bot /> Agentes
+                        <span className="ml-auto text-xs text-muted-foreground tabular-nums">{agents.all.length}</span>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {owner === 'panel' && (
+                  <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
+                    <LogOut /> Liberar para o PC
+                  </DropdownMenuItem>
+                )}
+                {owner === 'pc' && (
+                  <DropdownMenuItem disabled={busy || state !== 'idle'} onSelect={() => setConfirmTakeover(true)}>
+                    <Smartphone /> Assumir sessão
+                  </DropdownMenuItem>
+                )}
+                {owner !== 'panel' && (
+                  <DropdownMenuItem disabled={busy} onSelect={fork}>
+                    <GitFork /> Continuar numa cópia
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
+                  <ListChecks /> Resumo da sessão
                 </DropdownMenuItem>
-              )}
-              {owner === 'pc' && (
-                <DropdownMenuItem disabled={busy || state !== 'idle'} onSelect={() => setConfirmTakeover(true)}>
-                  <Smartphone /> Assumir sessão
+                <DropdownMenuItem
+                  onSelect={() =>
+                    split.canAdd
+                      ? setBesideOpen(true)
+                      : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+                  }
+                >
+                  <Columns2 /> Abrir outra ao lado
                 </DropdownMenuItem>
-              )}
-              {owner !== 'panel' && (
-                <DropdownMenuItem disabled={busy} onSelect={fork}>
-                  <GitFork /> Continuar numa cópia
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={busy || !entry}
+                  onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
+                >
+                  {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
-                <ListChecks /> Resumo da sessão
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  split.canAdd
-                    ? setBesideOpen(true)
-                    : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
-                }
-              >
-                <Columns2 /> Abrir outra ao lado
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={busy || !entry}
-                onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
-              >
-                {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
-                <Pencil /> Renomear
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
-                <Copy /> Copiar comando de retomada
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
-                <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
+                  <Pencil /> Renomear
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
+                  <Copy /> Copiar comando de retomada
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
+                  <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {handle && (
             <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
               <X />

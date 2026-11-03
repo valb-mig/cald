@@ -24,6 +24,16 @@ export function relativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
+/** Quando, curto, para o canto de uma linha de lista: "agora", "5 min", "2 h", "3 d" ou a data. */
+export function shortTime(ms: number): string {
+  const abs = Math.abs(Date.now() - ms) / 1000
+  if (abs < 45) return 'agora'
+  if (abs < 3600) return `${Math.max(1, Math.floor(abs / 60))} min`
+  if (abs < 86_400) return `${Math.floor(abs / 3600)} h`
+  if (abs < 7 * 86_400) return `${Math.floor(abs / 86_400)} d`
+  return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
 export function duration(ms: number): string {
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s}s`

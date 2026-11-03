@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils'
 const toneClass: Record<Tone, string> = {
   running: 'border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-300',
   attention: 'border-transparent bg-amber-500/20 text-amber-800 dark:text-amber-300',
-  done: 'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  // Concluída é o estado de repouso da maioria das conversas: cinza, para a cor sobrar para o que pede atenção.
+  done: 'border-transparent bg-foreground/[0.07] text-muted-foreground',
   muted: 'text-muted-foreground',
 }
 

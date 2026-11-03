@@ -116,8 +116,8 @@
     --island-shine: inset 0 1px 0 0 oklch(1 0 0 / 70%);
     --island-ring: 0 1px 2px 0 oklch(0 0 0 / 6%);
     --island-edge: var(--island-shine), var(--island-ring);
-    /* O recuo do entalhe e da barra de gestos do celular. Dentro da janela (`.framed`) vale 0: a casca
-       em volta já afasta a janela deles, e o recuo dobraria. Folhas e telas cheias ficam no `body`. */
+    /* O recuo do entalhe e da barra de gestos do celular: a janela vai até a borda da tela, e o que fica
+       nas bordas dela desvia deles por aqui (ver Pane, em App.tsx). Folhas e telas cheias ficam no `body`. */
     --safe-top: env(safe-area-inset-top);
     --safe-bottom: env(safe-area-inset-bottom);
     /* A barra lateral e o destaque nela (a conversa em foco, a aba da alça). No claro, a ilha tem a cor
@@ -481,10 +481,4 @@
   .tab-panel-in {
     animation: none;
   }
-}
-
-/* A janela do celular (App.tsx): os entalhes ficam por conta da casca em volta dela. */
-.framed {
-  --safe-top: 0px;
-  --safe-bottom: 0px;
 }

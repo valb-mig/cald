@@ -12,6 +12,7 @@ import { BottomPanel, StatusBar } from '@/components/status-bar'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
 import { setComputerOpen } from '@/lib/computer'
+import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
 import { HOME, loadMachines } from '@/lib/machines'
 import { openTab, WORKBENCH_PATH } from '@/lib/workbench'
@@ -56,6 +57,7 @@ export default function App() {
   const zenId = useZen((s) => s.id)
   const open = useSplit().ids
   const zen = zenId !== null && open.includes(zenId)
+  const glass = useGlass()
 
   useEffect(() => {
     // Outras máquinas suas com o Claude Remote (ver lib/machines.ts); a lista guardada vale até a resposta.
@@ -96,13 +98,14 @@ export default function App() {
     // Na horizontal, o entalhe da câmera fica num dos lados.
     <div
       className={cn(
-        'relative isolate flex h-dvh pr-[max(var(--frame),env(safe-area-inset-right))] pl-[max(var(--frame),env(safe-area-inset-left))]',
+        'relative isolate flex h-dvh',
         // No PC, ilhas soltas sobre o fundo: a barra lateral e a casca, com a mesma margem em volta e entre elas.
         // No claro, a margem é da cor da janela; no escuro, funda como as ilhas (ver index.css).
-        // No celular, a casca é a tela: a janela e a pílula das abas ficam soltas nela, longe dos entalhes.
+        // No celular, a casca é a tela, sem margem: a janela vai até a borda e cuida dos entalhes por
+        // dentro (ver Pane); só o entalhe do lado, deitado, fica de fora.
         wide
-          ? 'bg-background py-frame dark:bg-shell'
-          : 'bg-shell pt-[max(var(--frame),env(safe-area-inset-top))] pb-[max(var(--frame),env(safe-area-inset-bottom))]',
+          ? 'bg-background py-frame pr-[max(var(--frame),env(safe-area-inset-right))] pl-[max(var(--frame),env(safe-area-inset-left))] dark:bg-shell'
+          : 'bg-shell pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]',
       )}
     >
       {/* No PC, a cena animada é o fundo do app inteiro: aparece na margem e, pelo recorte da casca, na
@@ -120,7 +123,13 @@ export default function App() {
       <div className="relative isolate flex min-w-0 flex-1 has-[[data-big]]:z-30 wide:overflow-hidden wide:rounded-island wide:shadow-island">
         {wide && <ShellPaint />}
         {/* Relativo para o arquivo aberto pela barra do projeto cobrir só a área das conversas. */}
-        <div className={cn('relative flex min-w-0 flex-1 flex-col', wide ? 'p-gap' : 'mx-auto max-w-2xl compact:max-w-none')}>
+        {/* No celular, com o aviso de sem conexão no alto, é ele que desvia do entalhe, e a janela embaixo não. */}
+        <div
+          className={cn(
+            'relative flex min-w-0 flex-1 flex-col',
+            wide ? 'p-gap' : 'mx-auto max-w-2xl has-[[data-banner]]:[--safe-top:0px] compact:max-w-none',
+          )}
+        >
           <ConnectionBanner />
           <Switch>
             <Route path="/s/:id">
@@ -128,7 +137,9 @@ export default function App() {
               {wide ? (
                 <Workbench />
               ) : (
-                <Pane>
+                // Como no PC, onde a janela da conversa é um recorte na casca: com fundo animado, a cena
+                // fica por cima da cor de fundo do app (no escuro, a da casca), e não do cinza da janela.
+                <Pane className={cn(glass && 'dark:bg-shell')}>
                   <ChatSplit />
                 </Pane>
               )}
@@ -150,13 +161,14 @@ export default function App() {
                 <SharePage />
               </Pane>
             </Route>
+            {/* No celular não há início: o app abre nas conversas. */}
             <Route path="/">
               {wide ? (
                 <Pane>
                   <WideHome />
                 </Pane>
               ) : (
-                <TabPages wide={false} />
+                <Redirect to="/conversas" replace />
               )}
             </Route>
             <Route>
@@ -267,30 +279,30 @@ function NewChatTab() {
 }
 
 /**
- * Cada tela fica numa janela arredondada: no PC, dentro da casca, como as conversas; no celular, solta na
- * casca, que é a tela toda e a afasta dos entalhes (por isso `framed`, ver index.css).
+ * Cada tela fica numa janela: no PC, arredondada dentro da casca, como as conversas; no celular, a tela
+ * toda, de ponta a ponta, e o que fica nas bordas dela (o cabeçalho, a caixa de mensagem) desvia dos
+ * entalhes com `--safe-top` e `--safe-bottom`.
  */
-function Pane({ children }: { children: React.ReactNode }) {
+function Pane({ children, className }: { children: React.ReactNode; className?: string }) {
   const wide = useWide()
   return (
-    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-pane bg-background', !wide && 'framed shadow-island')}>
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background', wide && 'rounded-pane', className)}>
       {children}
     </div>
   )
 }
 
-/** Início, Conversas e Projetos (o Computador abre por cima); no celular deitado, as abas viram uma coluna na lateral. */
+/** Conversas e Projetos (o Computador abre por cima); no celular deitado, as abas viram uma coluna na lateral. */
 function TabPages({ wide }: { wide: boolean }) {
   const [location] = useLocation()
   // O "voltar" de uma conversa leva de volta à aba de onde ela foi aberta.
   useEffect(() => rememberTab(location), [location])
+  // A lista de conversas ocupa a janela e rola por dentro: cada aba de projeto com a sua rolagem (ver pages/sessions.tsx).
+  const fill = location.startsWith('/conversas')
   const main = (
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl">
+      <main className={cn('relative min-h-0 flex-1', fill ? 'flex flex-col' : 'overflow-y-auto')}>
+        <div className={cn('mx-auto w-full max-w-3xl', fill && 'flex min-h-0 flex-1 flex-col')}>
           <Switch>
-            <Route path="/">
-              <HomePage />
-            </Route>
             <Route path="/conversas">
               <SessionsPage />
             </Route>
@@ -306,10 +318,12 @@ function TabPages({ wide }: { wide: boolean }) {
       </main>
   )
   if (wide) return main
-  // No celular, a janela e, embaixo dela (ao lado, deitado), a pílula das abas.
+  // No celular, a página e, embaixo dela (ao lado, deitado), a pílula das abas.
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-frame compact:flex-row-reverse">
-      <Pane>{main}</Pane>
+    <div className="flex min-h-0 flex-1 flex-col compact:flex-row-reverse">
+      {/* As listas (conversas, projetos) ficam soltas na casca, sem janela: a cor da janela passa a ser a
+          dela, para o que pinta com a cor da janela (o contorno da bolinha do claudinho) seguir combinando. */}
+      <Pane className="[--background:var(--shell)]">{main}</Pane>
       <BottomNav />
     </div>
   )
@@ -325,7 +339,7 @@ function OpenProjects() {
   return null
 }
 
-/** O endereço da antiga aba Computador (favoritos, histórico): abre o painel por cima do início. */
+/** O endereço da antiga aba Computador (favoritos, histórico): abre o painel por cima do início (no celular, das conversas). */
 function OpenComputer() {
   const [, navigate] = useLocation()
   useEffect(() => {
