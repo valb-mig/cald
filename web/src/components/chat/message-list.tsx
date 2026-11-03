@@ -19,7 +19,7 @@ import { Activity, LineCounts } from './activity'
 import { ApprovalCard } from './approval-card'
 import { Arrival, useArrivals } from './arrival'
 import { BackgroundTasks } from './background-tasks'
-import { Claudinho } from '@/components/claudinho'
+import { CHEER_MS, Claudinho } from '@/components/claudinho'
 import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
@@ -378,8 +378,9 @@ function WorkingLine({ sessionId, items }: { sessionId: string; items: Item[] })
   const now = useNow(Boolean(running?.at))
   return (
     <div className="chat-enter flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
-      {/* O claudinho da conversa, pulando enquanto trabalha, no lugar da estrelinha do Claude Code. */}
-      <Claudinho seed={sessionId} size={18} state="running" className="claudinho-hop" />
+      {/* O claudinho da conversa no lugar da estrelinha do Claude Code: rodando uma ferramenta, pula com o
+          balão de "…"; sem nenhuma, fica com a mão no queixo, pensando. */}
+      <Claudinho seed={sessionId} size={18} state="running" status thinking={!running} className={running ? 'claudinho-hop' : undefined} />
       {running ? (
         <>
           <span className="shrink-0">Rodando</span>
@@ -402,10 +403,43 @@ function LiveTail({ sessionId, working, items }: { sessionId: string; working: b
   // O markdown é reprocessado inteiro a cada atualização, então o custo cresce com a resposta: quanto
   // maior ela fica, mais espaçadas as atualizações (de uma por quadro até ~4 por segundo).
   const typed = useTyped(streaming, Math.max(16, Math.min(250, streaming.length / 40)))
+  const cheer = useTurnCheer(working, items.findLast((i): i is ResultItem => i.type === 'result'))
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
   const text = streaming && typed
   if (text) return <Markdown text={text} className="chat-enter opacity-90" />
-  return working ? <WorkingLine sessionId={sessionId} items={items} /> : null
+  if (working) return <WorkingLine sessionId={sessionId} items={items} />
+  // O turno acabou bem: o claudinho do "Trabalhando…" faz o joinha e sai.
+  return cheer ? (
+    <div className="claudinho-bye flex items-center" aria-hidden>
+      <Claudinho seed={sessionId} size={18} pose="done" />
+    </div>
+  ) : null
+}
+
+type ResultItem = Extract<Item, { type: 'result' }>
+
+/**
+ * A hora do joinha no fim do chat: um turno visto rodando acabou bem. O fim chega em dois sinais, o
+ * estado parando de trabalhar e o resultado do turno, e o estado costuma vir antes; o joinha espera
+ * os dois, senão leria o resultado do turno anterior.
+ */
+function useTurnCheer(working: boolean, result?: ResultItem): boolean {
+  // O turno em andamento, com a chave do último resultado de antes dele; `null` sem turno.
+  const [turn, setTurn] = useState<{ after?: string } | null>(null)
+  const [cheer, setCheer] = useState(false)
+  if (working && !turn) {
+    setTurn({ after: result?.key })
+    setCheer(false)
+  } else if (!working && turn && result && result.key !== turn.after) {
+    setTurn(null)
+    setCheer(result.result.ok)
+  }
+  useEffect(() => {
+    if (!cheer) return
+    const timer = setTimeout(() => setCheer(false), CHEER_MS)
+    return () => clearTimeout(timer)
+  }, [cheer])
+  return cheer
 }
 
 /**
