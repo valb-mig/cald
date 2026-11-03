@@ -7,12 +7,10 @@ import { api, errorMessage } from '@/lib/api'
 import type { Question } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import type { Item } from './items'
+import { picked as isPicked, RECOMMENDED } from './questions'
 
 type Props = Extract<Item, { type: 'question' }> & { sessionId: string; actionable: boolean }
 type Option = Question['options'][number]
-
-/** "Opção (Recomendado)": o Claude marca a sugestão dele no próprio rótulo; aqui ela vira um selo. */
-const RECOMMENDED = /\s*\((recomendad[oa]|recommended)\)\s*$/i
 
 /** A marca de escolha: círculo na escolha única, quadrado na múltipla. */
 function Mark({ multi, checked }: { multi: boolean; checked: boolean }) {
@@ -30,33 +28,12 @@ function Mark({ multi, checked }: { multi: boolean; checked: boolean }) {
   )
 }
 
-function OptionRow({
-  option,
-  multi,
-  checked,
-  disabled,
-  onClick,
-}: {
-  option: Option
-  multi: boolean
-  checked: boolean
-  disabled: boolean
-  onClick: () => void
-}) {
+/** O miolo de uma opção: a marca, o rótulo (com o selo de recomendada) e a descrição. */
+function OptionBody({ option, multi, checked }: { option: Option; multi: boolean; checked: boolean }) {
   const recommended = RECOMMENDED.test(option.label)
   const label = option.label.replace(RECOMMENDED, '')
   return (
-    <button
-      type="button"
-      role={multi ? 'checkbox' : 'radio'}
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-60',
-        checked && 'bg-primary/[0.07] hover:bg-primary/10',
-      )}
-    >
+    <>
       <Mark multi={multi} checked={checked} />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -71,7 +48,91 @@ function OptionRow({
           <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{option.description}</span>
         )}
       </span>
+    </>
+  )
+}
+
+function OptionRow({
+  option,
+  multi,
+  checked,
+  disabled,
+  onClick,
+}: {
+  option: Option
+  multi: boolean
+  checked: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role={multi ? 'checkbox' : 'radio'}
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-60',
+        checked && 'bg-primary/[0.07] hover:bg-primary/10',
+      )}
+    >
+      <OptionBody option={option} multi={multi} checked={checked} />
     </button>
+  )
+}
+
+/**
+ * A pergunta já feita, só para ler (a linha da AskUserQuestion no chat), com a mesma cara do cartão:
+ * cada pergunta com as opções, a escolhida acesa e as outras apagadas, e a resposta escrita à mão
+ * como a última linha. Sem `answers` (pendente, recusada), as opções ficam neutras e `note` diz o que houve.
+ */
+export function QuestionAnswers({ questions, answers, note }: { questions: Question[]; answers?: Record<string, string>; note?: string }) {
+  return (
+    <div className="space-y-2.5">
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+      {questions.map((q) => {
+        const answer = answers?.[q.question]
+        const chosen = new Set(answer ? q.options.filter((o) => isPicked(answer, o.label)).map((o) => o.label) : [])
+        const typed = answer && !chosen.size ? answer : undefined
+        return (
+          <div key={q.question} className="space-y-1.5">
+            <div className="space-y-0.5">
+              {q.header && <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{q.header}</div>}
+              <p className="text-sm font-medium">{q.question}</p>
+            </div>
+            <div
+              role="list"
+              aria-label={q.question}
+              className="divide-y overflow-hidden rounded-lg border bg-background/40"
+            >
+              {q.options.map((o) => {
+                const on = chosen.has(o.label)
+                return (
+                  <div
+                    key={o.label}
+                    role="listitem"
+                    aria-current={on || undefined}
+                    className={cn('flex items-start gap-3 px-3 py-2', on ? 'bg-primary/[0.07]' : answer && 'opacity-55')}
+                  >
+                    <OptionBody option={o} multi={q.multiSelect} checked={on} />
+                  </div>
+                )
+              })}
+              {typed && (
+                <div role="listitem" aria-current className="flex items-start gap-3 bg-primary/[0.07] px-3 py-2">
+                  <PenLine className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0 flex-1 text-sm">
+                    <span className="text-muted-foreground">Outra resposta: </span>
+                    <span className="font-semibold whitespace-pre-wrap">{typed}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
