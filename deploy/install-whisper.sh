@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Instala o Whisper (whisper.cpp) para o ditado em navegadores sem reconhecimento de voz, como o
-# Firefox: compila o `whisper-cli` e baixa o modelo, em ~/.local/share/claude-remote/whisper (os
+# Firefox: compila o `whisper-cli` e baixa o modelo, em ~/.local/share/cald/whisper (os
 # caminhos que o servidor procura; ver server/src/config.ts). Pode rodar de novo sem medo.
 # Uso: deploy/install-whisper.sh [modelo]   (padrão: small-q5_1; ex.: base-q5_1, large-v3-turbo-q5_0)
 set -euo pipefail
 
 MODEL="${1:-small-q5_1}"
-DIR="$HOME/.local/share/claude-remote/whisper"
+DIR="$HOME/.local/share/cald/whisper"
 mkdir -p "$DIR/models"
 
 for tool in git cmake make g++ curl; do
@@ -32,4 +32,4 @@ fi
 echo
 echo "Whisper pronto: $DIR/whisper.cpp/build/bin/whisper-cli"
 echo "Modelo: $FILE"
-[ "$MODEL" = small-q5_1 ] || echo "Outro modelo: defina WHISPER_MODEL=$FILE no serviço (systemctl --user edit claude-remote)."
+[ "$MODEL" = small-q5_1 ] || echo "Outro modelo: defina WHISPER_MODEL=$FILE no serviço (systemctl --user edit cald)."

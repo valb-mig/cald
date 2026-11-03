@@ -1,13 +1,13 @@
 [Unit]
-Description=claude.remote (painel mobile do Claude Code)
+Description=cald (painel mobile do Claude Code)
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/claude.remote/server
+WorkingDirectory=%h/Projects/cald/server
 # Via zsh interativo para herdar o ambiente do ~/.zshrc (PATH, JAVA_HOME, ANDROID_HOME…):
 # as sessões abertas pelo celular precisam enxergar as mesmas ferramentas do terminal.
 ExecStart=/usr/bin/zsh -lic 'exec /usr/bin/node src/index.ts'
-SyslogIdentifier=claude-remote
+SyslogIdentifier=cald
 Restart=on-failure
 RestartSec=3
 # SIGTERM só no processo principal, que encerra as sessões do painel com calma;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — instala o claude.remote de ponta a ponta:
-#   compila o app, sobe o serviço systemd, publica na tailnet e instala o alias `cr`.
+# install.sh — instala o cald de ponta a ponta:
+#   compila o app, sobe o serviço systemd, publica na tailnet e instala o alias `cald`.
 # No fim, imprime o link que o celular vai acessar.
 #
 # Uso:  ./deploy/install.sh        (de dentro do projeto clonado)
@@ -12,7 +12,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PORT="${PORT:-7337}"
-SERVICE_NAME="claude-remote"
+SERVICE_NAME="cald"
+# Nome de antes da troca para cald: o serviço e o alias antigos saem na reinstalação.
+LEGACY_SERVICE="claude-remote"
 
 # --- saída ------------------------------------------------------------------
 if [ -t 1 ]; then
@@ -74,12 +76,20 @@ esac
 SERVICE_DIR="$HOME/.config/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/$SERVICE_NAME.service"
 mkdir -p "$SERVICE_DIR"
+
+# Instalação de antes da troca de nome: desliga o serviço antigo, que ocupa a mesma porta. As pastas
+# de dados mudam de nome sozinhas na primeira subida do servidor (ver server/src/config.ts).
+if [ -e "$SERVICE_DIR/$LEGACY_SERVICE.service" ]; then
+  systemctl --user disable --now "$LEGACY_SERVICE" >/dev/null 2>&1 || true
+  rm -f "$SERVICE_DIR/$LEGACY_SERVICE.service"
+  info "Serviço antigo ($LEGACY_SERVICE) desligado e removido."
+fi
 # Remove qualquer arquivo/symlink anterior (ex.: de um 'systemctl --user link'),
 # senão o '>' escreveria através do symlink e alteraria o arquivo do repo.
 rm -f "$SERVICE_FILE"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=claude.remote (painel mobile do Claude Code)
+Description=cald (painel mobile do Claude Code)
 
 [Service]
 Type=simple
@@ -130,20 +140,22 @@ if have tailscale; then
   fi
 fi
 
-# --- 5. alias `cr` no shell -------------------------------------------------
-step "Instalando o comando 'cr' (alias)"
-chmod +x "$SCRIPT_DIR/cr.sh"
+# --- 5. alias `cald` no shell -----------------------------------------------
+step "Instalando o comando 'cald' (alias)"
+chmod +x "$SCRIPT_DIR/cald.sh"
 
-BEGIN_MARK="# >>> claude.remote (cr) >>>"
-END_MARK="# <<< claude.remote (cr) <<<"
+BEGIN_MARK="# >>> cald >>>"
+END_MARK="# <<< cald <<<"
+LEGACY_BEGIN="# >>> claude.remote (cr) >>>"
+LEGACY_END="# <<< claude.remote (cr) <<<"
 install_alias() {
   local rc="$1"
   [ -e "$rc" ] || return 0
-  # Remove bloco anterior (idempotente) e reescreve com o caminho atual.
-  sed -i "\|$BEGIN_MARK|,\|$END_MARK|d" "$rc"
+  # Remove bloco anterior (idempotente; também o do alias antigo `cr`) e reescreve com o caminho atual.
+  sed -i -e "\|$BEGIN_MARK|,\|$END_MARK|d" -e "\|$LEGACY_BEGIN|,\|$LEGACY_END|d" "$rc"
   {
     printf '%s\n' "$BEGIN_MARK"
-    printf 'alias cr="%s"\n' "$SCRIPT_DIR/cr.sh"
+    printf 'alias cald="%s"\n' "$SCRIPT_DIR/cald.sh"
     printf '%s\n' "$END_MARK"
   } >> "$rc"
   info "Alias adicionado em $rc"
@@ -154,8 +166,8 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
   if [ -e "$rc" ]; then install_alias "$rc"; installed_in_any=1; fi
 done
 if [ "$installed_in_any" -eq 0 ]; then
-  warn "Não achei ~/.zshrc nem ~/.bashrc. Para usar 'cr', adicione à mão:"
-  warn "  alias cr=\"$SCRIPT_DIR/cr.sh\""
+  warn "Não achei ~/.zshrc nem ~/.bashrc. Para usar 'cald', adicione à mão:"
+  warn "  alias cald=\"$SCRIPT_DIR/cald.sh\""
 fi
 
 # --- fim --------------------------------------------------------------------
@@ -167,4 +179,4 @@ else
   printf '\n    %sO link ainda não está disponível.%s Depois de configurar o tailscale serve, pegue com:\n' "$YELLOW" "$RESET"
 fi
 printf '\n    %sAbra um novo terminal (ou rode:  source ~/.zshrc) e consulte o link quando quiser:%s\n' "$DIM" "$RESET"
-printf '      %scr -link%s\n\n' "$BOLD" "$RESET"
+printf '      %scald -link%s\n\n' "$BOLD" "$RESET"
