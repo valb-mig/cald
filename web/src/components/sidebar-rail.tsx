@@ -1,8 +1,7 @@
 import { FolderGit2, House, Inbox, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { useShallow } from 'zustand/react/shallow'
-import { ClaudeMark } from '@/components/chat/claude-spinner'
-import { Claudinho } from '@/components/claudinho'
+import { CaldMark, Claudinho } from '@/components/claudinho'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { setComputerOpen, useComputer } from '@/lib/computer'
@@ -329,7 +328,7 @@ export function SidebarRail() {
           {/* O painel Computador: o PC, os limites do Claude e os ajustes deste aparelho. Abre por cima,
               sem tirar você da conversa (ver lib/computer.ts). */}
           <RailItem label="Computador: o PC, os limites e os ajustes" onClick={() => setComputerOpen(true)} active={computer}>
-            <ClaudeMark className="text-foreground dark:text-white" />
+            <CaldMark className="text-foreground dark:text-white" />
           </RailItem>
         </div>
       </aside>
