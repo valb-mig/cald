@@ -503,8 +503,8 @@ export function ChatPage({ id }: { id: string }) {
     return text ? firstSentence(text) || 'Escrevendo…' : ''
   })
   const mapRoot = useMemo(
-    () => (shown === 'chat' ? null : mindTree({ items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: streamHead, agents })),
-    [shown, items, entry?.title, stateLabel, working, streamHead, agents],
+    () => (shown === 'chat' ? null : mindTree({ seed: id, items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: streamHead, agents })),
+    [shown, id, items, entry?.title, stateLabel, working, streamHead, agents],
   )
   // Aprovações e perguntas esperando: com só o mapa na tela, ficam acima do campo de mensagem.
   const requests = useMemo(
@@ -892,6 +892,7 @@ export function ChatPage({ id }: { id: string }) {
             <MapPane beside={shown === 'both'}>
               <Suspense>
                 <MindMap
+                  sessionId={id}
                   root={mapRoot}
                   title={entry?.title ?? 'Conversa'}
                   onJump={jumpTo}

@@ -1,13 +1,14 @@
 import type { AgentStatus, AgentTree } from '@/components/agents/model'
 import { AGENT_TOOLS, type ActivityEntry, type Item } from '@/components/chat/items'
 import type { ToolEntry } from '@/components/chat/turn'
-import { duration, toolSummary } from '@/lib/format'
+import { toolSummary } from '@/lib/format'
 import type { Question } from '@/lib/types'
 
 /**
- * Mapa mental da conversa: ela no centro, cada mensagem sua é um galho, e dele saem os passos
- * do Claude (o que ele disse que ia fazer, as perguntas, a resposta) com o que cada passo tocou
- * (arquivos, comandos, buscas, sites, subagentes) nas pontas.
+ * Mapa mental da conversa: ela no topo, cada mensagem sua abre um trecho, e dele descem os passos
+ * do Claude (o que ele disse que ia fazer, as perguntas, a resposta). O que cada passo tocou
+ * (arquivos, comandos, buscas, sites) fica nas pontas da árvore e vira o resumo do cartão dele; os
+ * subagentes e as perguntas viram cartões próprios (ver layout.ts).
  */
 
 export type MindKind =
@@ -27,16 +28,52 @@ export type MindKind =
   | 'web'
   | 'tool'
   | 'notice'
-  | 'more'
 
 export type MindStatus = AgentStatus
+
+/** O estado no pé do cartão do mapa (na tela e na imagem exportada). */
+export const STATE_LABEL: Record<MindStatus, string> = {
+  done: 'feito',
+  running: 'trabalhando',
+  waiting: 'espera você',
+  failed: 'falhou',
+  stopped: 'parou',
+}
+
+/** O tipo no canto do cartão. */
+export const KIND_LABEL: Partial<Record<MindKind, string>> = {
+  root: 'conversa',
+  turn: 'você',
+  step: 'passo',
+  answer: 'resposta',
+  approval: 'aprovação',
+  decision: 'pergunta',
+  agent: 'agente',
+}
+
+/** Números do cartão: modelo, consumo e quanto levou; cada tipo de nó preenche o que tem. */
+export type MindStats = {
+  model?: string
+  tokens?: number
+  /** Ferramentas que um subagente usou. */
+  tools?: number
+  durationMs?: number
+  /** Quando começou, para contar o tempo ao vivo. */
+  startedAt?: number
+  costUsd?: number
+}
 
 export type MindNode = {
   id: string
   kind: MindKind
   label: string
-  /** Segunda linha: "editou +12 −3", "4 passos · 1min 2s". */
+  /** Segunda linha: "editou +12 −3", "3 comandos · leu 2 arquivos", "4 passos". */
   meta?: string
+  /** Num subagente, o resumo do que ele fez (a segunda linha é o tipo dele). */
+  detail?: string
+  /** O claudinho do nó: o da conversa nos passos do Claude, o próprio em cada subagente. */
+  seed?: string
+  stats?: MindStats
   /** Ferramenta que deu origem (para o ícone). */
   tool?: string
   status: MindStatus
@@ -47,10 +84,11 @@ export type MindNode = {
   /** Subagente (abre a folha dele) ou pedido pendente (abre o cartão). */
   agentId?: string
   requestId?: string
-  /** Turno recolhido: quantos passos estão escondidos. */
-  folded?: number
-  /** "+N ações" / "Mostrar menos": o nó cujas pontas o toque abre ou fecha. */
-  toggles?: string
+  /** Num arquivo: quantas vezes foi lido e editado, e as linhas colocadas e tiradas. */
+  reads?: number
+  writes?: number
+  added?: number
+  removed?: number
   /** Num galho de decisão: `true` é o caminho que você tomou, `false` um descartado; sem resposta, nada. */
   chosen?: boolean
   children: MindNode[]
@@ -250,15 +288,19 @@ function leaves(entries: ActivityEntry[], ctx: Ctx): MindNode[] {
 
     if (AGENT_TOOLS.has(name)) {
       const agent = ctx.agents.byId.get(e.use.id)
+      const inner = leaves(e.inner ?? [], { ...ctx, scope: e.use.id })
       out.push({
         ...base,
         id: e.use.id,
         kind: 'agent',
         label: str(input.description) || str(input.subagent_type) || 'Subagente',
         meta: [agent?.type ?? (str(input.subagent_type) || undefined), agent?.background && 'segundo plano'].filter(Boolean).join(' · '),
+        detail: actionSummary(inner, true),
+        seed: e.use.id,
+        stats: { model: agent?.model, tokens: agent?.tokens, tools: agent?.tools, durationMs: agent?.durationMs, startedAt: agent?.startedAt },
         status: agent?.status ?? base.status,
         agentId: e.use.id,
-        children: leaves(e.inner ?? [], { ...ctx, scope: e.use.id }),
+        children: inner,
       })
       continue
     }
@@ -319,6 +361,30 @@ function leaves(entries: ActivityEntry[], ctx: Ctx): MindNode[] {
   return out
 }
 
+/**
+ * O que um passo (ou um subagente) fez, numa linha: "editou 2 arquivos +40 −12 · 3 comandos · leu 4
+ * arquivos". Os subagentes de um passo viram cartões embaixo dele, e só entram na conta (`agents`)
+ * quando são de um subagente, que não abre os dele.
+ */
+export function actionSummary(kids: MindNode[], agents = false): string | undefined {
+  const count = (kind: MindKind) => kids.filter((c) => c.kind === kind).length
+  const files = kids.filter((c) => c.kind === 'file')
+  const edited = files.filter((f) => f.writes)
+  const read = files.length - edited.length
+  const added = edited.reduce((n, f) => n + (f.added ?? 0), 0)
+  const removed = edited.reduce((n, f) => n + (f.removed ?? 0), 0)
+  const parts = [
+    edited.length && `editou ${plural(edited.length, 'arquivo', 'arquivos')}${added || removed ? ` +${added} −${removed}` : ''}`,
+    count('command') && plural(count('command'), 'comando', 'comandos'),
+    read && `leu ${plural(read, 'arquivo', 'arquivos')}`,
+    count('search') && plural(count('search'), 'busca', 'buscas'),
+    count('web') && plural(count('web'), 'consulta na web', 'consultas na web'),
+    count('tool') && plural(count('tool'), 'outra ferramenta', 'outras ferramentas'),
+    agents && count('agent') && plural(count('agent'), 'subagente', 'subagentes'),
+  ]
+  return parts.filter(Boolean).join(' · ') || undefined
+}
+
 /** Título de um passo sem fala do Claude antes: o raciocínio, se veio, ou o que ele mais fez. */
 function autoLabel(entries: ActivityEntry[]): string {
   const thought = entries.find((e) => e.kind === 'thinking')
@@ -342,6 +408,7 @@ const plural = (k: number, one: string, many: string) => `${k} ${k === 1 ? one :
 type Turn = MindNode & { done?: boolean }
 
 export function mindTree({
+  seed,
   items,
   title,
   rootMeta,
@@ -349,6 +416,8 @@ export function mindTree({
   streaming,
   agents,
 }: {
+  /** O claudinho da conversa: o do topo e o dos passos do Claude. */
+  seed: string
   items: Item[]
   title: string
   rootMeta: string
@@ -376,7 +445,7 @@ export function mindTree({
     const t = ensureTurn(key)
     // Depois do fim do turno: o Claude voltou sozinho (uma tarefa em segundo plano terminou).
     t.done = false
-    t.children.push({ ...node, branch: t.branch, children: node.children ?? [] })
+    t.children.push({ seed, ...node, branch: t.branch, children: node.children ?? [] })
   }
   const flushSaid = (kind: 'step' | 'answer') => {
     if (!said) return
@@ -409,7 +478,7 @@ export function mindTree({
             id: said?.key ?? item.key,
             kind: 'step',
             label: said ? firstSentence(said.text) : autoLabel(item.entries),
-            meta: kids.length ? plural(kids.length, 'ação', 'ações') : undefined,
+            meta: actionSummary(kids),
             status,
             itemKey: said?.key ?? item.key,
             children: kids,
@@ -452,7 +521,7 @@ export function mindTree({
         const r = item.result
         t.done = true
         t.status = r.ok ? 'done' : r.subtype === 'error_during_execution' ? 'stopped' : 'failed'
-        t.meta = r.ok ? duration(r.durationMs) : r.subtype === 'error_during_execution' ? 'Interrompido' : 'Terminou com erro'
+        t.stats = { durationMs: r.durationMs, costUsd: r.costUsd }
         break
       }
       case 'compacting':
@@ -486,50 +555,36 @@ export function mindTree({
     if (now) now.status = 'running'
   }
 
-  return { id: 'root', kind: 'root', label: title, meta: rootMeta, status: working ? 'running' : 'done', branch: -1, children: turns }
+  // As perguntas feitas pela ferramenta nascem dentro do passo, sem passar por `add`: herdam o
+  // claudinho de quem perguntou, como o resto do que o Claude fez.
+  const inherit = (n: MindNode, from: string) => {
+    for (const c of n.children) {
+      if (c.kind === 'decision' || c.kind === 'option') c.seed ??= from
+      inherit(c, c.seed ?? from)
+    }
+  }
+  turns.forEach((t) => inherit(t, seed))
+
+  return { id: 'root', kind: 'root', label: title, meta: rootMeta, seed, status: working ? 'running' : 'done', branch: -1, children: turns }
 }
 
 function hasActive(node: MindNode): boolean {
   return node.children.some((c) => c.status === 'running' || c.status === 'waiting' || hasActive(c))
 }
 
-/** O nó a acompanhar ao vivo: um pedido esperando você, senão o mais fundo trabalhando, senão o último. */
+/** O que vira cartão no mapa: as ações (arquivos, comandos) ficam no resumo do passo, e o que um subagente fez, no dele. */
+const DRAWN = new Set<MindKind>(['root', 'turn', 'step', 'answer', 'approval', 'decision', 'option', 'agent', 'notice'])
+
+/**
+ * O nó a acompanhar ao vivo, entre os que têm cartão: um pedido esperando você, senão o mais fundo
+ * trabalhando, senão o último. O comando rodando agora não tem cartão; o passo dele está trabalhando também.
+ */
 export function focusOf(root: MindNode): MindNode {
   const flat: MindNode[] = []
   const walk = (n: MindNode) => {
     flat.push(n)
-    n.children.forEach(walk)
+    if (n.kind !== 'agent') n.children.filter((c) => DRAWN.has(c.kind)).forEach(walk)
   }
   walk(root)
   return flat.find((n) => n.status === 'waiting' && n.kind !== 'turn') ?? flat.findLast((n) => n.status === 'running' && n.kind !== 'root') ?? flat.at(-1)!
-}
-
-/** Pontas visíveis num passo fechado; as mais antigas viram "+N ações". */
-const MAX_LEAVES = 6
-
-/**
- * O que aparece na tela. Turnos antigos ficam recolhidos (abertos só o último, o que está em
- * andamento e os que esperam você); passos com muitas ações mostram as mais recentes, que é onde
- * ele está trabalhando. `open` guarda o que a pessoa abriu ou fechou à mão.
- */
-export function fold(root: MindNode, open: ReadonlyMap<string, boolean>): MindNode {
-  const last = root.children.at(-1)
-  const turns = root.children.map((t) => {
-    const shown = open.get(t.id) ?? (t === last || t.status === 'waiting' || t.status === 'running')
-    return shown ? { ...t, children: t.children.map((c) => trim(c, open)) } : { ...t, children: [], folded: t.children.length }
-  })
-  return { ...root, children: turns }
-}
-
-function trim(n: MindNode, open: ReadonlyMap<string, boolean>): MindNode {
-  const kids = n.children.map((c) => trim(c, open))
-  // Decisão nunca vai para o "+N ações": é o que o mapa quer destacar, e um passo com muitas ações
-  // a esconderia. Só as ações comuns contam para o limite, e as mais antigas é que somem.
-  const plain = kids.filter((k) => k.kind !== 'decision')
-  if (plain.length <= MAX_LEAVES) return { ...n, children: kids }
-  const toggle = (label: string): MindNode => ({ id: `${n.id}:more`, kind: 'more', label, status: 'done', branch: n.branch, toggles: n.id, children: [] })
-  if (open.get(n.id)) return { ...n, children: [...kids, toggle('Mostrar menos')] }
-  const hidden = plain.length - (MAX_LEAVES - 1)
-  const drop = new Set(plain.slice(0, hidden))
-  return { ...n, children: [toggle(`+${plural(hidden, 'ação', 'ações')}`), ...kids.filter((k) => !drop.has(k))] }
 }
