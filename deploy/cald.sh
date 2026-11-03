@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# cr — utilitário de linha de comando do claude.remote.
-# Instalado como alias pelo deploy/install.sh. Uso: cr -link
+# cald — utilitário de linha de comando do cald.
+# Instalado como alias pelo deploy/install.sh. Uso: cald -link
 set -euo pipefail
 
 PORT="${PORT:-7337}"
 
-cr_link() {
+cald_link() {
   if ! command -v tailscale >/dev/null 2>&1; then
     echo "tailscale não encontrado. Instale-o e rode 'tailscale serve --bg ${PORT}'." >&2
     return 1
@@ -24,23 +24,23 @@ cr_link() {
   echo "$url"
 }
 
-cr_help() {
+cald_help() {
   cat <<'EOF'
-cr — claude.remote
+cald — painel mobile do Claude Code
 
 Uso:
-  cr -link     mostra o link de acesso remoto (o endereço da tailnet que o celular abre)
-  cr -help     esta ajuda
+  cald -link   mostra o link de acesso remoto (o endereço da tailnet que o celular abre)
+  cald -help   esta ajuda
 EOF
 }
 
 case "${1:-}" in
-  -link|--link|link) cr_link ;;
-  -help|--help|help|"") cr_help ;;
+  -link|--link|link) cald_link ;;
+  -help|--help|help|"") cald_help ;;
   *)
     echo "Opção desconhecida: $1" >&2
     echo >&2
-    cr_help >&2
+    cald_help >&2
     exit 1
     ;;
 esac

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 import { create } from 'zustand'
 
 /**
- * Várias máquinas suas com o Claude Remote no mesmo app (ver server/src/machines.ts). A desta
+ * Várias máquinas suas com o cald no mesmo app (ver server/src/machines.ts). A desta
  * página (de onde o app foi aberto) tem id `''` e fala pela mesma origem; as outras, pelo endereço
  * delas no Tailscale. Cada conversa pertence a uma máquina, e as chamadas dela vão para lá.
  */

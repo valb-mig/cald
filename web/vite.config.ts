@@ -19,8 +19,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Claude Remote',
-        short_name: 'Claude Remote',
+        name: 'cald',
+        short_name: 'cald',
         description: 'Controle pelo celular das sessões do Claude Code no PC',
         lang: 'pt-BR',
         start_url: '/',

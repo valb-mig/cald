@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { STATE_DIR } from './config.ts';
 import type { TeamSnapshot } from './teams.ts';
 
 /** De onde uma conversa bifurcou, e em que ponto do log da origem ela foi cortada. */
@@ -26,7 +26,7 @@ type Meta = {
   projects: string[];
 };
 
-const FILE = process.env.META_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'meta.json');
+const FILE = process.env.META_FILE ?? join(STATE_DIR, 'meta.json');
 
 export class MetaStore {
   private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [] };

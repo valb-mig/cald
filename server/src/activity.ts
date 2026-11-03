@@ -5,7 +5,7 @@ import { MODELS, canonical, costOf, type Usage } from './session-cost.ts';
 import { TranscriptTally } from './transcript.ts';
 
 /**
- * Histórico de uso por dia, para a home: conversas (todas e só as pelo Claude Remote), mensagens
+ * Histórico de uso por dia, para a home: conversas (todas e só as pelo cald), mensagens
  * suas, tokens e custo estimado, horários e projetos. Sai dos transcripts em ~/.claude/projects,
  * que o Claude Code apaga depois de ~30 dias; por isso o que foi lido fica guardado num arquivo
  * próprio, e o grid do ano não perde os dias cujos transcripts já sumiram.
@@ -15,7 +15,7 @@ import { TranscriptTally } from './transcript.ts';
 type SessionDay = {
   /** Mensagens suas. */
   p: number;
-  /** Usada pelo Claude Remote (o Agent SDK do painel) nesse dia. */
+  /** Usada pelo cald (o Agent SDK do painel) nesse dia. */
   r?: 1;
   /** Custo estimado (US$) e tokens processados, subagentes incluídos. */
   c: number;

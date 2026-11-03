@@ -385,7 +385,7 @@ function TodoEditor({
 }
 
 /**
- * O TODO do projeto, a lista do próprio Claude Remote, guardada no PC (ver lib/todos.ts). "Novo" abre o
+ * O TODO do projeto, a lista do próprio cald, guardada no PC (ver lib/todos.ts). "Novo" abre o
  * modal do item completo; escrever no campo e Enter anota rápido, só com o título. Clicar num item abre o editor dele
  * (descrição, arquivos e anexos). Os feitos descem e saem de uma vez pelo "Limpar". No chat, `TODO:3`
  * manda o item 3 inteiro para o Claude.

@@ -55,7 +55,7 @@ const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planN
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
 const policy = await loadAccessPolicy();
-// Outras máquinas suas com o Claude Remote: o app junta as conversas, e os avisos daqui vão para elas.
+// Outras máquinas suas com o cald: o app junta as conversas, e os avisos daqui vão para elas.
 const machines = new MachineDirectory(policy);
 void machines.refresh();
 setInterval(() => void machines.list(), 15_000).unref();
@@ -113,7 +113,7 @@ app.get('/api/health', async () => ({
   home: homedir(),
 }));
 
-/** As outras máquinas suas com o Claude Remote, para o app conectar em todas. */
+/** As outras máquinas suas com o cald, para o app conectar em todas. */
 app.get('/api/machines', async () => ({ name: MACHINE_NAME, machines: await machines.list() }));
 
 app.get('/api/sessions', async () => manager.catalog());
@@ -1143,7 +1143,7 @@ if (existsSync(WEB_DIST)) {
 
 await live.start();
 await app.listen({ host: HOST, port: PORT });
-app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'claude-remote pronto');
+app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'cald pronto');
 
 // No boot o serviço pode subir antes do tailscaled; insiste até conseguir ler o nó.
 if (!policy.tailnetHost) {

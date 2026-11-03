@@ -1,14 +1,14 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 
 /** Um anexo de um item do TODO (imagem ou documento), guardado no PC. */
 export type TodoFile = { id: string; name: string; mediaType: string; size: number };
 
 /**
- * Um item do TODO de um projeto, a lista do próprio Claude Remote, sem nada do GitHub. `n` é o número
+ * Um item do TODO de um projeto, a lista do próprio cald, sem nada do GitHub. `n` é o número
  * dele no projeto, que não se repete (como o de uma issue): é o que o chat menciona, `TODO:3`. A
  * descrição é Markdown, com menções `@caminho` a arquivos do projeto.
  */
@@ -33,7 +33,7 @@ export const MAX_TODO_FILES = 20;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 // Dado seu, como o histórico de uso: fica com os dados do app, não no cache.
-const FILE = process.env.TODOS_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'todos.json');
+const FILE = process.env.TODOS_FILE ?? join(DATA_DIR, 'todos.json');
 // Um anexo por pasta, com o nome original (limpo): o caminho que o Claude lê é legível.
 const FILES_DIR = join(dirname(FILE), 'todo-files');
 
@@ -150,12 +150,12 @@ export class TodoStore {
       );
       parts.push(
         [
-          `<claude-remote-todo n="${t.n}">`,
-          `TODO:${t.n} da lista de tarefas deste projeto no Claude Remote (${t.done ? 'já feito' : 'a fazer'}).`,
+          `<cald-todo n="${t.n}">`,
+          `TODO:${t.n} da lista de tarefas deste projeto no cald (${t.done ? 'já feito' : 'a fazer'}).`,
           `Título: ${t.title}`,
           t.body.trim() ? `Descrição:\n${t.body.trim()}` : 'Sem descrição.',
           files.some(Boolean) ? `Anexos, no PC:\n${files.filter(Boolean).join('\n')}` : '',
-          '</claude-remote-todo>',
+          '</cald-todo>',
         ]
           .filter(Boolean)
           .join('\n'),

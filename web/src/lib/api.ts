@@ -204,7 +204,7 @@ export const api = {
  * vale depois de reiniciar). Só para rotas novas: em outras, o mesmo 404 quer dizer outra coisa.
  */
 export const isOutdatedServer = (err: unknown) => err instanceof ApiError && err.status === 404 && err.code === 'not_found'
-export const OUTDATED_SERVER = 'O servidor do PC ainda roda a versão anterior. Reinicie o Claude Remote no PC para usar isto.'
+export const OUTDATED_SERVER = 'O servidor do PC ainda roda a versão anterior. Reinicie o cald no PC para usar isto.'
 
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err)

@@ -405,7 +405,7 @@ export type GithubAction =
   | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
   | { type: 'draft'; draft: boolean }
 
-/** Um item do TODO do projeto, a lista simples do próprio Claude Remote (ver server/src/todos.ts). */
+/** Um item do TODO do projeto, a lista simples do próprio cald (ver server/src/todos.ts). */
 /** Um anexo de um item do TODO, guardado no PC (ver server/src/todos.ts). */
 export type TodoFile = { id: string; name: string; mediaType: string; size: number }
 

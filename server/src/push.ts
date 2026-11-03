@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import webpush, { WebPushError, type Urgency } from 'web-push';
+import { STATE_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 
 /** O que cada aparelho quer receber além de perguntas, aprovações e erros, que sempre avisam. */
@@ -36,10 +36,10 @@ export type SendOptions = {
 
 type PushFile = { vapid: { publicKey: string; privateKey: string }; subscriptions: StoredSubscription[] };
 
-const FILE = process.env.PUSH_FILE ?? join(homedir(), '.local', 'state', 'claude-remote', 'push.json');
+const FILE = process.env.PUSH_FILE ?? join(STATE_DIR, 'push.json');
 
 // Contato exigido pelo VAPID; os serviços de push só o usam para avisar de abuso.
-const SUBJECT = 'https://github.com/valb-mig/claude.remote';
+const SUBJECT = 'https://github.com/valb-mig/cald';
 
 /**
  * Web Push: chaves VAPID do PC e inscrições dos aparelhos. O aviso sai criptografado
@@ -50,7 +50,7 @@ export class PushService extends EventEmitter {
   private writing = Promise.resolve();
 
   /**
-   * `peers`: endereços das outras máquinas suas com o Claude Remote (ver machines.ts). O celular só
+   * `peers`: endereços das outras máquinas suas com o cald (ver machines.ts). O celular só
    * se inscreve na máquina de onde o app foi instalado; os avisos daqui vão também para elas, e a
    * que tiver a inscrição entrega.
    */

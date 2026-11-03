@@ -54,7 +54,7 @@ export function transcribe(wav: Buffer): Promise<string> {
     throw new HttpError(400, 'invalid_audio');
   }
   const run = queue.then(async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'claude-remote-voz-'));
+    const dir = await mkdtemp(join(tmpdir(), 'cald-voz-'));
     try {
       const file = join(dir, 'fala.wav');
       await writeFile(file, wav);

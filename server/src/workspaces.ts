@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
+import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 
 /**
@@ -46,7 +46,7 @@ const TEXT = /^text\/|json|xml|yaml|toml|javascript|typescript|markdown|csv/;
 const TEXT_EXT = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.toml', '.csv', '.ts', '.tsx', '.js', '.py', '.sql', '.html', '.css', '.env.example']);
 
 // Dado seu, como os TODOs e os times: fica com os dados do app, não no cache.
-const FILE = process.env.WORKSPACES_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'workspaces.json');
+const FILE = process.env.WORKSPACES_FILE ?? join(DATA_DIR, 'workspaces.json');
 const FILES_DIR = join(dirname(FILE), 'workspace-files');
 
 function safeName(name: string): string {
@@ -179,7 +179,7 @@ export class WorkspaceStore {
     const ws = this.find(id);
     if (!ws) return null;
     const others = ws.projects.filter((p) => p !== cwd);
-    const parts = [`# Workspace: ${ws.name}`, 'Esta conversa faz parte de um workspace do Claude Remote, com o contexto abaixo, que vale para todas as conversas dele.'];
+    const parts = [`# Workspace: ${ws.name}`, 'Esta conversa faz parte de um workspace do cald, com o contexto abaixo, que vale para todas as conversas dele.'];
     parts.push(
       `Projeto desta conversa: ${cwd}` + (others.length ? `\nOutros projetos do workspace (você também pode ler e editar): ${others.join(', ')}` : ''),
     );

@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { DATA_DIR } from './config.ts';
 import { gitSummaries, remoteWebUrl } from './git.ts';
 import { githubInbox, type InboxGithubItem } from './github.ts';
 import type { TodoStore } from './todos.ts';
@@ -72,7 +72,7 @@ export async function buildInbox(projects: string[], todos: TodoStore, refresh: 
 export type ItemState = { seen?: string; snoozedUntil?: number; at: number };
 export type StateAction = { key: string; action: 'seen' | 'snooze' | 'clear'; mark?: string; until?: number };
 
-const FILE = process.env.INBOX_FILE ?? join(homedir(), '.local', 'share', 'claude-remote', 'inbox.json');
+const FILE = process.env.INBOX_FILE ?? join(DATA_DIR, 'inbox.json');
 const MAX_KEYS = 2_000;
 
 export class InboxState {

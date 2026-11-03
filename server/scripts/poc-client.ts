@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import WebSocket from 'ws';
 
-const BASE = process.env.CR_URL ?? 'http://127.0.0.1:7337';
+const BASE = process.env.CALD_URL ?? 'http://127.0.0.1:7337';
 
 const { positionals, values: flags } = parseArgs({
   allowPositionals: true,
