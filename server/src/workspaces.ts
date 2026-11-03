@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, extname, join } from 'node:path';
 import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
+import { worktreeOf } from './worktrees.ts';
 
 /**
  * Workspaces: um molde de conversa, como uma gem. Juntam projetos (o primeiro é o principal, onde a
@@ -178,7 +179,9 @@ export class WorkspaceStore {
   async context(id: string, cwd: string): Promise<{ prompt: string; directories: string[] } | null> {
     const ws = this.find(id);
     if (!ws) return null;
-    const others = ws.projects.filter((p) => p !== cwd);
+    // Num worktree, o projeto de que ele é cópia não entra como pasta extra: é o checkout de outras conversas.
+    const mirrored = worktreeOf(cwd)?.project;
+    const others = ws.projects.filter((p) => p !== cwd && p !== mirrored);
     const parts = [`# Workspace: ${ws.name}`, 'Esta conversa faz parte de um workspace do cald, com o contexto abaixo, que vale para todas as conversas dele.'];
     parts.push(
       `Projeto desta conversa: ${cwd}` + (others.length ? `\nOutros projetos do workspace (você também pode ler e editar): ${others.join(', ')}` : ''),

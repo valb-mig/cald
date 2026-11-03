@@ -39,7 +39,7 @@ export type GitStatus = {
   remote: string | null;
 };
 
-function git(cwd: string, args: string[]) {
+export function git(cwd: string, args: string[]) {
   return exec('git', args, { cwd, timeout: 10_000, maxBuffer: 32 * 1024 * 1024 });
 }
 
@@ -180,7 +180,7 @@ export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promi
 // ---- ações do controle de código-fonte ----
 
 /** O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede. */
-function gitWrite(cwd: string, args: string[]) {
+export function gitWrite(cwd: string, args: string[]) {
   return exec('git', args, {
     cwd,
     timeout: 120_000,
@@ -198,7 +198,7 @@ function gitWrite(cwd: string, args: string[]) {
   });
 }
 
-async function requireRepo(cwd: string): Promise<GitStatus> {
+export async function requireRepo(cwd: string): Promise<GitStatus> {
   const status = await readStatus(cwd);
   if (!status) throw new HttpError(404, 'not_a_repository');
   return status;
