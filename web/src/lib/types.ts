@@ -236,7 +236,11 @@ export type SessionCost = {
 export type TreeEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number; ignored?: boolean }
 
 export type FileView =
-  | { kind: 'text'; size: number; content: string; truncated: boolean }
+  /**
+   * `hash`: o que o editor manda ao salvar, para o servidor recusar se o arquivo mudou desde a leitura.
+   * Sem ele (arquivo cortado, fora do UTF-8, ou servidor de antes do editor), o arquivo abre só para leitura.
+   */
+  | { kind: 'text'; size: number; content: string; truncated: boolean; hash?: string }
   | { kind: 'image' | 'pdf' | 'binary' | 'large'; size: number }
 
 /** Linhas a mais e a menos; `null` em arquivo binário. */

@@ -116,6 +116,14 @@ export function reloadGit(machine: string, cwd: string): Promise<void> {
   return request
 }
 
+/** Avisa quando o git do projeto foi relido com outro resultado (um commit pela barra, o fim de um turno). */
+export function subscribeGit(machine: string, cwd: string, onChange: () => void): () => void {
+  const key = gitKey(machine, cwd)
+  return useGitCache.subscribe((s, prev) => {
+    if (s[key] !== prev[key]) onChange()
+  })
+}
+
 /** Estado do git do projeto; relido quando `refresh` muda (ex.: a cada turno concluído). */
 export function useGitStatus(
   machine: string,

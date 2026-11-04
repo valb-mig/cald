@@ -82,6 +82,12 @@ const project = (cwd: string, path?: string) =>
   `cwd=${encodeURIComponent(cwd)}${path !== undefined ? `&path=${encodeURIComponent(path)}` : ''}`
 
 // Os endereços abaixo vão em `<img>` e links, que não mandam cabeçalho: o token do PIN segue na URL.
+/** Os avisos de que o arquivo aberto no editor mudou no disco (ver /ws/file no servidor). */
+export function fileSocketUrl(m: string, cwd: string, path: string): string {
+  const base = baseOf(m)
+  const origin = base ? base.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+  return withToken(`${origin}/ws/file?${project(cwd, path)}`)
+}
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
 export const fileRawUrl = (m: string, cwd: string, path: string) => withToken(`${at(m)}/file/raw?${project(cwd, path)}`)
 /**
@@ -222,6 +228,11 @@ export const api = {
   remove: (id: string) => post(`${sid(id)}/delete`),
   tree: (m: string, cwd: string, path: string) => request<TreeEntry[]>('GET', `${at(m)}/tree?${project(cwd, path)}`),
   file: (m: string, cwd: string, path: string) => request<FileView>('GET', `${at(m)}/file?${project(cwd, path)}`),
+  /** Grava o texto do editor; recusa com `file_changed` se o arquivo não é mais o de `base`, a não ser com `force`. */
+  saveFile: (m: string, cwd: string, path: string, content: string, base: string, force = false) =>
+    post<{ hash: string; size: number }>(`${at(m)}/file/save`, { cwd, path, content, base, force }),
+  /** O arquivo no último commit; `''` se é novo, `null` fora do git (ou ignorado por ele). */
+  gitBase: (m: string, cwd: string, path: string) => request<{ content: string | null }>('GET', `${at(m)}/git/base?${project(cwd, path)}`),
   git: (m: string, cwd: string) => request<GitStatus | null>('GET', `${at(m)}/git?${project(cwd)}`),
   /** Quanto você já codou hoje; `null` quando a máquina não tem o wakatime-cli. */
   wakatimeToday: (m: string) => request<{ today: WakaToday | null }>('GET', `${at(m)}/wakatime`),
@@ -308,6 +319,12 @@ export function errorMessage(err: unknown): string {
       return 'Essa tarefa não está mais rodando.'
     case 'task_output_unsupported':
       return 'Esta versão do Claude Code não mostra a saída da tarefa.'
+    case 'file_changed':
+      return 'O arquivo mudou no disco desde que foi aberto.'
+    case 'not_utf8':
+      return 'O arquivo não está em UTF-8: salvar pelo painel trocaria os acentos.'
+    case 'file_too_large':
+      return 'Arquivo grande demais para editar pelo painel.'
     case 'whisper_unavailable':
       return 'O Whisper não está instalado no PC.'
     case 'invalid_image':

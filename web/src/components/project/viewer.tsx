@@ -3,18 +3,18 @@ import {
   AArrowUp,
   ArrowLeft,
   AtSign,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   FileDiff,
   FileText,
   Loader2,
   Map as MapIcon,
+  Save,
   WrapText,
-  X,
 } from 'lucide-react'
-import { Fragment, createElement, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, Suspense, createElement, lazy, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ThemedToken } from 'shiki/core'
+import { ErrorBoundary } from '@/components/error-boundary'
+import { Veil } from '@/components/wallpaper/veil'
 import { CopyButton, Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -25,13 +25,17 @@ import { projectName } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { setMinimap, useMinimap } from '@/lib/minimap'
+import { useGlass, useScrim } from '@/lib/wallpaper'
 import { closeViewer, openViewer, useProjectPanel, type Viewing } from '@/lib/project-panel'
 import type { FileView } from '@/lib/types'
+import { useUnsaved } from '@/lib/unsaved'
 import { cn } from '@/lib/utils'
+import { keyOf } from '@/lib/workbench'
 import { useCodeSelection } from './code-mention'
 import { mention } from './file-menu'
-import { blocksOf, innerChange, MARK_BAR, MarkedCode, type Block, type Mark } from './changes'
-import { CodeMinimap } from './minimap'
+import { blocksOf, ChangeNavBar, ChangePeek, innerChange, KIND_LABEL, MARK_BAR, MarkedCode, type Block, type Mark } from './changes'
+import type { EditorHandle, EditorStatus } from './editor'
+import { CodeMinimap, type MinimapToken } from './minimap'
 import { fileIcon, splitPath } from './status'
 
 const MAX_LINES = 5_000
@@ -60,7 +64,7 @@ function Code({ text, tokens }: { text: string; tokens: ThemedToken[] | undefine
 /** O que o código mostra, para o minimapa (ver minimap.tsx) e para as setas de mudança (ver `ChangeNav`). */
 export type CodeMap = {
   lines: string[]
-  tokens: (ThemedToken[] | undefined)[] | null
+  tokens: (MinimapToken[] | undefined)[] | null
   marks?: (Mark | undefined)[]
   /** A linha da grade (`data-row`) onde cada mudança começa, na ordem. */
   changes: number[]
@@ -79,79 +83,6 @@ export function revealRow(scroller: HTMLElement, row: number): void {
   if (!el) return
   scroller.scrollTo({ top: Math.max(0, el.offsetTop - scroller.clientHeight / 3), behavior: 'smooth' })
   el.animate([{ backgroundColor: 'rgb(14 165 233 / 0.28)' }, { backgroundColor: 'transparent' }], { duration: 1000, easing: 'ease-out' })
-}
-
-const KIND_LABEL: Record<Block['kind'], string> = { add: 'Linhas novas', mod: 'Linhas mudadas', del: 'Linhas apagadas' }
-
-/**
- * A mudança aberta debaixo das linhas dela, como o "peek" do VSCode: o que saiu em vermelho e o que
- * entrou em verde, com o trecho exato que mudou realçado dentro da linha. As setas vão para a mudança
- * vizinha, e o X fecha. Fora da grade de linhas (sem `data-row`), para a seleção de código não contar com ela.
- */
-function ChangePeek({
-  block,
-  index,
-  total,
-  tokens,
-  onGo,
-  onClose,
-}: {
-  block: Block
-  index: number
-  total: number
-  /** As cores das linhas que entraram, já no arquivo. */
-  tokens: (ThemedToken[] | undefined)[] | null
-  onGo: (index: number) => void
-  onClose: () => void
-}) {
-  const pairs = Math.min(block.removed.length, block.added.length)
-  const inner = Array.from({ length: pairs }, (_, k) => innerChange(block.removed[k]!, block.added[k]!))
-  return (
-    <div
-      className="my-1.5 mr-4 ml-[4.9em] overflow-hidden rounded-lg bg-background shadow-lg ring-1 ring-foreground/10"
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-2 border-b py-1 pr-1 pl-3 font-sans text-xs">
-        <span className={cn('size-2 shrink-0 rounded-full', MARK_BAR[block.kind])} />
-        <span className="truncate">
-          {KIND_LABEL[block.kind]} · <span className="text-muted-foreground tabular-nums">mudança {index + 1} de {total}</span>
-        </span>
-        <span className="shrink-0 tabular-nums">
-          {block.added.length > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{block.added.length}</span>}{' '}
-          {block.removed.length > 0 && <span className="text-red-600 dark:text-red-400">−{block.removed.length}</span>}
-        </span>
-        <div className="flex-1" />
-        <Button variant="ghost" size="icon-sm" disabled={total < 2} onClick={() => onGo((index - 1 + total) % total)} aria-label="Mudança anterior">
-          <ChevronUp />
-        </Button>
-        <Button variant="ghost" size="icon-sm" disabled={total < 2} onClick={() => onGo((index + 1) % total)} aria-label="Próxima mudança">
-          <ChevronDown />
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Fechar">
-          <X />
-        </Button>
-      </div>
-      <div className="max-h-80 overflow-auto py-1">
-        {block.removed.map((line, k) => (
-          <div key={`r${k}`} className="flex w-max min-w-full bg-red-500/[0.12] text-red-950 dark:text-red-100">
-            <span className="w-[1.6em] shrink-0 text-center text-red-600/80 select-none dark:text-red-400/80">−</span>
-            <span className="pr-4 whitespace-pre">
-              <MarkedCode text={line} tokens={undefined} range={inner[k]?.old} tone="del" />
-            </span>
-          </div>
-        ))}
-        {block.added.map((line, k) => (
-          <div key={`a${k}`} className="flex w-max min-w-full bg-emerald-500/[0.12]">
-            <span className="w-[1.6em] shrink-0 text-center text-emerald-600/80 select-none dark:text-emerald-400/80">+</span>
-            <span className="pr-4 whitespace-pre">
-              <MarkedCode text={line} tokens={tokens?.[block.start - 1 + k]} range={inner[k]?.new} tone="add" />
-            </span>
-          </div>
-        ))}
-        {block.kind === 'del' && block.removed.length === 0 && <div className="px-3 text-muted-foreground">Nada a mostrar.</div>}
-      </div>
-    </div>
-  )
 }
 
 /**
@@ -238,7 +169,14 @@ function TextContent({
   const open = peek !== null ? blocks[peek] : undefined
   const after = open ? (open.kind === 'del' ? Math.min(shown.length, open.start) - 2 : Math.min(open.end, shown.length) - 1) : null
   const peekView = open && (
-    <ChangePeek block={open} index={peek!} total={blocks.length} tokens={tokens} onGo={goPeek} onClose={() => setPeek(null)} />
+    <ChangePeek
+      block={open}
+      index={peek!}
+      total={blocks.length}
+      addedTokens={tokens?.slice(open.start - 1, open.start - 1 + open.added.length)}
+      onGo={goPeek}
+      onClose={() => setPeek(null)}
+    />
   )
 
   return (
@@ -298,20 +236,35 @@ function TextContent({
   )
 }
 
+// O editor do PC baixa à parte, só quando um arquivo abre (ver editor.tsx).
+const CodeEditor = lazy(() => import('./editor'))
+
+/** O que o editor do PC precisa de quem o mostra (ver `ViewerBody`); tudo estável entre desenhos. */
+type EditorLink = {
+  handle: React.RefObject<EditorHandle | null>
+  scrollRef: React.RefObject<HTMLElement | null>
+  onStatus: (status: EditorStatus) => void
+}
+
 /**
  * `onView` avisa o cabeçalho do que chegou (tamanho, se é texto); precisa ser estável, como um
  * `setState`. Memorizado, como o diff: a seleção de linhas muda o cabeçalho sem redesenhar o código.
+ * Com `editor` (no PC), o texto abre no editor; sem ele (no celular), só para leitura.
  */
 const FileContent = memo(function FileContent({
   viewing,
   wrap,
   rendered,
+  minimap,
+  editor,
   onView,
   onCode,
 }: {
   viewing: Viewing
   wrap: boolean
   rendered: boolean
+  minimap: boolean
+  editor: EditorLink | null
   onView: (v: FileView) => void
   onCode: (code: CodeMap | null) => void
 }) {
@@ -331,9 +284,21 @@ const FileContent = memo(function FileContent({
   const raw = fileRawUrl(machine, cwd, path)
   if (!view) return <Loader2 className="m-auto size-5 animate-spin text-muted-foreground" />
   if (view.kind === 'text') {
+    const readOnly = <TextContent content={view.content} path={path} machine={machine} cwd={cwd} wrap={wrap} onCode={onCode} />
+    // Sem o `hash`, o servidor do PC ainda é o de antes do editor: o arquivo abre só para leitura.
+    if (editor && !rendered && typeof view.hash === 'string') {
+      return (
+        // Sem rede para baixar o editor (ou um erro nele): o arquivo abre só para leitura, como antes.
+        <ErrorBoundary fallback={() => readOnly}>
+          <Suspense fallback={<Loader2 className="m-auto size-5 animate-spin text-muted-foreground" />}>
+            <CodeEditor viewing={viewing} file={{ ...view, hash: view.hash }} wrap={wrap} minimap={minimap} onCode={onCode} {...editor} />
+          </Suspense>
+        </ErrorBoundary>
+      )
+    }
     return (
       <>
-        {rendered ? <Markdown text={view.content} className="p-4" /> : <TextContent content={view.content} path={path} machine={machine} cwd={cwd} wrap={wrap} onCode={onCode} />}
+        {rendered ? <Markdown text={view.content} className="p-4" /> : readOnly}
         {view.truncated && <p className="px-4 pb-4 text-xs text-muted-foreground">Arquivo grande: mostrando só o primeiro 1 MB.</p>}
       </>
     )
@@ -618,24 +583,7 @@ function ChangeNav({ scrollRef, map }: { scrollRef: React.RefObject<HTMLDivEleme
     // `go` e as réguas leem o mapa da vez: refaz quando ele muda.
   }, [scrollRef, map])
 
-  return (
-    <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-foreground/[0.05] p-0.5">
-      <span className="px-2 text-xs tabular-nums max-sm:hidden">
-        {map.added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{map.added}</span>}
-        {map.added > 0 && map.removed > 0 && ' '}
-        {map.removed > 0 && <span className="text-red-600 dark:text-red-400">−{map.removed}</span>}
-      </span>
-      <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={() => go(-1)} aria-label="Mudança anterior" title="Mudança anterior · Alt+↑">
-        <ChevronUp />
-      </Button>
-      <span className="min-w-[4.5em] text-center text-xs text-muted-foreground tabular-nums">
-        {current >= 0 ? current + 1 : '–'} de {total}
-      </span>
-      <Button variant="ghost" size="icon-sm" className="rounded-full" onClick={() => go(1)} aria-label="Próxima mudança" title="Próxima mudança · Alt+↓">
-        <ChevronDown />
-      </Button>
-    </div>
-  )
+  return <ChangeNavBar added={map.added} removed={map.removed} current={current} total={total} onGo={go} keys={['Alt+↑', 'Alt+↓']} />
 }
 
 /**
@@ -731,7 +679,6 @@ function useCodeZoom(container: React.RefObject<HTMLDivElement | null>): number 
   return size
 }
 
-/** Cabeçalho e conteúdo: o arquivo (só leitura) ou o diff de um lado dele. */
 /**
  * O arquivo (ou o diff) com o topo de ações: no celular, em tela cheia, com o voltar (`dialog`); no
  * PC, como aba (ver pages/workbench.tsx), sem botão de fechar, que é o X da própria aba.
@@ -756,10 +703,26 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
   const code = useCodeSelection(path)
   const fontSize = useCodeZoom(code.bind.ref)
   const isCode = Boolean(diff) || (file?.kind === 'text' && !rendered)
+  // No PC, o texto abre no editor (ver editor.tsx), que avisa o cabeçalho do que tem e faz o que ele pede.
+  const editing = !dialog && !diff && !rendered && file?.kind === 'text' && typeof file.hash === 'string'
+  const editorHandle = useRef<EditorHandle | null>(null)
+  const editorScroll = useRef<HTMLElement | null>(null)
+  const [status, setStatus] = useState<EditorStatus | null>(null)
+  const editor = useMemo<EditorLink | null>(() => (dialog ? null : { handle: editorHandle, scrollRef: editorScroll, onStatus: setStatus }), [dialog])
+  const dirty = useUnsaved((s) => Boolean(s.dirty[keyOf({ kind: 'file', machine: viewing.machine, cwd, path })]))
+  const selected = editing ? status?.lines : null
+  // No PC, com a cena animada atrás, o arquivo é como a conversa: o topo de vidro e o véu sob o código.
+  const glass = useGlass() && !dialog
+  const scrim = useScrim()
 
   return (
     <>
-      <header className="flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+      <header
+        className={cn(
+          'flex shrink-0 items-center gap-1 border-b px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2',
+          glass && 'relative z-10 bg-background/70 backdrop-blur-md',
+        )}
+      >
         {dialog && (
           <Button variant="ghost" size="icon" onClick={closeViewer} aria-label="Voltar">
             <ArrowLeft />
@@ -771,10 +734,18 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
           <div className="truncate font-mono text-xs text-muted-foreground">
             {diff ? `${SIDE_LABEL[diff]} · ` : ''}
             {dir || projectName(cwd)}
-            {file && !diff && ` · ${formatSize(file.size)}`}
+            {file && !diff && ` · ${formatSize((editing ? status?.size : null) ?? file.size)}`}
           </div>
         </div>
         {codeMap && codeMap.changes.length > 0 && (diff || !rendered) && <ChangeNav scrollRef={code.bind.ref} map={codeMap} />}
+        {editing && status && status.changes.total > 0 && (
+          <ChangeNavBar {...status.changes} onGo={(dir) => editorHandle.current?.goChange(dir)} keys={['Shift+F7', 'F7']} />
+        )}
+        {editing && dirty && (
+          <Button variant="secondary" size="sm" disabled={status?.saving} onClick={() => void editorHandle.current?.save()} title="Salvar · Ctrl+S">
+            {status?.saving ? <Loader2 className="animate-spin" /> : <Save />} Salvar
+          </Button>
+        )}
         {diff && (
           // Arquivo apagado não tem o que abrir: o servidor responde que não existe, e a tela diz isso.
           <Button variant="ghost" size="sm" onClick={() => openViewer({ ...viewing, diff: undefined })} aria-label="Abrir arquivo">
@@ -835,13 +806,26 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
             <WrapText />
           </Button>
         )}
-        <Button variant="ghost" size="icon" onClick={() => mention(path)} aria-label="Mencionar no chat" title="Mencionar no chat">
+        <Button
+          variant="ghost"
+          size="icon"
+          // No editor, menciona as linhas selecionadas (e grava antes, para o Claude ler o mesmo texto).
+          onClick={() => (editing && editorHandle.current ? editorHandle.current.mention() : mention(path))}
+          aria-label="Mencionar no chat"
+          title={
+            selected
+              ? `Mencionar ${selected[0] === selected[1] ? `a linha ${selected[0]}` : `as linhas ${selected[0]}–${selected[1]}`} no chat · Ctrl+Alt+K`
+              : 'Mencionar no chat'
+          }
+        >
           <AtSign />
         </Button>
         <CopyButton text={path} className="size-8" />
       </header>
       {/* O código e, à direita dele, o minimapa, numa coluna própria: por cima, cobriria o fim das linhas. */}
       <div className="relative flex min-h-0 flex-1">
+        {/* O escurecido atrás do código, de lado a lado; fora da rolagem, para não rolar junto. */}
+        {glass && scrim !== null && <Veil dim={scrim} />}
         <div
           // Focável pelo clique (sem entrar no Tab): é o que leva as teclas de mudança (ver `ChangeNav`).
           tabIndex={-1}
@@ -852,12 +836,13 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
           {diff ? (
             <DiffContent viewing={viewing} wrap={wrap} onCode={setCodeMap} />
           ) : (
-            <FileContent viewing={viewing} wrap={wrap} rendered={rendered} onView={setFile} onCode={setCodeMap} />
+            <FileContent viewing={viewing} wrap={wrap} rendered={rendered} minimap={mapOn} editor={editor} onView={setFile} onCode={setCodeMap} />
           )}
           {code.highlight}
         </div>
         {canMap && mapOn && codeMap && (
-          <CodeMinimap scrollRef={code.bind.ref} lines={codeMap.lines} tokens={codeMap.tokens} marks={codeMap.marks} tint={codeMap.tint} />
+          // No editor, quem rola é o próprio CodeMirror.
+          <CodeMinimap scrollRef={editing && status ? editorScroll : code.bind.ref} lines={codeMap.lines} tokens={codeMap.tokens} marks={codeMap.marks} tint={codeMap.tint} />
         )}
         {code.overlay}
       </div>
