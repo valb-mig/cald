@@ -13,8 +13,9 @@ import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
-import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
-import { gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
+import { searchProject } from './search.ts';
+import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
+import { gitBase, gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
@@ -35,6 +36,9 @@ import { attachTerminal, openTerminal } from './terminal.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
+import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
+import { claudeItemText } from './claude-config.ts';
+import { emptyClaudeTrash, restoreClaude, setPlugin, setSkill, trashItem, trashMcp, type McpScope } from './claude-manage.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
@@ -586,6 +590,60 @@ app.get<ProjectQuery>('/api/file', projectQuery, async (req) =>
   readProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
 );
 
+// Buscar texto nos arquivos do projeto (ver search.ts): `regex`, `case` e `word` valem "1" para ligar.
+app.get<{ Querystring: { cwd: string; q: string; regex?: string; case?: string; word?: string } }>(
+  '/api/search',
+  {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['cwd', 'q'],
+        properties: {
+          cwd: { type: 'string' },
+          q: { type: 'string', minLength: 1, maxLength: 1000 },
+          regex: { type: 'string' },
+          case: { type: 'string' },
+          word: { type: 'string' },
+        },
+      },
+    },
+  },
+  async (req) =>
+    searchProject(await manager.knownCwd(req.query.cwd), req.query.q, {
+      regex: req.query.regex === '1',
+      caseSensitive: req.query.case === '1',
+      word: req.query.word === '1',
+    }),
+);
+
+// O editor do PC: grava o texto se o arquivo ainda é o que o app leu (`base`, ver saveProjectFile).
+// Até o dobro do maior arquivo que abre para edição, pelo JSON e pelos caracteres acentuados.
+app.post<{ Body: { cwd: string; path: string; content: string; base: string; force?: boolean } }>(
+  '/api/file/save',
+  {
+    bodyLimit: 2 * 1024 * 1024 + 4096,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'path', 'content', 'base'],
+        properties: {
+          cwd: { type: 'string' },
+          path: { type: 'string', minLength: 1 },
+          content: { type: 'string' },
+          base: { type: 'string', maxLength: 64 },
+          force: { type: 'boolean' },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const dir = await manager.knownCwd(req.body.cwd);
+    const saved = await saveProjectFile(dir, req.body.path, req.body.content, req.body.base, req.body.force ?? false);
+    void wakatime({ cwd: dir, file: join(dir, req.body.path), category: 'coding', write: true });
+    return saved;
+  },
+);
+
 app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
   const file = await rawProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '');
   return reply
@@ -629,6 +687,11 @@ app.post<{ Body: { cwd: string } }>(
     return { ok: true };
   },
 );
+
+// O arquivo no último commit, para o editor marcar o que mudou enquanto se digita (ver gitBase).
+app.get<ProjectQuery>('/api/git/base', projectQuery, async (req) => ({
+  content: await gitBase(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
+}));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
   diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
@@ -905,6 +968,173 @@ app.get<{ Querystring: { cwd: string } }>(
   async (req) => manager.commands(req.query.cwd),
 );
 
+// A memória automática do Claude Code (ver memory.ts): de todos os projetos ou, com `cwd`, de um só.
+app.get<{ Querystring: { cwd?: string } }>(
+  '/api/memory',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
+  async (req) => listMemory(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
+);
+
+const memoryRef = {
+  type: 'object',
+  required: ['folder', 'file'],
+  additionalProperties: false,
+  properties: { folder: { type: 'string', maxLength: 255 }, file: { type: 'string', maxLength: 210 } },
+};
+app.put<{ Body: { folder: string; file: string; description: string; body: string; mtime: number } }>(
+  '/api/memory',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['folder', 'file', 'description', 'body', 'mtime'],
+        additionalProperties: false,
+        properties: {
+          ...memoryRef.properties,
+          description: { type: 'string', maxLength: MAX_MEMORY_DESCRIPTION },
+          body: { type: 'string', maxLength: MAX_MEMORY_TEXT },
+          mtime: { type: 'number' },
+        },
+      },
+    },
+  },
+  async (req) => saveMemory(req.body),
+);
+
+app.post<{ Body: { items: { folder: string; file: string }[] } }>(
+  '/api/memory/trash',
+  {
+    schema: {
+      body: { type: 'object', required: ['items'], properties: { items: { type: 'array', minItems: 1, maxItems: 500, items: memoryRef } } },
+    },
+  },
+  async (req) => ({ ids: await trashMemories(req.body.items) }),
+);
+
+const trashIds = { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 64 } };
+app.post<{ Body: { ids: string[] } }>(
+  '/api/memory/restore',
+  { schema: { body: { type: 'object', required: ['ids'], properties: { ids: { ...trashIds, minItems: 1 } } } } },
+  async (req) => {
+    await restoreMemories(req.body.ids);
+    return { ok: true };
+  },
+);
+
+// Sem `ids`, esvazia a lixeira inteira.
+app.post<{ Body: { ids?: string[] } }>(
+  '/api/memory/trash/empty',
+  { schema: { body: { type: 'object', properties: { ids: trashIds } } } },
+  async (req) => {
+    await emptyTrash(req.body.ids);
+    return { ok: true };
+  },
+);
+
+// Skills, agentes e servidores MCP de uma pasta (sem `cwd`, os que valem em todas). Pode subir uma sonda.
+app.get<{ Querystring: { cwd?: string; refresh?: string } }>(
+  '/api/claude/setup',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' }, refresh: { type: 'string' } } } } },
+  async (req) => manager.claudeSetup(req.query.cwd, req.query.refresh === '1'),
+);
+
+app.get<{ Querystring: { cwd?: string; path: string } }>(
+  '/api/claude/text',
+  { schema: { querystring: { type: 'object', required: ['path'], properties: { cwd: { type: 'string' }, path: { type: 'string' } } } } },
+  async (req) => ({ text: await claudeItemText(req.query.cwd ? await manager.knownCwd(req.query.cwd) : homedir(), req.query.path) }),
+);
+
+// Liga e desliga: servidor MCP numa pasta (sem `cwd`, na pessoal), skill (sem `cwd`, em todo projeto) e plugin.
+const toggleBody = (required: string[], name: object) => ({
+  body: {
+    type: 'object',
+    required,
+    additionalProperties: false,
+    properties: { cwd: { type: 'string' }, ...name, enabled: { type: 'boolean' } },
+  },
+});
+const nameField = { name: { type: 'string', minLength: 1, maxLength: 200 } };
+
+app.post<{ Body: { cwd?: string; name: string; enabled: boolean } }>(
+  '/api/claude/mcp',
+  { schema: toggleBody(['name', 'enabled'], nameField) },
+  async (req) => {
+    await manager.toggleMcp(req.body.cwd, req.body.name, req.body.enabled);
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { cwd?: string; name: string; enabled: boolean } }>(
+  '/api/claude/skill',
+  { schema: toggleBody(['name', 'enabled'], nameField) },
+  async (req) => {
+    await setSkill(req.body.cwd ? await manager.knownCwd(req.body.cwd) : undefined, req.body.name, req.body.enabled);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { key: string; enabled: boolean } }>(
+  '/api/claude/plugin',
+  { schema: toggleBody(['key', 'enabled'], { key: { type: 'string', minLength: 1, maxLength: 200 } }) },
+  async (req) => {
+    await setPlugin(req.body.key, req.body.enabled);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+// Para a lixeira do cald: uma skill, comando ou agente (pelo caminho) ou a configuração de um servidor MCP.
+app.post<{ Body: { cwd?: string; path?: string; mcp?: { name: string; scope: McpScope; project?: string } } }>(
+  '/api/claude/trash',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          cwd: { type: 'string' },
+          path: { type: 'string', maxLength: 1000 },
+          mcp: {
+            type: 'object',
+            required: ['name', 'scope'],
+            additionalProperties: false,
+            properties: { ...nameField, scope: { enum: ['user', 'local', 'project'] }, project: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { cwd, path, mcp } = req.body;
+    let id: string;
+    if (mcp) id = await trashMcp(mcp.name, mcp.scope, mcp.project ? await manager.knownCwd(mcp.project) : null);
+    else if (path) id = await trashItem(cwd ? await manager.knownCwd(cwd) : homedir(), path);
+    else throw new HttpError(400, 'invalid_request');
+    manager.forgetSetup();
+    return { id };
+  },
+);
+
+app.post<{ Body: { ids: string[] } }>(
+  '/api/claude/restore',
+  { schema: { body: { type: 'object', required: ['ids'], properties: { ids: { ...trashIds, minItems: 1 } } } } },
+  async (req) => {
+    await restoreClaude(req.body.ids);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { ids?: string[] } }>(
+  '/api/claude/trash/empty',
+  { schema: { body: { type: 'object', properties: { ids: trashIds } } } },
+  async (req) => {
+    await emptyClaudeTrash(req.body.ids);
+    return { ok: true };
+  },
+);
+
 app.get<{ Querystring: { cwd: string; q?: string } }>(
   '/api/files',
   {
@@ -1155,6 +1385,30 @@ app.get<{ Querystring: { cwd?: string; id?: string; since?: string } }>('/ws/ter
     },
     () => socket.close(1008, 'unknown_project'),
   );
+});
+
+/**
+ * O arquivo aberto no editor do PC: manda `{ hash }` agora e a cada vez que ele muda no disco (`null` se
+ * sumiu), para o editor recarregar o que o Claude gravou. O ping mantém a conexão de pé atrás do proxy.
+ */
+app.get<{ Querystring: { cwd?: string; path?: string } }>('/ws/file', { websocket: true }, (socket, req) => {
+  holdPin(socket, req);
+  let stop: (() => void) | null = null;
+  const ping = setInterval(() => socket.ping(), 25_000);
+  socket.on('close', () => {
+    clearInterval(ping);
+    stop?.();
+  });
+  manager
+    .knownCwd(req.query.cwd ?? '')
+    .then((dir) => watchProjectFile(dir, req.query.path ?? '', (hash) => socket.send(JSON.stringify({ hash }))))
+    .then(
+      (unwatch) => {
+        if (socket.readyState === socket.OPEN) stop = unwatch;
+        else unwatch();
+      },
+      () => socket.close(1008, 'not_found'),
+    );
 });
 
 app.get('/ws', { websocket: true }, (socket, req) => {

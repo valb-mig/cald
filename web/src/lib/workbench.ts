@@ -1,6 +1,7 @@
 import { navigate } from 'wouter/use-browser-location'
 import { create } from 'zustand'
 import type { DiffSide } from './types'
+import { closeGuarded } from './unsaved'
 
 /**
  * Abas no PC, como os grupos de editores do VSCode: cada lado da tela (um grupo) tem a sua barra de
@@ -236,23 +237,33 @@ export function pinTab(key: string): void {
   )
 }
 
+/** Fecha a aba; um arquivo com alteração não salva pergunta antes (ver lib/unsaved.ts). */
 export function closeTab(groupId: string, key: string): void {
-  const { groups, focused } = useWorkbench.getState()
-  set(without(groups, groupId, key), focused)
+  closeGuarded([key], () => {
+    const { groups, focused } = useWorkbench.getState()
+    set(without(groups, groupId, key), focused)
+  })
 }
 
 /** Fecha as outras abas do grupo (`which: 'others'`) ou as que estão à direita dela (`'right'`). */
 export function closeTabs(groupId: string, key: string, which: 'others' | 'right'): void {
-  const { groups, focused } = useWorkbench.getState()
-  set(
-    groups.map((g) => {
-      if (g.id !== groupId) return g
-      const i = g.tabs.findIndex((t) => t.key === key)
-      const tabs = which === 'others' ? g.tabs.filter((t) => t.key === key) : g.tabs.slice(0, i + 1)
-      return { ...g, tabs, active: tabs.some((t) => t.key === g.active) ? g.active : key }
-    }),
-    focused,
-  )
+  const keep = (g: Group) => {
+    const i = g.tabs.findIndex((t) => t.key === key)
+    return which === 'others' ? g.tabs.filter((t) => t.key === key) : g.tabs.slice(0, i + 1)
+  }
+  const group = useWorkbench.getState().groups.find((g) => g.id === groupId)
+  const closing = group ? group.tabs.filter((t) => !keep(group).includes(t)).map((t) => t.key) : []
+  closeGuarded(closing, () => {
+    const { groups, focused } = useWorkbench.getState()
+    set(
+      groups.map((g) => {
+        if (g.id !== groupId) return g
+        const tabs = keep(g)
+        return { ...g, tabs, active: tabs.some((t) => t.key === g.active) ? g.active : key }
+      }),
+      focused,
+    )
+  })
 }
 
 /** Leva a aba para o grupo `to`, na posição `index` (ou no fim). */

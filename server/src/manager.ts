@@ -19,6 +19,8 @@ import { fromSessionMessage, type LoggedEvent } from './events.ts';
 import { stopPcSession, type LiveRegistry } from './live.ts';
 import { type Attachment, prepareTurn } from './attachments.ts';
 import { readPlanUsage } from './claude-usage.ts';
+import { describeSetup, probeSetup, type ClaudeSetup } from './claude-config.ts';
+import { listClaudeTrash, type ClaudeTrashed } from './claude-manage.ts';
 import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from './panel-session.ts';
 import { searchProjectFiles } from './project-files.ts';
 import { createProjectDir, expandHome, isDirectory, listFolders, type FolderListing } from './project-folders.ts';
@@ -123,6 +125,7 @@ export class Manager extends EventEmitter {
   private readonly imageReloads = new Map<string, Promise<unknown>>();
   private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
   private modelsCache?: { at: number; list: Promise<ModelOption[]> };
+  private readonly setupCache = new Map<string, { at: number; setup: Promise<ClaudeSetup> }>();
   /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
   private readonly delivered = new Set<string>();
   private readonly live: LiveRegistry;
@@ -538,6 +541,45 @@ export class Manager extends EventEmitter {
     this.commandsCache.set(dir, { at: Date.now(), list });
     list.catch(() => this.commandsCache.delete(dir));
     return list;
+  }
+
+  /**
+   * Skills, agentes e servidores MCP de uma pasta (sem `cwd`, os da pasta pessoal, que valem em
+   * todas): pela conversa do painel aberta ali, se houver; senão por uma sonda (cache de 10 min).
+   */
+  async claudeSetup(cwd: string | undefined, refresh = false): Promise<ClaudeSetup & { trash: ClaudeTrashed[] }> {
+    const dir = cwd ? await this.knownCwd(cwd) : homedir();
+    let hit = this.setupCache.get(dir);
+    if (refresh || !hit || Date.now() - hit.at >= COMMANDS_CACHE_MS) {
+      const open = [...this.sessions.values()].find((s) => s.cwd === dir);
+      const raw = open ? open.setup() : withProbe(dir, probeSetup);
+      const setup = Promise.all([raw, this.projects()]).then(([r, projects]) => describeSetup(dir, r, projects));
+      hit = { at: Date.now(), setup };
+      this.setupCache.set(dir, hit);
+      setup.catch(() => this.setupCache.delete(dir));
+    }
+    // A lixeira vem sempre do disco: ela muda sem o Claude Code saber.
+    const [setup, trash] = await Promise.all([hit.setup, listClaudeTrash(cwd ? dir : undefined)]);
+    return { ...setup, trash };
+  }
+
+  /** Depois de ligar, desligar ou mandar algo para a lixeira: o que vale mudou em todas as pastas. */
+  forgetSetup(): void {
+    this.setupCache.clear();
+    this.commandsCache.clear();
+  }
+
+  /**
+   * Liga ou desliga um servidor MCP numa pasta. O Claude Code grava isso por pasta (no ~/.claude.json),
+   * então vale para as próximas conversas ali; as do painel abertas nela mudam na hora.
+   */
+  async toggleMcp(cwd: string | undefined, name: string, enabled: boolean): Promise<void> {
+    const dir = cwd ? await this.knownCwd(cwd) : homedir();
+    const open = [...this.sessions.values()].filter((s) => s.cwd === dir);
+    if (open.length) for (const s of open) await s.toggleMcp(name, enabled);
+    else await withProbe(dir, (q) => q.toggleMcpServer(name, enabled));
+    this.setupCache.delete(dir);
+    this.commandsCache.delete(dir);
   }
 
   /** Modelos e níveis de esforço: pela sessão aberta no painel, se houver; senão por uma sonda (cache de 10 min). */

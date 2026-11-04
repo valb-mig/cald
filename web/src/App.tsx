@@ -5,6 +5,7 @@ import { ComputerSheet } from '@/components/computer-sheet'
 import { LockScreen } from '@/components/lock-screen'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
+import { QuickOpen } from '@/components/project/quick-open'
 import { ProjectViewer } from '@/components/project/viewer'
 import { ShellPaint } from '@/components/shell-paint'
 import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
@@ -226,6 +227,7 @@ function Panel() {
         </div>
         {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
         <ProjectBar hidden={zen} />
+        <QuickOpen />
       </div>
       <ComputerSheet />
     </div>

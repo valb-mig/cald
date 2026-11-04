@@ -3,6 +3,9 @@ import type { ThemedToken } from 'shiki/core'
 import { useDarkMode } from '@/lib/hooks'
 import type { Mark } from './changes'
 
+/** O que o minimapa lê de cada pedaço colorido: os tokens do Shiki servem, e os do editor também. */
+export type MinimapToken = Pick<ThemedToken, 'content' | 'color'>
+
 // Largura do mapa e o tamanho de cada caractere nele, em pixels de CSS: um traço por caractere, como o
 // minimapa do VSCode sem letras.
 const WIDTH = 96
@@ -48,9 +51,9 @@ export function CodeMinimap({
   marks,
   tint = false,
 }: {
-  scrollRef: React.RefObject<HTMLDivElement | null>
+  scrollRef: React.RefObject<HTMLElement | null>
   lines: string[]
-  tokens: (ThemedToken[] | undefined)[] | null
+  tokens: (MinimapToken[] | undefined)[] | null
   marks?: (Mark | undefined)[]
   tint?: boolean
 }) {

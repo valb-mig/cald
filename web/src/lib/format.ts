@@ -18,6 +18,9 @@ export function shortPath(path: string): string {
   return path.replace(/^\/home\/[^/]+/, '~')
 }
 
+/** Nome curto de uma pasta qualquer: a pessoal vira `~`, o resto como `projectName`. */
+export const placeName = (path: string) => (shortPath(path.replace(/\/+$/, '')) === '~' ? '~' : projectName(path))
+
 const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' })
 
 export function relativeTime(ms: number): string {

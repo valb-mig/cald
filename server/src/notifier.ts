@@ -34,6 +34,8 @@ export class Notifier {
   private readonly push: PushService;
   /** Última fala do Claude no turno em andamento, para o aviso de "terminou". */
   private readonly lastReply = new Map<string, string>();
+  /** Último resultado de turno, até a sessão parar: com mensagem na fila, o CLI emenda outro turno. */
+  private readonly lastResult = new Map<string, Extract<LoggedEvent, { kind: 'result' }>>();
   /** Estado anterior das sessões vivas no PC; `undefined` até a primeira leitura. */
   private pc?: Map<string, { status: LiveSession['status']; since: number }>;
 
@@ -60,15 +62,23 @@ export class Notifier {
         return this.send(sessionId, 'Pergunta', questionText(ev.questions), ATTENTION);
       case 'approval_request':
         return this.send(sessionId, 'Aprovação', toolText(ev.toolName, ev.input), ATTENTION);
-      case 'result': {
+      case 'result':
+        // O fim do turno não é o fim do trabalho: o aviso espera a sessão parar.
+        this.lastResult.set(sessionId, ev);
+        return;
+      case 'state': {
+        const result = this.lastResult.get(sessionId);
+        if (ev.state !== 'idle' || !result) return;
+        this.lastResult.delete(sessionId);
         // Algo ainda roda em segundo plano (monitor, comando, subagente): o Claude vai voltar, não terminou.
         if (this.manager.find(sessionId)?.pendingWork) return;
         const reply = this.lastReply.get(sessionId);
         this.lastReply.delete(sessionId);
-        return this.send(sessionId, resultLabel(ev), reply ? plain(reply) : `Turno de ${duration(ev.durationMs)}`, DONE);
+        return this.send(sessionId, resultLabel(result), reply ? plain(reply) : `Turno de ${duration(result.durationMs)}`, DONE);
       }
       case 'exit':
         this.lastReply.delete(sessionId);
+        this.lastResult.delete(sessionId);
         if (ev.error) return this.send(sessionId, 'Sessão caiu', ev.error.split('\n')[0] ?? ev.error, FAILED);
         return;
     }

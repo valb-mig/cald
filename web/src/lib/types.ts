@@ -245,8 +245,19 @@ export type SessionCost = {
 export type TreeEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number; ignored?: boolean }
 
 export type FileView =
-  | { kind: 'text'; size: number; content: string; truncated: boolean }
+  /**
+   * `hash`: o que o editor manda ao salvar, para o servidor recusar se o arquivo mudou desde a leitura.
+   * Sem ele (arquivo cortado, fora do UTF-8, ou servidor de antes do editor), o arquivo abre só para leitura.
+   */
+  | { kind: 'text'; size: number; content: string; truncated: boolean; hash?: string }
   | { kind: 'image' | 'pdf' | 'binary' | 'large'; size: number }
+
+/**
+ * O que a busca nos arquivos achou (ver server/src/search.ts): por arquivo, as linhas com o trecho de
+ * cada achado (`ranges`, no `text` mostrado) e a coluna do primeiro na linha inteira, para o editor.
+ */
+export type SearchMatch = { line: number; text: string; ranges: [number, number][]; col: number; len: number }
+export type SearchResult = { files: { path: string; matches: SearchMatch[] }[]; total: number; truncated: boolean }
 
 /** Linhas a mais e a menos; `null` em arquivo binário. */
 export type LineCount = { additions: number | null; deletions: number | null }
@@ -522,3 +533,78 @@ export type InboxItem =
 export type InboxPayload = { items: InboxItem[]; github: { ok: true } | { ok: false; reason: string; message?: string } }
 export type InboxItemState = { seen?: string; snoozedUntil?: number; at: number }
 export type InboxAction = { key: string; action: 'seen' | 'snooze' | 'clear'; mark?: string; until?: number }
+
+// ---- o que o Claude Code carrega (ver server/src/memory.ts e server/src/claude-config.ts) ----
+
+/** `stale`: sem mudar há 60 dias; `orphan`: o projeto não existe mais; `unindexed`: fora do MEMORY.md; `broken-link`: `[[nome]]` sem memória. */
+export type MemorySignal = 'stale' | 'orphan' | 'unindexed' | 'broken-link'
+export type Memory = {
+  file: string
+  name: string
+  description: string
+  type: string | null
+  body: string
+  modified: number
+  mtime: number
+  origin: string | null
+  originExists: boolean
+  links: string[]
+  brokenLinks: string[]
+  citedBy: string[]
+  indexed: boolean
+  signals: MemorySignal[]
+}
+export type MemoryFolder = { folder: string; dir: string; cwd: string | null; indexLines: number | null; missing: string[]; memories: Memory[] }
+export type TrashedMemory = { id: string; folder: string; cwd: string | null; file: string; name: string; description: string; deletedAt: number }
+export type MemoryList = { folders: MemoryFolder[]; trash: TrashedMemory[] }
+export type MemoryRef = { folder: string; file: string }
+
+export type ClaudeItemKind = 'skill' | 'command' | 'agent'
+export type ClaudeItemSource = 'project' | 'user' | 'claude.ai' | 'plugin' | 'builtin'
+export type ClaudeItem = {
+  kind: ClaudeItemKind
+  name: string
+  description: string
+  source: ClaudeItemSource
+  plugin: string | null
+  path: string | null
+  model: string | null
+  mentions: { name: string; here: boolean }[]
+  enabled: boolean
+  canToggle: boolean
+  canTrash: boolean
+}
+export type McpStatus = 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'
+export type McpServer = {
+  name: string
+  status: McpStatus
+  scope: string | null
+  error: string | null
+  transport: string | null
+  target: string | null
+  secrets: string[]
+  tools: { name: string; description: string | null }[]
+  /** O plugin que traz o servidor (`nome@marketplace`): liga e desliga pelo plugin. */
+  plugin: string | null
+}
+export type McpElsewhere = { name: string; scope: 'local' | 'project'; projects: string[] }
+export type PluginInfo = { key: string; name: string; enabled: boolean; mcp: boolean }
+export type McpScope = 'user' | 'local' | 'project'
+export type ClaudeTrashed = {
+  id: string
+  kind: 'skill' | 'command' | 'agent' | 'mcp'
+  name: string
+  description: string
+  scope: string
+  project: string | null
+  deletedAt: number
+}
+export type ClaudeSetup = {
+  cwd: string
+  items: ClaudeItem[]
+  mcp: McpServer[]
+  elsewhere: McpElsewhere[]
+  plugins: PluginInfo[]
+  trash: ClaudeTrashed[]
+  at: number
+}

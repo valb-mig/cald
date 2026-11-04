@@ -1,5 +1,7 @@
-import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, X } from 'lucide-react'
+import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { ClaudeMark } from '@/components/claude-mark'
+import { ClaudeTab } from '@/components/claude/claude-tab'
 import { ProjectMark } from '@/components/project-mark'
 import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
 import { RailItem } from '@/components/sidebar-rail'
@@ -12,6 +14,7 @@ import { projectName, shortPath, worktreeOf } from '@/lib/format'
 import { useGithubCounts } from '@/lib/github'
 import { useGitStatus, usePressMenu, useWide } from '@/lib/hooks'
 import { MachineContext } from '@/lib/machines'
+import { useMemoryAlerts } from '@/lib/memory'
 import {
   isPanelShown,
   PANEL_MAX,
@@ -31,6 +34,7 @@ import { broughtFocus, GAP, MIN_CHAT, useMainWidth, usePane, useSplit } from '@/
 import { useTodos } from '@/lib/todos'
 import { cn } from '@/lib/utils'
 import { FilesTab } from './files'
+import { SearchTab } from './search'
 import { IssuesTab, PullsTab } from './github'
 import { SourceControlTab } from './source-control'
 import { TodoTab } from './todo'
@@ -54,12 +58,17 @@ function toward(width: number, fit: (w: number) => number, before: number): void
   setPanelWidth(fit(width))
 }
 
-const TABS: { tab: PanelTab; label: string; title: string; icon: typeof FolderTree }[] = [
+// A marca do Claude na cor das outras abas: o laranja dela ficaria aceso o tempo todo na alça.
+const ClaudeIcon = ({ className }: { className?: string }) => <ClaudeMark className={cn('fill-current', className)} />
+
+const TABS: { tab: PanelTab; label: string; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { tab: 'files', label: 'Arquivos', title: 'Arquivos do projeto', icon: FolderTree },
+  { tab: 'search', label: 'Buscar', title: 'Buscar nos arquivos · Ctrl+Shift+F', icon: Search },
   { tab: 'git', label: 'Git', title: 'Controle de código-fonte', icon: GitBranch },
   { tab: 'pulls', label: 'PRs', title: 'Pull requests abertos', icon: GitPullRequest },
   { tab: 'issues', label: 'Issues', title: 'Issues abertas', icon: CircleDot },
   { tab: 'todo', label: 'TODO', title: 'TODO do projeto', icon: ListTodo },
+  { tab: 'claude', label: 'Claude', title: 'Memória, skills e MCP do Claude', icon: ClaudeIcon },
 ]
 
 /** Contador cinza: quantidade, não alerta (o azul com brilho fica para os arquivos alterados). */
@@ -117,7 +126,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
         >
           {tabs ? (
             <>
-              {/* Cinco abas não cabem em todo celular: a fileira rola de lado. */}
+              {/* Sete abas não cabem em todo celular: a fileira rola de lado. */}
               <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
                 {TABS.map(({ tab: t, label, title, icon: Icon }) => (
                   <button
@@ -156,14 +165,18 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
         </div>
         {tab === 'files' ? (
           <FilesTab project={project} status={git.status} />
+        ) : tab === 'search' ? (
+          <SearchTab project={project} />
         ) : tab === 'git' ? (
           <SourceControlTab project={project} status={git.status} loading={git.loading} />
         ) : tab === 'pulls' ? (
           <PullsTab project={project} />
         ) : tab === 'issues' ? (
           <IssuesTab project={project} />
-        ) : (
+        ) : tab === 'todo' ? (
           <TodoTab project={project} />
+        ) : (
+          <ClaudeTab project={project} />
         )}
       </div>
     </MachineContext>
@@ -181,12 +194,16 @@ function ProjectRail({ project }: { project: PanelProject }) {
   // PRs e issues: só o que as abas já buscaram (a alça não consulta o GitHub). O TODO é local e leve.
   const github = useGithubCounts(project.machine, project.cwd)
   const todo = useTodos(project.machine, project.cwd)?.filter((t) => !t.done).length ?? 0
+  // A memória: só o que o Claude não chega a ver (fora do índice, link quebrado), não as só antigas.
+  const memory = useMemoryAlerts(project.machine, project.cwd)
   const counts: Record<PanelTab, { n: number; badge: string; tip: (n: number) => string } | null> = {
     files: null,
+    search: null,
     git: { n: changes, badge: 'bg-sky-600 shadow-[0_0_10px_-1px_rgb(14_165_233/0.8)]', tip: (n) => `${n} ${n === 1 ? 'alterado' : 'alterados'}` },
     pulls: github && { n: github.pulls, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberto' : 'abertos'}` },
     issues: github && { n: github.issues, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberta' : 'abertas'}` },
     todo: { n: todo, badge: COUNT_BADGE, tip: (n) => `${n} por fazer` },
+    claude: { n: memory, badge: 'bg-amber-500', tip: (n) => `${n} ${n === 1 ? 'memória pede' : 'memórias pedem'} atenção` },
   }
   const pick = (t: PanelTab) => {
     if (shown && tab === t) return setPanelShown(false)

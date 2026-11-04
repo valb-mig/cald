@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsDownUp, Folder, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
+import { ChevronRight, ChevronsDownUp, FileSearch, Folder, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
 import { createElement, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { api, errorMessage } from '@/lib/api'
@@ -8,6 +8,7 @@ import { openViewer, useProjectPanel, type PanelProject } from '@/lib/project-pa
 import type { GitStatus, TreeEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useFileMenu, type FileMenuAt } from './file-menu'
+import { openQuickOpen } from './quick-open'
 import { fileIcon, treeMarks, type Badge } from './status'
 
 // Pastas abertas por projeto: trocar de aba, fechar e reabrir a barra mantém a árvore como estava.
@@ -142,6 +143,9 @@ export function FilesTab({ project, status }: { project: PanelProject; status: G
         <span className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-wide text-muted-foreground uppercase" title={project.cwd}>
           {projectName(project.cwd)}
         </span>
+        <Button variant="ghost" size="icon-xs" onClick={openQuickOpen} aria-label="Abrir arquivo pelo nome" title="Abrir arquivo pelo nome · Ctrl+P">
+          <FileSearch />
+        </Button>
         <Button variant="ghost" size="icon-xs" onClick={() => setVersion((v) => v + 1)} aria-label="Atualizar" title="Atualizar">
           <RefreshCw />
         </Button>
