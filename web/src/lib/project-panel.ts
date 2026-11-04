@@ -7,12 +7,13 @@ import { openPanelTab, revealChat } from './workbench'
 
 /**
  * A barra do projeto, à direita (como a barra lateral secundária do VSCode): os arquivos, o controle
- * de código-fonte, os PRs e issues do GitHub e o TODO do projeto da conversa em foco. No PC ela fica
+ * de código-fonte, os PRs e issues do GitHub, o TODO e o que o Claude carrega (memória, skills e MCP)
+ * no projeto da conversa em foco. No PC ela fica
  * ao lado das conversas quando cabe;
  * no celular, ou numa janela estreita demais, abre por cima, como folha.
  */
-export type PanelTab = 'files' | 'git' | 'pulls' | 'issues' | 'todo'
-const TABS: PanelTab[] = ['files', 'git', 'pulls', 'issues', 'todo']
+export type PanelTab = 'files' | 'git' | 'pulls' | 'issues' | 'todo' | 'claude'
+const TABS: PanelTab[] = ['files', 'git', 'pulls', 'issues', 'todo', 'claude']
 
 /** O projeto que a barra mostra: o da conversa em foco (ou da nova conversa), posto por ela. */
 export type PanelProject = { machine: string; cwd: string }

@@ -36,7 +36,18 @@ O cald é um painel pessoal para controlar pelo celular as sessões do Claude Co
 - No zsh, o `ZDOTDIR` aponta para `server/src/shell/zsh`, cujos arquivos carregam os do usuário e, por último, o `cald.zsh`. Ali cada comando vira um bloco marcado com OSC 133 (A cabeçalho, B entrada, C rodou, D;n código de saída), com a pasta e a branch no cabeçalho e o prompt `›` no laranja do Claude; o OSC 7 informa a pasta atual, que dá nome à aba. Outros shells abrem como são.
 - No app, as abas ficam em `web/src/lib/terminals.ts`, salvas no aparelho, e não seguem a conversa em foco; o `+` abre um shell na pasta do projeto ou da conversa em foco.
 
-**Dados no PC.** `~/.local/share/cald` guarda o que precisa durar (`activity.json`, workspaces, times, Whisper, Piper); `~/.local/state/cald` guarda o estado (`meta.json` com fixadas e bifurcações, `push.json`, `pin.json`); `~/.cache/cald` guarda os anexos enviados e as conversas a reabrir depois de uma atualização. O histórico das conversas é o do próprio Claude Code, em `~/.claude`.
+**O que o Claude carrega** (`memory.ts`, `claude-config.ts` e `frontmatter.ts`; no app, `components/claude/`). Fica no painel Computador, nas seções Memória, Skills e MCP (o que vale em todo projeto, por máquina), e na aba Claude da barra do projeto (o do projeto em foco).
+- **Memória:** a memória automática do Claude Code (`~/.claude/projects/<pasta>/memory`, com o índice `MEMORY.md`) é lida direto do disco.
+  - O nome da pasta é o caminho com tudo que não é letra ou número trocado por `-`, e isso não volta sozinho. A maioria das pastas já perdeu os `.jsonl`, então o projeto é achado descendo pelo disco.
+  - Editar confere o `mtime` (devolve 409 se o Claude mexeu no meio). Apagar move pra lixeira do cald e tira a linha do índice; restaurar devolve as duas no lugar.
+- **Skills, agentes e MCPs:** vêm do próprio Claude Code (`supportedCommands`, `supportedAgents` e `mcpServerStatus`), pela conversa do painel aberta na pasta ou por uma sonda (`withProbe`), com cache de 10 min. O disco diz a origem de cada um e o texto, e também quais skills citam um MCP que não está ligado ali.
+- **Ligar e desligar MCP:** usa `toggleMcpServer`, que o Claude Code grava por pasta (`disabledMcpServers` no `~/.claude.json`). Não existe desligar global para servidor.
+- **O que muda** (`claude-manage.ts`):
+  - skills ligam e desligam pelo `skillOverrides` (o seu `settings.json`, ou o `.claude/settings.local.json` do projeto);
+  - plugins, pelo `claude plugin enable/disable`;
+  - a lixeira do cald (`claude-trash/`) guarda skills, comandos e agentes seus ou do projeto, e a configuração dos servidores MCP. Essa configuração sai pelo `claude mcp remove` e volta pelo `add-json`.
+
+**Dados no PC.** `~/.local/share/cald` guarda o que precisa durar (`activity.json`, workspaces, times, Whisper, Piper, a lixeira das memórias em `memory-trash/` e a de skills e MCPs em `claude-trash/`); `~/.local/state/cald` guarda o estado (`meta.json` com fixadas e bifurcações, `push.json`, `pin.json`); `~/.cache/cald` guarda os anexos enviados e as conversas a reabrir depois de uma atualização. O histórico das conversas é o do próprio Claude Code, em `~/.claude`.
 
 **Desenvolvimento.** `pnpm dev:web` sobe o Vite com proxy para o serviço na 7337 (ou para outra instância via `BACKEND`). Para mexer no servidor sem derrubar o serviço, roda-se outra instância com `PORT=7338 pnpm dev`, que pode aparecer no app via `EXTRA_MACHINES`. Não há testes automatizados; `server/scripts/poc-client.ts` é um cliente de linha de comando que faz o papel do celular.
 
@@ -53,11 +64,16 @@ O cald é um painel pessoal para controlar pelo celular as sessões do Claude Co
 - **Histórico de uso num arquivo próprio (`activity.json`)** — o Claude Code apaga os transcripts depois de ~30 dias, e o grid do ano não pode perder os dias antigos.
 - **Whisper e Piper locais e opcionais** — o áudio não sai do PC e tudo funciona sem internet. O Piper existe porque, no Linux, a voz do navegador é a do espeak, robótica.
 - **Nenhum botão de descartar alterações no git** — é a única ação que não teria volta.
+- **Skills e MCPs listados pelo próprio Claude Code, e não remontados das configs:** são muitas fontes (o `~/.claude.json` por pasta, os `.mcp.json`, os plugins, os conectores do claude.ai e as skills sincronizadas), cada uma com sua precedência. O disco só completa com a origem e o texto.
+- **Memória apagada pelo app vai para a lixeira do cald:** é a mesma regra de não ter ação sem volta. Escrever no `~/.claude` só com a checagem de `mtime`.
+- **Segredos dos MCPs não saem do PC:** de `env` e `headers` vai só o nome; argumentos com cara de chave e a query das URLs são cortados.
 - **Atualização pelo próprio app, com travas** — recusa com mudança local, `main` divergente ou conversa trabalhando, e reabre as conversas do painel depois do reinício.
 - **Custo de pintura sob controle** — Shiki e cada gramática só baixam quando usados (e ficam fora do cache offline); os fundos ASCII usam um atlas de glifos, repintam só as células que mudaram e param fora da tela.
 - **Tudo em pt-BR** — comentários de código, textos da UI, README e mensagens de commit. Os commits seguem `tipo(escopo): descrição` em português, cada feature leva um commit `docs:` próprio atualizando o README (que é o manual completo do app), e o trabalho vai em branches `valb-mig/feat-*` que entram na `main` por PR.
 
 ## Estado atual
+
+A branch `valb-mig/feat-memoria-skills-mcp` (worktree `.claude/worktrees/feat-memoria-skills-mcp`) traz a memória, as skills e os MCPs do Claude para o painel Computador e para a aba Claude da barra do projeto.
 
 O painel está completo e em uso diário (cerca de 250 commits desde 17/10/2026): chat com aprovações, perguntas, subagentes, bifurcação, fila offline, anexos, ditado e leitura em voz alta; times de agentes e workspaces; inbox (GitHub, git, TODOs e conversas esperando você); a salinha em SVG; o mapa mental; o início com os limites do plano e o histórico de uso; explorador de arquivos e git; abas e split no PC; conversas em paralelo no mesmo projeto, ligadas por um trilho na lista (`web/src/lib/peers.ts`), com um selo no chat de quem mais mexe no mesmo checkout; notificações, sons e fundos animados; várias máquinas; e atualização pelo próprio app.
 
