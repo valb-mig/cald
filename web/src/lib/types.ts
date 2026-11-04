@@ -186,6 +186,13 @@ export type RunOptions = {
 
 export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean }
 
+/**
+ * Uma habilidade do cald (ver server/src/habilidades.ts): uma skill do próprio cald, global
+ * (`project: null`) ou de um projeto, que o Claude vê nas conversas do painel como `/cald:nome`.
+ */
+export type Habilidade = { id: string; name: string; description: string; body: string; project: string | null; createdAt: number; updatedAt: number }
+export type HabilidadeList = { global: Habilidade[]; project: Habilidade[]; trash: (Habilidade & { deletedAt: number })[] }
+
 export type AttachmentPayload = { name: string; mediaType: string; data: string; thumb?: string }
 
 export type SystemSnapshot = {

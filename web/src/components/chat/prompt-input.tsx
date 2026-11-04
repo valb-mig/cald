@@ -40,23 +40,29 @@ function activeToken(text: string, caret: number): Token | null {
 
 const commandCache = new Map<string, Promise<CommandInfo[]>>()
 
-/** Carrega (uma vez por projeto em cada máquina) a lista de comandos e skills. */
-export function loadCommands(machine: string, cwd: string): Promise<CommandInfo[]> {
-  const key = `${machine}\n${cwd}`
+/**
+ * Carrega (uma vez por projeto em cada máquina, e por conversa) a lista de comandos e skills, com as
+ * habilidades do cald ligadas nela.
+ */
+export function loadCommands(machine: string, cwd: string, session?: string): Promise<CommandInfo[]> {
+  const key = `${machine}\n${cwd}\n${session ?? ''}`
   let list = commandCache.get(key)
   if (!list) {
-    list = api.commands(machine, cwd)
+    list = api.commands(machine, cwd, session)
     commandCache.set(key, list)
     list.catch(() => commandCache.delete(key))
   }
   return list
 }
 
+/** Uma habilidade do cald mudou (criada, editada, ligada ou desligada): o "/" pede a lista de novo. */
+export const forgetCommands = () => commandCache.clear()
+
 /**
  * As sugestões da palavra sob o cursor e `ready`: a busca dela já respondeu. Sem nada achado, a lista
  * diz isso em vez de não abrir (ver `EMPTY`): digitar e nada acontecer deixa a dúvida se o atalho existe.
  */
-function useSuggestions(cwd: string | undefined, token: Token | null): { items: Suggestion[]; ready: boolean } {
+function useSuggestions(cwd: string | undefined, session: string | undefined, token: Token | null): { items: Suggestion[]; ready: boolean } {
   const machine = useMachine()
   const [found, setFound] = useState<{ for: string; items: Suggestion[] }>({ for: '', items: [] })
   const kind = token?.kind
@@ -73,7 +79,7 @@ function useSuggestions(cwd: string | undefined, token: Token | null): { items: 
     const setItems = (items: Suggestion[]) => setFound({ for: `${kind}\n${query}`, items })
     const q = query.toLowerCase()
     if (kind === '/') {
-      loadCommands(machine, cwd).then(
+      loadCommands(machine, cwd, session).then(
         (list) => {
           if (!alive) return
           const matches = list.filter((c) => c.name.toLowerCase().includes(q))
@@ -136,7 +142,7 @@ function useSuggestions(cwd: string | undefined, token: Token | null): { items: 
       alive = false
       clearTimeout(timer)
     }
-  }, [machine, cwd, kind, query])
+  }, [machine, cwd, session, kind, query])
 
   return { items: found.for === current ? found.items : [], ready: found.for === current }
 }
@@ -223,6 +229,8 @@ type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   handleRef?: Ref<PromptInputHandle>
   /** Projeto da sessão: de onde vêm os comandos, os arquivos, as issues e os PRs sugeridos. */
   cwd?: string
+  /** A conversa do campo: o "/" mostra só as habilidades do cald ligadas nela. */
+  session?: string
   value: string
   onChange: (value: string) => void
   /** Arquivos colados (ex.: print no PC). */
@@ -237,6 +245,7 @@ type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
 /** Campo de mensagem com sugestões de "/comando", "@arquivo", "#issue" ou "#PR" e "TODO:" (itens do TODO). */
 export function PromptInput({
   cwd,
+  session,
   value,
   onChange,
   onPasteFiles,
@@ -250,14 +259,14 @@ export function PromptInput({
   const ref = useRef<HTMLTextAreaElement>(null)
   const [token, setToken] = useState<Token | null>(null)
   const [highlight, setHighlight] = useState(0)
-  const { items: suggestions, ready } = useSuggestions(cwd, token)
+  const { items: suggestions, ready } = useSuggestions(cwd, session, token)
   const empty = token !== null && ready && suggestions.length === 0
   const open = token !== null && (suggestions.length > 0 || empty)
   const machine = useMachine()
 
   useEffect(() => {
-    if (cwd) void loadCommands(machine, cwd).catch(() => {})
-  }, [machine, cwd])
+    if (cwd) void loadCommands(machine, cwd, session).catch(() => {})
+  }, [machine, cwd, session])
 
   useEffect(() => setHighlight(0), [token?.kind, token?.query])
 

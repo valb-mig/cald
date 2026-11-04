@@ -5,6 +5,8 @@ import type {
   Activity,
   AttachmentPayload,
   CommandInfo,
+  Habilidade,
+  HabilidadeList,
   ClaudeSetup,
   ContextUsage,
   DiffSide,
@@ -128,7 +130,17 @@ export const api = {
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
   /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
   activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),
-  commands: (m: string, cwd: string) => request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}`),
+  /** Com `session`, as habilidades do cald desligadas nela ficam de fora. */
+  commands: (m: string, cwd: string, session?: string) =>
+    request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}${session ? `&session=${encodeURIComponent(session)}` : ''}`),
+  habilidades: (m: string, cwd?: string) => request<HabilidadeList>('GET', `${at(m)}/habilidades${cwd ? `?${project(cwd)}` : ''}`),
+  saveHabilidade: (m: string, h: { id?: string; name: string; description: string; body: string; project: string | null }) => post<Habilidade>(`${at(m)}/habilidades`, h),
+  trashHabilidade: (m: string, id: string) => post(`${at(m)}/habilidades/trash`, { id }),
+  restoreHabilidade: (m: string, id: string) => post<Habilidade>(`${at(m)}/habilidades/restore`, { id }),
+  purgeHabilidade: (m: string, id: string) => post(`${at(m)}/habilidades/purge`, { id }),
+  /** As habilidades desligadas numa conversa; o resto vale nela. */
+  sessionHabilidades: (id: string) => request<{ off: string[] }>('GET', `${sid(id)}/habilidades`),
+  setSessionHabilidade: (id: string, habilidade: string, on: boolean) => post<{ off: string[] }>(`${sid(id)}/habilidades`, { id: habilidade, on }),
   files: (m: string, cwd: string, q: string) =>
     request<string[]>('GET', `${at(m)}/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(q)}`),
   history: (id: string, limit = 300) => request<LoggedEvent[]>('GET', `${sid(id)}/history?limit=${limit}`),
@@ -335,6 +347,16 @@ export function errorMessage(err: unknown): string {
       return 'A busca usa o ripgrep: instale o `rg` no PC (pacote ripgrep).'
     case 'invalid_search':
       return `A expressão não vale: ${String(err.details.message ?? '')}`
+    case 'habilidade_exists':
+      return `Já existe uma habilidade chamada ${String(err.details.name ?? '')} aí. Escolha outro nome.`
+    case 'invalid_habilidade_name':
+      return 'O nome vai no /cald:nome: só letras minúsculas, números e hífen, começando por letra ou número.'
+    case 'invalid_habilidade_description':
+      return 'Escreva a descrição: é por ela que o Claude decide quando usar a habilidade.'
+    case 'habilidade_too_long':
+      return 'As instruções passaram de 50 mil caracteres.'
+    case 'habilidade_not_found':
+      return 'Essa habilidade não existe mais.'
     case 'not_utf8':
       return 'O arquivo não está em UTF-8: salvar pelo painel trocaria os acentos.'
     case 'file_too_large':
