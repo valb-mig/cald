@@ -59,7 +59,7 @@ O cald é um painel pessoal para controlar pelo celular as sessões do Claude Co
 
 ## Estado atual
 
-O painel está completo e em uso diário (cerca de 250 commits desde 17/10/2026): chat com aprovações, perguntas, subagentes, bifurcação, fila offline, anexos, ditado e leitura em voz alta; times de agentes e workspaces; inbox (GitHub, git, TODOs e conversas esperando você); a salinha em SVG; o mapa mental; o início com os limites do plano e o histórico de uso; explorador de arquivos e git; abas e split no PC; notificações, sons e fundos animados; várias máquinas; e atualização pelo próprio app.
+O painel está completo e em uso diário (cerca de 250 commits desde 17/10/2026): chat com aprovações, perguntas, subagentes, bifurcação, fila offline, anexos, ditado e leitura em voz alta; times de agentes e workspaces; inbox (GitHub, git, TODOs e conversas esperando você); a salinha em SVG; o mapa mental; o início com os limites do plano e o histórico de uso; explorador de arquivos e git; abas e split no PC; conversas em paralelo no mesmo projeto, ligadas por um trilho na lista (`web/src/lib/peers.ts`), com um selo no chat de quem mais mexe no mesmo checkout; notificações, sons e fundos animados; várias máquinas; e atualização pelo próprio app.
 
 A branch atual é `valb-mig/feat-pin`, com o PIN (servidor, `cald -pin`, tela de bloqueio e README) ainda fora da `main`. Além disso, a árvore de trabalho tem mudanças não commitadas:
 - **Voz do Piper no PC:** `server/src/speak.ts`, as rotas `/api/speak`, `deploy/install-piper.sh` e a leitura em `web/src/lib/speech.ts`, que gera cada frase no PC enquanto a anterior toca e volta para a voz do navegador se o Piper falhar.
