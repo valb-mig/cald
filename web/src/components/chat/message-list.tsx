@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import { ImageThumb } from '@/components/image-viewer'
-import { Markdown } from '@/components/markdown'
+import { Markdown, StreamingMarkdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
@@ -400,13 +400,14 @@ function WorkingLine({ sessionId, items }: { sessionId: string; items: Item[] })
  */
 function LiveTail({ sessionId, working, items }: { sessionId: string; working: boolean; items: Item[] }) {
   const streaming = useStore((s) => s.streams[sessionId] ?? '')
-  // O markdown é reprocessado inteiro a cada atualização, então o custo cresce com a resposta: quanto
-  // maior ela fica, mais espaçadas as atualizações (de uma por quadro até ~4 por segundo).
+  // A cada atualização, só o último bloco do markdown é reprocessado (ver StreamingMarkdown), mas a
+  // lista dos blocos é refeita e cresce com a resposta: quanto maior ela fica, mais espaçadas as
+  // atualizações (de uma por quadro até ~4 por segundo).
   const typed = useTyped(streaming, Math.max(16, Math.min(250, streaming.length / 40)))
   const cheer = useTurnCheer(working, items.findLast((i): i is ResultItem => i.type === 'result'))
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
   const text = streaming && typed
-  if (text) return <Markdown text={text} className="chat-enter opacity-90" />
+  if (text) return <StreamingMarkdown text={text} className="chat-enter opacity-90" />
   if (working) return <WorkingLine sessionId={sessionId} items={items} />
   // O turno acabou bem: o claudinho do "Trabalhando…" faz o joinha e sai.
   return cheer ? (

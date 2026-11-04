@@ -8,9 +8,9 @@ const MAX_SIDE = 960
  * Uma imagem sua como tema: a cena é a própria imagem, já em tinta (ver `ink`), recortada como
  * `object-fit: cover`. A grade faz dela caracteres, como faz das formas de um tema; o ponteiro acende
  * e deixa rastro do mesmo jeito. A célula é menor que a das Ondas: um retrato precisa de mais detalhe
- * que uma faixa.
+ * que uma faixa. O worker do fundo monta o mesmo tema do lado dele, com a imagem em tinta copiada.
  */
-function build(id: ImageId, inked: HTMLCanvasElement): Theme {
+export function imageThemeFrom(id: ImageId, inked: HTMLCanvasElement | ImageBitmap): Theme {
   return {
     id,
     name: 'Imagem',
@@ -21,6 +21,7 @@ function build(id: ImageId, inked: HTMLCanvasElement): Theme {
     fps: 30,
     veil: false,
     still: true,
+    picture: inked,
     // Mais forte que as Ondas: aqui o desenho é o assunto, e uma foto em caracteres finos some fácil.
     look: (dark) =>
       dark
@@ -118,7 +119,7 @@ const cache = new Map<ImageId, Promise<Theme>>()
 export function imageTheme(image: WallpaperImage): Promise<Theme> {
   let theme = cache.get(image.id)
   if (!theme) {
-    theme = decode(image.blob).then((source) => build(image.id, ink(source)))
+    theme = decode(image.blob).then((source) => imageThemeFrom(image.id, ink(source)))
     cache.set(image.id, theme)
     theme.catch(() => cache.delete(image.id))
   }

@@ -185,3 +185,46 @@ export const Markdown = memo(function Markdown({ text, className }: { text: stri
     </div>
   )
 })
+
+/**
+ * Os blocos de um Markdown: corta nas linhas em branco fora de um bloco de código, quando a linha
+ * seguinte começa na margem (recuada, ela ainda é do item de lista de cima). Um bloco fechado não muda
+ * mais enquanto o texto cresce.
+ */
+function blocksOf(text: string): string[] {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let start = 0
+  let fence = ''
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const f = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    if (f) {
+      if (!fence) fence = f
+      else if (f[0] === fence[0] && f.length >= fence.length) fence = ''
+      continue
+    }
+    if (fence || line.trim() || i === start) continue
+    const next = lines[i + 1]
+    if (next === undefined || !/^\S/.test(next)) continue
+    out.push(lines.slice(start, i).join('\n'))
+    start = i + 1
+  }
+  out.push(lines.slice(start).join('\n'))
+  return out
+}
+
+/**
+ * O texto que o Claude ainda está escrevendo: um Markdown por bloco, e os já fechados ficam guardados
+ * (`memo`), então cada atualização processa só o último, em vez da resposta inteira de novo. O
+ * espaçamento entre os blocos é o mesmo de dentro de um só (as margens se juntam).
+ */
+export function StreamingMarkdown({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={cn('space-y-2', className)}>
+      {blocksOf(text).map((block, i) => (
+        <Markdown key={i} text={block} />
+      ))}
+    </div>
+  )
+}
