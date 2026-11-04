@@ -6,6 +6,7 @@ import { LockScreen } from '@/components/lock-screen'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
 import { QuickOpen } from '@/components/project/quick-open'
+import { HabilidadesDialog } from '@/components/habilidades-dialog'
 import { ProjectViewer } from '@/components/project/viewer'
 import { ShellPaint } from '@/components/shell-paint'
 import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
@@ -228,6 +229,7 @@ function Panel() {
         {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
         <ProjectBar hidden={zen} />
         <QuickOpen />
+        <HabilidadesDialog />
       </div>
       <ComputerSheet />
     </div>

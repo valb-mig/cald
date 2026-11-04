@@ -1,4 +1,4 @@
-import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from 'lucide-react'
+import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, WandSparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProjectMark } from '@/components/project-mark'
 import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
@@ -30,6 +30,7 @@ import {
 import { broughtFocus, GAP, MIN_CHAT, useMainWidth, usePane, useSplit } from '@/lib/split'
 import { useTodos } from '@/lib/todos'
 import { cn } from '@/lib/utils'
+import { openHabilidades } from '@/components/habilidades-dialog'
 import { FilesTab } from './files'
 import { SearchTab } from './search'
 import { IssuesTab, PullsTab } from './github'
@@ -146,6 +147,9 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
                   </button>
                 ))}
               </div>
+              <Button variant="ghost" size="icon" onClick={openHabilidades} aria-label="Habilidades do cald" title="Habilidades do cald">
+                <WandSparkles />
+              </Button>
               <Button variant="ghost" size="icon" onClick={() => setPanelShown(false)} aria-label="Fechar a barra do projeto" title="Fechar">
                 <X />
               </Button>
@@ -223,6 +227,11 @@ function ProjectRail({ project }: { project: PanelProject }) {
             </RailItem>
           )
         })}
+        {/* No pé da alça, longe das abas: as habilidades do cald valem para a conversa, não são uma aba. */}
+        <div className="flex-1" />
+        <RailItem side="left" label="Habilidades do cald" onClick={openHabilidades}>
+          <WandSparkles />
+        </RailItem>
       </aside>
     </TooltipProvider>
   )

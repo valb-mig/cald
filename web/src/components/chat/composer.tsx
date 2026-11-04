@@ -285,6 +285,7 @@ export function Composer({
           <PromptInput
             handleRef={input}
             cwd={cwd}
+            session={sessionId}
             value={text}
             onChange={(value) => {
               stopDictation()

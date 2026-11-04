@@ -109,6 +109,8 @@ export type PanelSessionOptions = {
    * ele é cópia, de onde vêm as configurações do projeto (permissões locais, skills, hooks).
    */
   worktree?: { prompt: string; configRoot: string };
+  /** A pasta do plugin "cald" desta conversa, com as habilidades que valem nela (ver habilidades.ts). */
+  habilidades?: string;
 };
 
 /** O que vai no fim do prompt de sistema: o time, o workspace e o worktree da conversa. */
@@ -122,6 +124,8 @@ const append = (opts: PanelSessionOptions) =>
 export class PanelSession extends EventEmitter {
   id: string;
   readonly cwd: string;
+  /** A pasta do plugin das habilidades desta conversa (ver habilidades.ts), para o Manager refazer. */
+  readonly habilidades?: string;
   readonly startedAt = Date.now();
   /** Identifica este processo: o `seq` recomeça a cada abertura da mesma conversa. */
   readonly runId = randomUUID().slice(0, 8);
@@ -170,6 +174,7 @@ export class PanelSession extends EventEmitter {
   constructor(opts: PanelSessionOptions) {
     super();
     this.cwd = opts.cwd;
+    this.habilidades = opts.habilidades;
     this.priorMessages = opts.priorMessages ?? 0;
     this.origin = opts.origin;
     this.team = opts.team;
@@ -203,6 +208,8 @@ export class PanelSession extends EventEmitter {
         projectConfigRoot: opts.worktree?.configRoot,
         systemPrompt: { type: 'preset', preset: 'claude_code', ...(append(opts) ? { append: append(opts) } : {}) },
         agents: opts.team ? agentsOf(opts.team) : undefined,
+        // As habilidades do cald como plugin: o Claude as vê como skills (`/cald:nome`).
+        plugins: opts.habilidades ? [{ type: 'local', path: opts.habilidades, skipMcpDiscovery: true }] : undefined,
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
         // O celular mostra o que cada subagente faz: falas e raciocínio também, não só as ferramentas,
@@ -301,6 +308,15 @@ export class PanelSession extends EventEmitter {
   /** Uso do plano consultado pelo próprio processo desta sessão (evita subir uma sonda). */
   planUsage(): Promise<PlanUsage> {
     return readPlanUsage(this.q);
+  }
+
+  /**
+   * O plugin das habilidades foi refeito (uma ligada, desligada, criada ou editada): o processo relê
+   * sem reiniciar, e a lista de comandos é pedida de novo.
+   */
+  async reloadHabilidades(): Promise<void> {
+    this.commandsCache = undefined;
+    await this.q.reloadPlugins();
   }
 
   /** Comandos e skills disponíveis nesta sessão (consulta o processo uma vez). */
