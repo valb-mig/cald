@@ -99,7 +99,11 @@ export type PanelEvent =
  * `uuid`: a entrada do log de onde o evento veio. É por ele que uma bifurcação sabe onde cortar a
  * conversa (ver `Manager.open`); só vem no histórico lido do arquivo, que é de onde se bifurca.
  */
-export type LoggedEvent = PanelEvent & { seq: number; ts: number; uuid?: string };
+/**
+ * `ts`: quando chegou ao vivo (0 no histórico salvo). `time`: quando o Claude Code gravou a mensagem,
+ * do transcript; só no histórico, para o app mostrar quanto cada ferramenta levou.
+ */
+export type LoggedEvent = PanelEvent & { seq: number; ts: number; uuid?: string; time?: number };
 
 const MAX_TEXT = 8_000;
 

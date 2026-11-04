@@ -24,7 +24,7 @@ import { searchProjectFiles } from './project-files.ts';
 import { createProjectDir, expandHome, isDirectory, listFolders, type FolderListing } from './project-folders.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
-import { transcriptCwd, transcriptFile, transcriptMarks } from './transcript.ts';
+import { transcriptCwd, transcriptFile, transcriptMarks, transcriptTimes } from './transcript.ts';
 import type { Device, OriginLog } from './origins.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
 import type { Fork, MetaStore } from './meta.ts';
@@ -324,7 +324,7 @@ export class Manager extends EventEmitter {
       messages = await this.inherited(fork);
       source = fork.from;
     } else if (prior !== undefined) messages = messages.slice(0, prior);
-    const { efforts, prompts } = await transcriptMarks(source);
+    const [{ efforts, prompts }, times] = await Promise.all([transcriptMarks(source), transcriptTimes(source)]);
     const events = messages.slice(-limit).flatMap((m) =>
       fromSessionMessage(m, imageStore.sink(sessionId, m.uuid), efforts.get(m.uuid)).map((e) =>
         // Cada mensagem sua leva por onde, de que máquina e quando saiu.
@@ -332,7 +332,7 @@ export class Manager extends EventEmitter {
       ),
     );
     // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
-    return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
+    return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0, time: times.get(e.uuid) }) as LoggedEvent);
   }
 
   /**
