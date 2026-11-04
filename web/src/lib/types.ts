@@ -183,6 +183,7 @@ export type TeamMember = {
 }
 export type Team = { id: string; name: string; members: TeamMember[]; updatedAt: number }
 export type TeamSnapshot = Pick<Team, 'id' | 'name' | 'members'>
+export type TrashedTeam = Team & { deletedAt: number }
 /** O time como o editor manda: membros novos ainda sem `id` e nenhum com `key` (o PC é quem dá). */
 export type TeamInput = { id?: string; name: string; members: (Omit<TeamMember, 'id' | 'key'> & { id?: string })[] }
 

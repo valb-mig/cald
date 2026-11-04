@@ -33,6 +33,7 @@ import type {
   TeamInput,
   Todo,
   TodoFile,
+  TrashedTeam,
   TreeEntry,
   UpdateStatus,
   WakaToday,
@@ -217,7 +218,11 @@ export const api = {
   /** Times de agentes (ver server/src/teams.ts). */
   teams: (m: string) => request<Team[]>('GET', `${at(m)}/teams`),
   saveTeam: (m: string, team: TeamInput) => post<Team>(`${at(m)}/teams`, team),
+  /** Vai para a lixeira, de onde volta por 30 dias. */
   deleteTeam: (m: string, id: string) => post(`${at(m)}/teams/${encodeURIComponent(id)}/delete`),
+  teamTrash: (m: string) => request<TrashedTeam[]>('GET', `${at(m)}/teams/trash`),
+  restoreTeam: (m: string, id: string) => post<Team>(`${at(m)}/teams/${encodeURIComponent(id)}/restore`),
+  purgeTeam: (m: string, id: string) => post(`${at(m)}/teams/${encodeURIComponent(id)}/purge`),
   /** A inbox da máquina (ver server/src/inbox.ts); `refresh` busca de novo no GitHub e no remoto. */
   inbox: (m: string, refresh = false) => request<InboxPayload>('GET', `${at(m)}/inbox${refresh ? '?refresh=1' : ''}`),
   inboxState: (m: string) => request<Record<string, InboxItemState>>('GET', `${at(m)}/inbox/state`),
