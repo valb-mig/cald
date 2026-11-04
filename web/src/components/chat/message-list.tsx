@@ -381,7 +381,7 @@ function ItemView({
         </div>
       )
     case 'activity':
-      return <Activity sessionId={sessionId} entries={item.entries} />
+      return <Activity sessionId={sessionId} entries={item.entries} summary />
     case 'approval':
       return <ApprovalCard {...item} sessionId={sessionId} actionable={actionable} />
     case 'question':

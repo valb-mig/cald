@@ -2,8 +2,14 @@ import type { PanelEvent, Question, Sent } from '@/lib/types'
 import { questionsOf } from './questions'
 
 type Of<K extends PanelEvent['kind']> = Extract<PanelEvent, { kind: K }>
-/** `ts`: quando chegou ao vivo (o histórico salvo não tem, vem 0). */
-export type Keyed = PanelEvent & { key: string; ts?: number; uuid?: string }
+/**
+ * `ts`: quando chegou ao vivo (o histórico salvo não tem, vem 0). `time`: quando o Claude Code gravou,
+ * do transcript; só no histórico.
+ */
+export type Keyed = PanelEvent & { key: string; ts?: number; uuid?: string; time?: number }
+
+/** A hora de um evento, ao vivo ou do transcript; `undefined` se não se sabe. */
+const when = (e: Keyed) => e.ts || e.time || undefined
 
 /** Tudo o que se sabe do subagente pelos eventos `agent`, já juntado. */
 export type AgentTask = Omit<Of<'agent'>, 'kind' | 'toolUseId'>
@@ -18,7 +24,11 @@ export type ActivityEntry =
       key: string
       use: Of<'tool_use'>
       result?: Of<'tool_result'>
+      /** Quando chegou ao vivo: só ele diz que a ferramenta ainda pode estar rodando agora. */
       at?: number
+      /** Quando foi chamada e quando o resultado voltou, ao vivo ou do histórico: quanto levou. */
+      started?: number
+      finished?: number
       inner?: ActivityEntry[]
       task?: AgentTask
       answer?: Of<'question_resolved'>
@@ -64,7 +74,7 @@ function forkPoints(events: Keyed[]): Map<string, string> {
 
 export function buildItems(events: Keyed[]): Item[] {
   const forks = forkPoints(events)
-  const results = new Map<string, Of<'tool_result'>>()
+  const results = new Map<string, Extract<Keyed, { kind: 'tool_result' }>>()
   const approvals = new Map<string, Of<'approval_resolved'>['decision']>()
   const questions = new Map<string, Of<'question_resolved'>>()
   const tasks = new Map<string, AgentTask>()
@@ -107,7 +117,16 @@ export function buildItems(events: Keyed[]): Item[] {
   for (const e of events) {
     switch (e.kind) {
       case 'tool_use': {
-        const entry: ActivityEntry = { kind: 'tool', key: e.key, use: e, result: results.get(e.id), at: e.ts || undefined }
+        const result = results.get(e.id)
+        const entry: ActivityEntry = {
+          kind: 'tool',
+          key: e.key,
+          use: e,
+          result,
+          at: e.ts || undefined,
+          started: when(e),
+          finished: result && when(result),
+        }
         if (AGENT_TOOLS.has(e.name)) {
           entry.inner = []
           entry.task = tasks.get(e.id)
