@@ -13,6 +13,7 @@ import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
+import { searchProject } from './search.ts';
 import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
 import { gitBase, gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
@@ -581,6 +582,32 @@ const reviewing = async (cwd: string, path?: string) => {
 
 app.get<ProjectQuery>('/api/file', projectQuery, async (req) =>
   readProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
+);
+
+// Buscar texto nos arquivos do projeto (ver search.ts): `regex`, `case` e `word` valem "1" para ligar.
+app.get<{ Querystring: { cwd: string; q: string; regex?: string; case?: string; word?: string } }>(
+  '/api/search',
+  {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['cwd', 'q'],
+        properties: {
+          cwd: { type: 'string' },
+          q: { type: 'string', minLength: 1, maxLength: 1000 },
+          regex: { type: 'string' },
+          case: { type: 'string' },
+          word: { type: 'string' },
+        },
+      },
+    },
+  },
+  async (req) =>
+    searchProject(await manager.knownCwd(req.query.cwd), req.query.q, {
+      regex: req.query.regex === '1',
+      caseSensitive: req.query.case === '1',
+      word: req.query.word === '1',
+    }),
 );
 
 // O editor do PC: grava o texto se o arquivo ainda é o que o app leu (`base`, ver saveProjectFile).
