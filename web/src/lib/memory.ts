@@ -6,7 +6,7 @@ import type { MemoryList, MemoryRef, MemorySignal } from './types'
 
 /**
  * A memória automática do Claude Code de cada máquina (ver server/src/memory.ts): a de todos os
- * projetos, no painel Computador, ou a de um, na aba Claude da barra do projeto. Apagar tira da tela na
+ * projetos, no painel Computador, ou a de um só (com `cwd`). Apagar tira da tela na
  * hora e manda para a lixeira do cald, com Desfazer no aviso.
  */
 type Entry = { list?: MemoryList; error?: string }
@@ -64,7 +64,7 @@ export function useMemory(machine: string, cwd?: string): Entry {
  */
 export const URGENT: MemorySignal[] = ['unindexed']
 
-export function useMemoryAlerts(machine: string, cwd: string): number {
+export function useMemoryAlerts(machine: string, cwd?: string): number {
   const list = useMemory(machine, cwd).list
   return (list?.folders ?? []).reduce(
     (n, f) => n + f.missing.length + f.memories.filter((m) => m.signals.some((s) => URGENT.includes(s))).length,

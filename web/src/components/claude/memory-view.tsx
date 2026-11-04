@@ -56,7 +56,7 @@ const reviewPrompt = (f: MemoryFolder) =>
   ].join('\n')
 
 /**
- * A memória automática do Claude Code: com `cwd`, a de um projeto (a aba Claude da barra); sem, a de
+ * A memória automática do Claude Code: com `cwd`, a de um projeto; sem, a de
  * todos os projetos da máquina (o painel Computador), um grupo por projeto. Filtra pelo que pede
  * limpeza, apaga uma ou várias para a lixeira do cald e abre a conversa que criou cada uma.
  * `onLeave`: o painel Computador fecha antes de ir para uma conversa.
