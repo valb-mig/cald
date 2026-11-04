@@ -558,9 +558,9 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
           .tab-glass em index.css) não é recalculado a cada quadro de rolagem. */}
       <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background')}>{header}</div>
       <div className="relative min-h-0 flex-1">
-        {/* Com a cena atrás, o véu sob a lista devolve contraste ao texto, como na conversa. Fica fora
-            do scroller pelo mesmo motivo do vidro do topo. */}
-        {scrim && <Veil scrim={scrim} />}
+        {/* Com a cena atrás, o escurecido sob a lista devolve contraste ao texto, como na conversa. Fica
+            fora do scroller para não rolar junto com a lista. */}
+        {scrim !== null && <Veil dim={scrim} />}
         <div className="absolute inset-0 overflow-y-auto [scrollbar-width:thin]">
           <div className="mx-auto w-full max-w-3xl">{body}</div>
         </div>

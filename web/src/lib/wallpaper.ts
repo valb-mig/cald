@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useLocation } from 'wouter'
 import { create } from 'zustand'
 import { themeOf } from '@/components/wallpaper/themes'
@@ -14,27 +15,21 @@ const THEME_IDS = ['none', 'ondas'] as const
 export type ThemeId = (typeof THEME_IDS)[number] | ImageId
 export type Intensity = 'subtle' | 'medium' | 'strong'
 
-export type WallpaperPrefs = { theme: ThemeId; intensity: Intensity }
+/** `dim`: quanto a janela escurece a cena atrás do texto, de 0 a 1 (ver `useScrim` e veil.tsx). */
+export type WallpaperPrefs = { theme: ThemeId; intensity: Intensity; dim: number }
 
 const KEY = 'cr:wallpaper'
 // Começa desligado: o fundo é escolha de quem usa, não surpresa na primeira vez que abre a conversa.
-const DEFAULTS: WallpaperPrefs = { theme: 'none', intensity: 'medium' }
+const DEFAULTS: WallpaperPrefs = { theme: 'none', intensity: 'medium', dim: 0.65 }
 
 /** Opacidade da camada inteira (degradê e caracteres); é o que separa "enfeite" de "atrapalha ler". */
 export const OPACITY: Record<Intensity, number> = { subtle: 0.3, medium: 0.55, strong: 0.85 }
 
-/**
- * Véu por trás da coluna de mensagens: ele puxa a cena de volta para o fundo do app e devolve
- * contraste ao texto. No claro, tem a cor do fundo da página; no escuro, é preto, uma sombra, porque o
- * cinza da janela deixava a foto lavada atrás do texto em vez de escurecer. Acompanha a intensidade,
- * senão no "sutil" escureceria mais do que a própria cena aparece. As classes ficam escritas por
- * extenso porque o Tailwind lê o fonte para saber quais gerar.
- */
-export const SCRIM: Record<Intensity, string> = {
-  subtle: 'bg-background/45 dark:bg-black/45',
-  medium: 'bg-background/65 dark:bg-black/65',
-  strong: 'bg-background/80 dark:bg-black/80',
-}
+/** Até onde dá para escurecer: acima disso a cena some de vez, e aí era melhor o sem fundo. */
+export const MAX_DIM = 0.9
+
+// Antes de dar para escolher, o escurecido seguia a força da cena; quem já usava fica com o que tinha.
+const LEGACY_DIM: Record<Intensity, number> = { subtle: 0.45, medium: 0.65, strong: 0.8 }
 
 export const INTENSITIES: { key: Intensity; label: string }[] = [
   { key: 'subtle', label: 'Sutil' },
@@ -44,7 +39,9 @@ export const INTENSITIES: { key: Intensity; label: string }[] = [
 
 function load(): WallpaperPrefs {
   try {
-    const saved = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<WallpaperPrefs>) }
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<WallpaperPrefs>
+    const saved = { ...DEFAULTS, ...stored }
+    saved.dim = typeof stored.dim === 'number' ? Math.min(MAX_DIM, Math.max(0, stored.dim)) : (LEGACY_DIM[saved.intensity] ?? DEFAULTS.dim)
     // Tema que saiu do app: volta ao sem fundo, senão o vidro ficava ligado sem nada atrás. A imagem
     // só se confere quando o banco abrir (ver abaixo).
     return (THEME_IDS as readonly string[]).includes(saved.theme) || isImageId(saved.theme) ? saved : { ...saved, theme: 'none' }
@@ -68,16 +65,30 @@ export function useGlass(): boolean {
   return theme !== 'none' && onWorkbench(location)
 }
 
-/**
- * O véu da coluna de mensagens agora, ou vazio quando não há cena atrás ou o tema dispensa véu. A
- * foto pede véu como uma cena cheia; a imagem em ASCII dispensa, como as Ondas.
- */
-export function useScrim(): string {
-  const intensity = useWallpaper((s) => s.intensity)
+/** Se a cena escolhida pede o escurecido: a foto pede, como uma cena cheia; a imagem em ASCII dispensa, como as Ondas. */
+export function useVeiled(): boolean {
   const theme = useWallpaper((s) => s.theme)
   const photo = useWallpaperImages((s) => s.items.some((i) => i.id === theme && i.style === 'photo'))
-  const veil = photo || (themeOf(theme)?.veil ?? false)
-  return useGlass() && veil ? SCRIM[intensity] : ''
+  return photo || (themeOf(theme)?.veil ?? false)
+}
+
+/** Quanto escurecer a cena atrás do texto agora (0 a 1), ou null quando não há cena atrás ou ela dispensa. */
+export function useScrim(): number | null {
+  const dim = useWallpaper((s) => s.dim)
+  const veiled = useVeiled()
+  return useGlass() && veiled ? dim : null
+}
+
+/**
+ * O escurecido da cena atrás do texto, com a força de `useScrim` (ver Veil). No claro, tem a cor do fundo
+ * da página; no escuro, é preto, porque o cinza da janela deixava a foto lavada atrás do texto em vez de
+ * escurecer. A força vai numa variável, já que é um número qualquer.
+ */
+export function veil(dim: number): { className: string; style: CSSProperties } {
+  return {
+    className: 'bg-background/(--veil) dark:bg-black/(--veil)',
+    style: { '--veil': `${Math.round(dim * 100)}%` } as CSSProperties,
+  }
 }
 
 export function setWallpaper(next: Partial<WallpaperPrefs>): void {

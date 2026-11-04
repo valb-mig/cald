@@ -28,7 +28,7 @@ import { duration } from '@/lib/format'
 import { useWidth } from '@/lib/hooks'
 import type { SessionCost } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useScrim } from '@/lib/wallpaper'
+import { useScrim, veil } from '@/lib/wallpaper'
 import { canShareImage, download, mapImage, type ImageFormat, type RootSpend } from './export'
 import { layout, type Box } from './layout'
 import { focusOf, KIND_LABEL, STATE_LABEL, type MindNode, type MindStatus } from './model'
@@ -499,11 +499,15 @@ export function MindMap({
     }
   }
 
-  // Com fundo animado, o mapa deixa a cena aparecer atrás dele, sob o mesmo véu da coluna do chat.
+  // Com fundo animado, o mapa deixa a cena aparecer atrás dele, sob o mesmo escurecido do chat.
   const scrim = useScrim()
+  const dim = scrim === null ? null : veil(scrim)
 
   return (
-    <div className={cn('relative flex h-full min-h-0 flex-col', scrim ? cn(scrim, 'backdrop-blur-[1.5px]') : 'bg-background')}>
+    <div
+      className={cn('relative flex h-full min-h-0 flex-col', dim ? cn(dim.className, 'backdrop-blur-[1.5px]') : 'bg-background')}
+      style={dim?.style}
+    >
       <div
         ref={scroller}
         onPointerDown={onPointerDown}

@@ -63,7 +63,7 @@ O painel está completo e em uso diário (cerca de 250 commits desde 17/10/2026)
 
 A branch atual é `valb-mig/feat-pin`, com o PIN (servidor, `cald -pin`, tela de bloqueio e README) ainda fora da `main`. Além disso, a árvore de trabalho tem mudanças não commitadas:
 - **Voz do Piper no PC:** `server/src/speak.ts`, as rotas `/api/speak`, `deploy/install-piper.sh` e a leitura em `web/src/lib/speech.ts`, que gera cada frase no PC enquanto a anterior toca e volta para a voz do navegador se o Piper falhar.
-- **Véu do fundo:** o véu que deixa o texto legível sobre a cena animada saiu do chat para `web/src/components/wallpaper/veil.tsx` e passou a valer também na inbox aberta numa aba do PC, que ganhou ainda um filtro por período.
+- **Véu do fundo:** o véu que deixa o texto legível sobre a cena animada saiu do chat para `web/src/components/wallpaper/veil.tsx` e passou a valer também na inbox aberta numa aba do PC, que ganhou ainda um filtro por período. Deixou de ser uma faixa esfumaçada no meio: agora escurece a janela inteira por dentro, por igual, com a força em `dim` (prefs do fundo em `web/src/lib/wallpaper.ts`, slider "Escurecer" no painel Computador, só para cenas que pedem véu, como a foto).
 - **Terminal com abas e persistência:** `server/src/terminal.ts` (shells por id, replay de 1 MiB, TTL de 24 h), o redesenho na ponte Python, o OSC 7 no `cald.zsh`, `web/src/lib/terminals.ts`, `status-bar.tsx` e `terminal.tsx`. A tela de bloqueio agora puxa o foco, para os dígitos do PIN não irem parar no terminal.
 - O README já descreve o Piper, as abas do terminal e as rotas novas.
 
