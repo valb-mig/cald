@@ -39,6 +39,8 @@ cald -link      # mostra o link de acesso remoto da tailnet
 cald -pin       # define (ou troca) o PIN pedido ao abrir o painel; `cald -pin off` remove
 ```
 
+Para não decorar o link: de qualquer aparelho da tailnet, digitar só o nome da máquina no navegador (`valb`, que vira `http://valb` pelo MagicDNS) leva ao endereço completo. O instalador publica esse atalho em http, na porta 80 (`tailscale serve --bg --http=80 7337`), e o servidor só redireciona dali para o https, sem servir nada: sem https, o navegador não deixa instalar o app, notificar nem usar o microfone.
+
 O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
 
 ### 1. Baixar e compilar
