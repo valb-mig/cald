@@ -60,9 +60,12 @@ export default defineConfig({
   build: {
     rolldownOptions: {
       output: {
-        // O Shiki e as gramáticas numa pasta própria, que o cache offline deixa de fora (acima).
+        // O Shiki, o editor do PC (CodeMirror) e as gramáticas numa pasta própria, que o cache offline
+        // deixa de fora (acima): só baixam quando um arquivo é aberto.
         chunkFileNames: (chunk) =>
-          chunk.moduleIds.some((id) => /[\\/](shiki|@shikijs)[\\/]/.test(id)) ? 'assets/hl/[name]-[hash].js' : 'assets/[name]-[hash].js',
+          chunk.moduleIds.some((id) => /[\\/](shiki|@shikijs|@codemirror|@lezer)[\\/]/.test(id))
+            ? 'assets/hl/[name]-[hash].js'
+            : 'assets/[name]-[hash].js',
       },
     },
   },
