@@ -177,6 +177,24 @@ export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promi
   return out.length > MAX_DIFF ? `${out.slice(0, MAX_DIFF)}\n… diff cortado (${Math.round(out.length / 1024)} KB)` : out;
 }
 
+/**
+ * O arquivo como está no último commit, para o editor do painel marcar o que mudou enquanto se digita.
+ * Fora do histórico (arquivo novo), `''`: tudo nele é novo. Ignorado pelo git, ou fora de um
+ * repositório, `null`: nada a marcar.
+ */
+export async function gitBase(cwd: string, path: string): Promise<string | null> {
+  checkPath(path);
+  const show = (spec: string) => git(cwd, ['show', spec]).then((r) => r.stdout, () => null);
+  const head = await show(`HEAD:./${path}`);
+  if (head !== null) return head;
+  const status = await gitStatus(cwd);
+  if (!status) return null;
+  const file = status.files.find((f) => f.path === path);
+  if (file?.untracked) return '';
+  // Repositório sem commits: o que já foi preparado.
+  return (await show(`:./${path}`)) ?? (file ? '' : null);
+}
+
 // ---- ações do controle de código-fonte ----
 
 /** O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede. */

@@ -13,8 +13,8 @@ import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
-import { listDir, rawProjectFile, readProjectFile } from './explorer.ts';
-import { gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
+import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
+import { gitBase, gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
@@ -583,6 +583,34 @@ app.get<ProjectQuery>('/api/file', projectQuery, async (req) =>
   readProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? ''),
 );
 
+// O editor do PC: grava o texto se o arquivo ainda é o que o app leu (`base`, ver saveProjectFile).
+// Até o dobro do maior arquivo que abre para edição, pelo JSON e pelos caracteres acentuados.
+app.post<{ Body: { cwd: string; path: string; content: string; base: string; force?: boolean } }>(
+  '/api/file/save',
+  {
+    bodyLimit: 2 * 1024 * 1024 + 4096,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'path', 'content', 'base'],
+        properties: {
+          cwd: { type: 'string' },
+          path: { type: 'string', minLength: 1 },
+          content: { type: 'string' },
+          base: { type: 'string', maxLength: 64 },
+          force: { type: 'boolean' },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const dir = await manager.knownCwd(req.body.cwd);
+    const saved = await saveProjectFile(dir, req.body.path, req.body.content, req.body.base, req.body.force ?? false);
+    void wakatime({ cwd: dir, file: join(dir, req.body.path), category: 'coding', write: true });
+    return saved;
+  },
+);
+
 app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
   const file = await rawProjectFile(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '');
   return reply
@@ -626,6 +654,11 @@ app.post<{ Body: { cwd: string } }>(
     return { ok: true };
   },
 );
+
+// O arquivo no último commit, para o editor marcar o que mudou enquanto se digita (ver gitBase).
+app.get<ProjectQuery>('/api/git/base', projectQuery, async (req) => ({
+  content: await gitBase(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
+}));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
   diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
@@ -1319,6 +1352,30 @@ app.get<{ Querystring: { cwd?: string; id?: string; since?: string } }>('/ws/ter
     },
     () => socket.close(1008, 'unknown_project'),
   );
+});
+
+/**
+ * O arquivo aberto no editor do PC: manda `{ hash }` agora e a cada vez que ele muda no disco (`null` se
+ * sumiu), para o editor recarregar o que o Claude gravou. O ping mantém a conexão de pé atrás do proxy.
+ */
+app.get<{ Querystring: { cwd?: string; path?: string } }>('/ws/file', { websocket: true }, (socket, req) => {
+  holdPin(socket, req);
+  let stop: (() => void) | null = null;
+  const ping = setInterval(() => socket.ping(), 25_000);
+  socket.on('close', () => {
+    clearInterval(ping);
+    stop?.();
+  });
+  manager
+    .knownCwd(req.query.cwd ?? '')
+    .then((dir) => watchProjectFile(dir, req.query.path ?? '', (hash) => socket.send(JSON.stringify({ hash }))))
+    .then(
+      (unwatch) => {
+        if (socket.readyState === socket.OPEN) stop = unwatch;
+        else unwatch();
+      },
+      () => socket.close(1008, 'not_found'),
+    );
 });
 
 app.get('/ws', { websocket: true }, (socket, req) => {
