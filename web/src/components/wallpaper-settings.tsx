@@ -6,9 +6,10 @@ import { ImageScene, Photo, Scene } from '@/components/wallpaper/wallpaper'
 import { THEMES } from '@/components/wallpaper/themes'
 import { Group, Segmented } from '@/components/settings-ui'
 import { Button } from '@/components/ui/button'
+import { Slider } from '@/components/ui/slider'
 import { errorMessage } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { INTENSITIES, setWallpaper, useWallpaper, type ThemeId } from '@/lib/wallpaper'
+import { INTENSITIES, MAX_DIM, setWallpaper, useVeiled, useWallpaper, type ThemeId } from '@/lib/wallpaper'
 import { addImage, removeImage, setImageStyle, STYLES, useWallpaperImages } from '@/lib/wallpaper-images'
 
 const tileClass =
@@ -31,7 +32,8 @@ const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files')
  * sua, pelo botão ou soltando o arquivo nas miniaturas: ela entra na lista e já fica escolhida.
  */
 export function WallpaperSettings() {
-  const { theme, intensity } = useWallpaper()
+  const { theme, intensity, dim } = useWallpaper()
+  const veiled = useVeiled()
   const images = useWallpaperImages((s) => s.items)
   const pick = (id: ThemeId) => setWallpaper({ theme: id })
   const current = THEMES.find((t) => t.id === theme)
@@ -152,6 +154,24 @@ export function WallpaperSettings() {
             options={INTENSITIES.map((i) => ({ key: i.key, label: i.label }))}
             onChange={(i) => setWallpaper({ intensity: i })}
           />
+          {veiled && (
+            <>
+              <span className="text-xs text-muted-foreground">Escurecer</span>
+              {/* Contínuo, não em degraus: cada foto pede um tanto, e o efeito aparece na hora atrás do painel. */}
+              <div className="flex items-center gap-3 px-1">
+                <Slider
+                  min={0}
+                  max={MAX_DIM * 100}
+                  step={5}
+                  value={[Math.round(dim * 100)]}
+                  onValueChange={([v]) => setWallpaper({ dim: (v ?? 0) / 100 })}
+                  aria-label="Escurecer o fundo"
+                  className="min-w-0 flex-1"
+                />
+                <span className="w-9 text-right text-xs text-muted-foreground tabular-nums">{Math.round(dim * 100)}%</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </Group>

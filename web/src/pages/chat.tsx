@@ -804,10 +804,9 @@ export function ChatPage({ id }: { id: string }) {
           {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
               vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
           <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
-            {/* A lâmina de vidro embaixo da coluna de mensagens: desfoca a cena atrás do texto, e as
-                margens seguem nítidas. Fica fora do scroller de propósito — dentro dele, o desfoque
-                seria recalculado a cada quadro de rolagem em vez de só quando a cena muda. */}
-            {scrim && <Veil scrim={scrim} />}
+            {/* O escurecido embaixo das mensagens, de lado a lado. Fica fora do scroller para não rolar
+                junto com o texto. */}
+            {scrim !== null && <Veil dim={scrim} />}
             <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
               <div ref={contentRef} className="mx-auto w-full max-w-3xl">
                 {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
@@ -904,7 +903,7 @@ export function ChatPage({ id }: { id: string }) {
         <div className={cn('relative flex shrink-0 flex-col', pane.collapsed && 'hidden')}>
           {/* O véu continua atrás da barra de texto até o fim da tela; sem isto ele parava no topo dela,
               e em volta da barra a cena aparecia sem escurecer. */}
-          {scrim && <Veil scrim={scrim} />}
+          {scrim !== null && <Veil dim={scrim} />}
           {/* Posicionado para ficar por cima do véu, que é absoluto. */}
           <div className="relative flex flex-col">
             {shown === 'map' && owner === 'panel' && requests.length > 0 && (
