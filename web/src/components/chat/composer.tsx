@@ -1,5 +1,5 @@
 import { ArrowUp, Expand, GitBranch, Loader2, Mic, Shrink, Slash, Square } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload } from '@/lib/attachments'
@@ -14,6 +14,71 @@ import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
 import { VoiceWave } from './voice-wave'
+
+async function guard(action: () => Promise<void> | void) {
+  try {
+    await action()
+  } catch (err) {
+    toast.error(errorMessage(err))
+  }
+}
+
+/**
+ * A linha de controles da caixa (anexar, caixa grande, comandos, contexto, modelo e modo). Não depende
+ * do texto, então digitar não a refaz: com os menus do Radix e os ícones, ela era a maior parte do
+ * trabalho de cada tecla no celular. Por isso as funções que recebe não mudam de uma tecla para outra.
+ */
+const Controls = memo(function Controls({
+  big,
+  models,
+  settings,
+  context,
+  working,
+  extra,
+  onAttach,
+  onMention,
+  onToggleBig,
+  onSlash,
+  onCompact,
+  onChangeSettings,
+}: {
+  big: boolean
+  models: ReturnType<typeof useModels>
+  settings: SessionSettings
+  context: ContextUsage | null
+  working: boolean
+  extra?: React.ReactNode
+  onAttach: () => void
+  onMention?: () => void
+  onToggleBig: () => void
+  onSlash: () => void
+  onCompact?: () => void
+  onChangeSettings: (patch: RunOptions) => void
+}) {
+  return (
+    <>
+      <AddMenu onAttach={onAttach} onMention={onMention} />
+      <button
+        type="button"
+        className={cn(footerButton, 'px-0')}
+        onClick={onToggleBig}
+        aria-pressed={big}
+        aria-label={big ? 'Voltar a caixa ao tamanho normal' : 'Caixa grande, para prompts longos'}
+        title={big ? 'Diminuir a caixa' : 'Caixa grande'}
+      >
+        {big ? <Shrink className="size-4" /> : <Expand className="size-4" />}
+      </button>
+      <button type="button" className={cn(footerButton, 'px-0')} aria-label="Comandos" onClick={onSlash}>
+        <Slash className="size-4" />
+      </button>
+      {context && onCompact && <ContextRing context={context} disabled={working} onCompact={onCompact} />}
+      <ModelPill models={models} settings={settings} onChange={onChangeSettings} />
+      {extra}
+      <div className="flex-1" />
+      <ModeMenu settings={settings} onChange={onChangeSettings} />
+    </>
+  )
+})
 
 /**
  * Caixa de mensagem no formato da extensão do VSCode: texto em cima e, na mesma caixa,
@@ -161,13 +226,24 @@ export function Composer({
     }
   }
 
-  async function guard(action: () => Promise<void> | void) {
-    try {
-      await action()
-    } catch (err) {
-      toast.error(errorMessage(err))
-    }
-  }
+  // Os controles leem o texto e as funções de quem chama na hora do clique, sem mudar a cada tecla.
+  const latest = useRef({ text, onChangeSettings, onCompact })
+  useLayoutEffect(() => {
+    latest.current = { text, onChangeSettings, onCompact }
+  })
+  const attach = useCallback(() => fileInput.current?.click(), [])
+  const mention = useCallback(() => input.current?.insert('@'), [])
+  const toggleBig = useCallback(() => {
+    setBig((b) => !b)
+    // O foco volta para o texto: expandir é para escrever, não para olhar.
+    requestAnimationFrame(() => input.current?.focus())
+  }, [])
+  const slash = useCallback(
+    () => (latest.current.text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true })),
+    [],
+  )
+  const compact = useCallback(() => void guard(() => latest.current.onCompact?.()), [])
+  const changeSettings = useCallback((patch: RunOptions) => void guard(() => latest.current.onChangeSettings(patch)), [])
 
   async function interrupt() {
     setStopping(true)
@@ -243,36 +319,20 @@ export function Composer({
                 <span className="truncate">Transcrevendo no PC…</span>
               </div>
             ) : (
-              <>
-                <AddMenu onAttach={() => fileInput.current?.click()} onMention={cwd ? () => input.current?.insert('@') : undefined} />
-                <button
-                  type="button"
-                  className={cn(footerButton, 'px-0')}
-                  onClick={() => {
-                    setBig(!big)
-                    // O foco volta para o texto: expandir é para escrever, não para olhar.
-                    requestAnimationFrame(() => input.current?.focus())
-                  }}
-                  aria-pressed={big}
-                  aria-label={big ? 'Voltar a caixa ao tamanho normal' : 'Caixa grande, para prompts longos'}
-                  title={big ? 'Diminuir a caixa' : 'Caixa grande'}
-                >
-                  {big ? <Shrink className="size-4" /> : <Expand className="size-4" />}
-                </button>
-                <button
-                  type="button"
-                  className={cn(footerButton, 'px-0')}
-                  aria-label="Comandos"
-                  onClick={() => (text.startsWith('/') ? input.current?.focus() : input.current?.insert('/', { atStart: true }))}
-                >
-                  <Slash className="size-4" />
-                </button>
-                {context && onCompact && <ContextRing context={context} disabled={working} onCompact={() => void guard(onCompact)} />}
-                <ModelPill models={models} settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
-                {extra}
-                <div className="flex-1" />
-                <ModeMenu settings={settings} onChange={(patch) => void guard(() => onChangeSettings(patch))} />
-              </>
+              <Controls
+                big={big}
+                models={models}
+                settings={settings}
+                context={context}
+                working={working}
+                extra={extra}
+                onAttach={attach}
+                onMention={cwd ? mention : undefined}
+                onToggleBig={toggleBig}
+                onSlash={slash}
+                onCompact={onCompact ? compact : undefined}
+                onChangeSettings={changeSettings}
+              />
             )}
             {canDictate && (
               <button
