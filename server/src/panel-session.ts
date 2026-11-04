@@ -18,6 +18,7 @@ import { imageStore } from './images.ts';
 import { BackgroundTasks } from './tasks.ts';
 import { AGENT_TOOLS, OfficeLog, workersFrom, type OfficeSnapshot, type OpenTool } from './office.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
+import { probeSetup, type RawSetup } from './claude-config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
 import { HttpError } from './errors.ts';
@@ -163,6 +164,8 @@ export class PanelSession extends EventEmitter {
   /** Última ferramenta de cada um, eventos recentes e tarefas, para a salinha. */
   private readonly officeLog = new OfficeLog();
   private compacting = false;
+  /** O CLI manda `session_state_changed` (ver o `env` do `query`): é ele, e não o resultado, que diz quando parou. */
+  private stateEvents = false;
 
   constructor(opts: PanelSessionOptions) {
     super();
@@ -304,6 +307,17 @@ export class PanelSession extends EventEmitter {
   commands(): Promise<SlashCommand[]> {
     this.commandsCache ??= this.q.supportedCommands();
     return this.commandsCache;
+  }
+
+  /** Skills, agentes e servidores MCP desta sessão, sem subir uma sonda (ver claude-config.ts). */
+  setup(): Promise<RawSetup> {
+    return probeSetup(this.q);
+  }
+
+  /** Liga ou desliga um servidor MCP: vale já nesta sessão e fica gravado para a pasta. */
+  async toggleMcp(name: string, enabled: boolean): Promise<void> {
+    await this.q.toggleMcpServer(name, enabled);
+    this.commandsCache = undefined;
   }
 
   answer(requestId: string, decision: { allow: boolean; message?: string; always?: boolean }): void {
@@ -523,11 +537,11 @@ export class PanelSession extends EventEmitter {
       this.updateSettings({ permissionMode: msg.permissionMode });
     }
     if (msg.type === 'system' && msg.subtype === 'session_state_changed') {
+      this.stateEvents = true;
       if (msg.state === 'running') this.setState('running');
       else if (msg.state === 'idle') this.setState('idle');
       else this.setState('waiting', this.waitingFor ?? 'input needed');
     }
-    if (msg.type === 'result' && this.pending.size === 0) this.setState('idle');
     // Compactação: começa com o status "compacting" e acaba com a marca de fronteira (ou o fim do turno).
     if (msg.type === 'system' && msg.subtype === 'status') this.compacting = msg.status === 'compacting';
     if ((msg.type === 'system' && msg.subtype === 'compact_boundary') || msg.type === 'result') this.compacting = false;
@@ -547,6 +561,9 @@ export class PanelSession extends EventEmitter {
     }
     // Fim do turno: o que ficou sem resultado (turno interrompido) não está mais rodando.
     if (msg.type === 'result') for (const [id, t] of this.openTools) if (t.scope === null) this.openTools.delete(id);
+    // O fim do turno não é o fim do trabalho: com mensagem na fila, o CLI emenda outro turno sem parar, e quem
+    // diz que parou é o `session_state_changed` "idle". Só sem esses avisos o resultado faz as vezes dele.
+    if (msg.type === 'result' && !this.stateEvents && this.pending.size === 0) this.setState('idle');
     if (delta) this.emit('delta', delta);
 
     const working = this.agents.active;

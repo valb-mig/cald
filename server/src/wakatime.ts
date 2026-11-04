@@ -13,7 +13,7 @@ import { WAKATIME_CLI, WAKATIME_GOAL_HOURS } from './config.ts';
  */
 
 /** Categorias do WakaTime que o painel usa (ver `wakatime-cli --help`). */
-export type WakaCategory = 'code reviewing' | 'planning';
+export type WakaCategory = 'code reviewing' | 'planning' | 'coding';
 
 const EVERY_MS = 2 * 60_000;
 const PLUGIN = 'cald/1.0.0 cald-wakatime/1.0.0';
@@ -37,7 +37,7 @@ async function findCli(): Promise<string | null> {
  * pasta do projeto (é assim que o WakaTime sabe de qual projeto é o tempo). Não espera o envio:
  * o cli leva uns segundos e a resposta do painel não tem por que ficar esperando por isso.
  */
-export async function wakatime(o: { cwd?: string; file?: string; category: WakaCategory }): Promise<void> {
+export async function wakatime(o: { cwd?: string; file?: string; category: WakaCategory; write?: boolean }): Promise<void> {
   const entity = o.file || o.cwd;
   if (!entity) return;
   const path = await findCli();
@@ -45,13 +45,15 @@ export async function wakatime(o: { cwd?: string; file?: string; category: WakaC
 
   const now = Date.now();
   const last = sent.get(entity);
-  if (last && now - last < EVERY_MS) return;
+  // Salvar sempre conta, como nos plugins de editor: é o que diz que o tempo foi escrevendo.
+  if (!o.write && last && now - last < EVERY_MS) return;
   sent.set(entity, now);
   // O mapa só guarda o que ainda segura o próximo envio.
   if (sent.size > 200) for (const [k, at] of sent) if (now - at >= EVERY_MS) sent.delete(k);
 
   const args = ['--entity', entity, '--category', o.category, '--plugin', PLUGIN];
   if (o.cwd) args.push('--project-folder', o.cwd);
+  if (o.write) args.push('--write');
   execFile(path, args, { timeout: 30_000 }, () => {
     // Sem rede ou sem chave, o próprio cli guarda o heartbeat para mandar depois: nada a fazer aqui.
   });

@@ -13,6 +13,7 @@ import { InboxView } from '@/components/inbox/inbox-view'
 import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { fileIcon, splitPath } from '@/components/project/status'
+import { UnsavedDialog } from '@/components/project/unsaved-dialog'
 import { ViewerBody } from '@/components/project/viewer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ import { useProjectPanel, useShowProject } from '@/lib/project-panel'
 import { repaintShell } from '@/lib/shell'
 import { PaneContext, parseChats, saveSplitSizes, setSplitWeights, useMaxChats, useSplitSizes } from '@/lib/split'
 import { useStore } from '@/lib/store'
+import { useUnsaved } from '@/lib/unsaved'
 import { cn } from '@/lib/utils'
 import { useGlass } from '@/lib/wallpaper'
 import {
@@ -180,6 +182,8 @@ function TabItem({
 }) {
   const title = useStore((s) => (tab.kind === 'chat' ? s.catalog.find((c) => c.sessionId === tab.id)?.title : undefined))
   const close = () => closeTab(group.id, tab.key)
+  // Alteração não salva no editor: um ponto no lugar do X, que volta ao passar o mouse, como no VSCode.
+  const dirty = useUnsaved((s) => Boolean(s.dirty[tab.key]))
   // Aberta agora (não com a janela): cresce no lugar dela e empurra as vizinhas, em vez de surgir.
   const [enter] = useState(fresh)
   const glass = useGlass()
@@ -265,13 +269,20 @@ function TabItem({
           e.stopPropagation()
           close()
         }}
-        aria-label="Fechar a aba"
+        aria-label={dirty ? 'Fechar a aba (há alterações não salvas)' : 'Fechar a aba'}
         className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground',
-          active ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100',
+          'group/close flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground',
+          active || dirty ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100',
         )}
       >
-        <X className="size-3.5" />
+        {dirty ? (
+          <>
+            <span aria-hidden className="size-2 rounded-full bg-current group-hover/close:hidden" />
+            <X className="hidden size-3.5 group-hover/close:block" />
+          </>
+        ) : (
+          <X className="size-3.5" />
+        )}
       </button>
     </div>
   )
@@ -541,10 +552,10 @@ function GroupView({
               inert={!active}
               // Depois de vista, fica fora da pintura mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.
               // A que fica à vista aparece com um fade (a animação recomeça a cada vez que a classe volta).
-              // Um arquivo tampa a cena: código por cima dela fica ilegível (a conversa tem o véu dela).
+              // Um arquivo deixa a cena passar como a conversa, com o véu dele por baixo do código (ver ViewerBody).
               className={cn(
                 'absolute inset-0 flex flex-col',
-                tab.kind === 'file' && 'bg-background',
+                tab.kind === 'file' && !glass && 'bg-background',
                 active ? 'tab-panel-in' : 'invisible [content-visibility:hidden]',
               )}
             >
@@ -695,6 +706,7 @@ export function Workbench() {
           />
         </Fragment>
       ))}
+      <UnsavedDialog />
       <TabMenu
         at={menu}
         open={menuOpen}
