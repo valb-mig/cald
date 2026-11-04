@@ -24,13 +24,20 @@ export type Question = {
   options: { label: string; description: string; preview?: string }[];
 };
 
+/**
+ * Por onde, de que máquina e quando uma mensagem sua saiu. `via`: o app (`cald`), o terminal, o VSCode
+ * ou o app de desktop do Claude; `mobile`: o aparelho é um celular ou tablet. Cada campo falta quando
+ * não se sabe (mensagens do app de antes de o cald guardar o aparelho, por exemplo).
+ */
+export type Sent = { via?: 'cald' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
+
 /** Evento normalizado enviado ao celular; o mesmo formato serve para histórico e tempo real. */
 export type PanelEvent =
   /**
    * `images`: chaves no cache de imagens (GET /api/sessions/:id/images/:key).
    * `clientId`: ID da mensagem na fila do celular, para ele saber que ela chegou.
    */
-  | { kind: 'user'; text: string; images?: string[]; clientId?: string }
+  | { kind: 'user'; text: string; images?: string[]; clientId?: string; sent?: Sent }
   | { kind: 'notice'; text: string }
   /** `model` e `effort`: o modelo que escreveu a resposta e o esforço com que pensou, quando se sabe. */
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null; model?: string; effort?: string }

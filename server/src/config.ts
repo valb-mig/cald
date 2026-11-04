@@ -43,6 +43,10 @@ export const WEB_DIST = env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', 
 // sai são apagados pelo Claude Code depois de ~30 dias.
 export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(DATA_DIR, 'activity.json');
 
+// De que aparelho saiu cada mensagem mandada pelo app (ver origins.ts). Dura como os transcripts:
+// o Claude Code não grava isso, e sem o arquivo o histórico só diria "pelo cald".
+export const ORIGINS_FILE = env.ORIGINS_FILE ?? join(DATA_DIR, 'origins.jsonl');
+
 // Raízes onde o painel pode iniciar sessões novas (separadas por ':').
 export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).split(':').filter(Boolean);
 

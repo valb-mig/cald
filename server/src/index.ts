@@ -37,6 +37,7 @@ import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MA
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
 import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts';
+import { DeviceDirectory, OriginLog } from './origins.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
 const live = new LiveRegistry();
@@ -50,7 +51,11 @@ const inboxState = new InboxState();
 await inboxState.load();
 const workspaces = new WorkspaceStore();
 await workspaces.load();
-const manager = new Manager(live, meta, teams, workspaces);
+// De que aparelho saiu cada mensagem (ver origins.ts).
+const origins = new OriginLog();
+await origins.load();
+const devices = new DeviceDirectory();
+const manager = new Manager(live, meta, teams, workspaces, origins);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
@@ -266,7 +271,7 @@ app.post<{
       },
     },
   },
-  async (req) => ({ sessionId: (await manager.create(req.body)).id }),
+  async (req) => ({ sessionId: (await manager.create({ ...req.body, from: await devices.of(req) })).id }),
 );
 
 // Times de agentes (ver teams.ts): a conversa nova escolhe um e leva uma cópia dele.
@@ -459,7 +464,8 @@ app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[]; c
     },
   },
   async (req) => {
-    await manager.send(req.params.id, req.body.text, req.body.attachments, req.body.clientId);
+    const { text, attachments, clientId } = req.body;
+    await manager.send(req.params.id, text, { attachments, clientId, from: await devices.of(req) });
     return { ok: true };
   },
 );
