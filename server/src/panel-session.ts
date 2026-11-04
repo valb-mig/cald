@@ -30,6 +30,7 @@ import {
   type LoggedEvent,
   type PanelEvent,
   type Question,
+  type Sent,
   type SessionState,
 } from './events.ts';
 
@@ -231,15 +232,21 @@ export class PanelSession extends EventEmitter {
   /**
    * Envia um turno; `blocks` (imagens) vão antes do texto, `images` são as miniaturas para o chat.
    * `context` vai depois, num bloco à parte, para o Claude e não para a tela (o conteúdo dos TODOs).
+   * `sent`: por onde e de que aparelho ela saiu. Devolve o UUID dela no transcript, que é dado aqui
+   * (o Claude Code grava com o que recebe): é por ele que o cald acha depois de onde ela veio, e que
+   * dá para bifurcar nela sem esperar o histórico ser relido.
    */
-  send(text: string, extra: { blocks?: ContentBlocks; images?: string[]; clientId?: string; context?: string } = {}): void {
+  send(text: string, extra: { blocks?: ContentBlocks; images?: string[]; clientId?: string; context?: string; sent?: Sent } = {}): string {
     if (this.state === 'exited') throw new HttpError(409, 'session_exited');
-    this.record({ kind: 'user', text, images: extra.images?.length ? extra.images : undefined, clientId: extra.clientId });
+    const uuid = randomUUID();
     const after = extra.context ? [{ type: 'text' as const, text: extra.context }] : [];
     const content =
       extra.blocks?.length || after.length ? [...(extra.blocks ?? []), ...(text ? [{ type: 'text' as const, text }] : []), ...after] : text;
-    this.input.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
+    // O `uuid` não está no tipo do SDK, mas o CLI o usa como ID da entrada no transcript.
+    this.input.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid } as SDKUserMessage);
+    this.record({ kind: 'user', text, images: extra.images?.length ? extra.images : undefined, clientId: extra.clientId, sent: extra.sent }, uuid);
     if (this.pending.size === 0) this.setState('running');
+    return uuid;
   }
 
   // ---- controles da sessão (modelo, esforço, modo) ----

@@ -26,7 +26,8 @@ import { searchProjectFiles } from './project-files.ts';
 import { createProjectDir, expandHome, isDirectory, listFolders, type FolderListing } from './project-folders.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
-import { transcriptCwd, transcriptEfforts, transcriptFile } from './transcript.ts';
+import { transcriptCwd, transcriptFile, transcriptMarks } from './transcript.ts';
+import type { Device, OriginLog } from './origins.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
 import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
@@ -131,13 +132,15 @@ export class Manager extends EventEmitter {
   private readonly meta: MetaStore;
   private readonly teams: TeamStore;
   private readonly workspaces: WorkspaceStore;
+  private readonly origins: OriginLog;
 
-  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore) {
+  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog) {
     super();
     this.live = live;
     this.meta = meta;
     this.teams = teams;
     this.workspaces = workspaces;
+    this.origins = origins;
     live.on('change', () => this.emit('catalog'));
   }
 
@@ -324,10 +327,13 @@ export class Manager extends EventEmitter {
       messages = await this.inherited(fork);
       source = fork.from;
     } else if (prior !== undefined) messages = messages.slice(0, prior);
-    const efforts = await transcriptEfforts(source);
-    const events = messages
-      .slice(-limit)
-      .flatMap((m) => fromSessionMessage(m, imageStore.sink(sessionId, m.uuid), efforts.get(m.uuid)).map((e) => ({ ...e, uuid: m.uuid })));
+    const { efforts, prompts } = await transcriptMarks(source);
+    const events = messages.slice(-limit).flatMap((m) =>
+      fromSessionMessage(m, imageStore.sink(sessionId, m.uuid), efforts.get(m.uuid)).map((e) =>
+        // Cada mensagem sua leva por onde, de que máquina e quando saiu.
+        e.kind === 'user' ? { ...e, uuid: m.uuid, sent: this.origins.sentOf(m.uuid, prompts.get(m.uuid)) } : { ...e, uuid: m.uuid },
+      ),
+    );
     // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
     return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
   }
@@ -410,9 +416,10 @@ export class Manager extends EventEmitter {
       teamId?: string;
       workspaceId?: string;
       worktree?: boolean;
+      from?: Device;
     },
   ): Promise<PanelSession> {
-    const { prompt, attachments, teamId, workspaceId, worktree, ...rest } = opts;
+    const { prompt, attachments, teamId, workspaceId, worktree, from, ...rest } = opts;
     // O time vai copiado: editá-lo depois não muda esta conversa.
     const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
     const ws = workspaceId ? this.workspaces.get(workspaceId) : undefined;
@@ -438,7 +445,7 @@ export class Manager extends EventEmitter {
     );
     if (team) await this.meta.setTeam(session.id, team);
     if (ws) await this.meta.setWorkspace(session.id, ws.id);
-    await this.send(session.id, prompt, attachments, undefined, notice);
+    await this.send(session.id, prompt, { attachments, notice, from });
     return session;
   }
 
@@ -493,8 +500,15 @@ export class Manager extends EventEmitter {
    */
   todoContext?: (cwd: string, text: string) => Promise<string | null>;
 
-  /** `notice`: um aviso do cald para o Claude, junto do contexto dos TODOs (fora da tela também). */
-  async send(sessionId: string, text: string, attachments?: Attachment[], clientId?: string, notice?: string): Promise<void> {
+  /**
+   * `notice`: um aviso do cald para o Claude, junto do contexto dos TODOs (fora da tela também).
+   * `from`: o aparelho que mandou, guardado junto da mensagem (ver origins.ts).
+   */
+  async send(
+    sessionId: string,
+    text: string,
+    { attachments, clientId, notice, from }: { attachments?: Attachment[]; clientId?: string; notice?: string; from?: Device } = {},
+  ): Promise<void> {
     // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
     if (clientId && this.delivered.has(clientId)) return;
     const session = this.get(sessionId);
@@ -506,7 +520,10 @@ export class Manager extends EventEmitter {
       const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
       const todos = await this.todoContext?.(session.cwd, text).catch(() => null);
       const context = [todos, notice].filter(Boolean).join('\n\n') || undefined;
-      session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context });
+      const at = Date.now();
+      const sent = { via: 'cald' as const, device: from?.name, mobile: from?.mobile, at };
+      const uuid = session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context, sent });
+      this.origins.record({ uuid, at, device: from?.name, mobile: from?.mobile });
     } catch (err) {
       if (clientId) this.delivered.delete(clientId);
       throw err;
@@ -760,7 +777,11 @@ export class Manager extends EventEmitter {
     return wsId ? ((await this.workspaces.context(wsId, cwd)) ?? undefined) : undefined;
   }
 
-  /** Assumir: encerra a sessão ociosa no PC e a retoma no painel. */
+  /**
+   * Retoma a conversa no painel para mandar uma mensagem daqui; aberta e ociosa no terminal do PC, ela
+   * é encerrada lá antes. Não há botão para isso: quem chama é a fila de mensagens do app quando a
+   * conversa não está aberta no painel (ver web/src/lib/outbox.ts), e cada mensagem mostra de onde saiu.
+   */
   async takeOver(sessionId: string, opts: RunOptions = {}): Promise<PanelSession> {
     const own = this.sessions.get(sessionId);
     if (own) return own;

@@ -1,10 +1,16 @@
 import type { CatalogState, SessionState } from './types'
 
+/** A pasta é um worktree (`<projeto>/.claude/worktrees/<nome>`): o projeto de que ele é cópia e o nome dele. */
+export function worktreeOf(cwd: string): { project: string; name: string } | null {
+  const m = cwd.match(/^(.*\/[^/]+)\/\.claude\/worktrees\/([^/]+)\/?$/)
+  return m ? { project: m[1], name: m[2] } : null
+}
+
 /** Nome curto do projeto; worktrees aparecem como "projeto · worktree". */
 export function projectName(cwd?: string): string {
   if (!cwd) return '—'
-  const worktree = cwd.match(/\/([^/]+)\/\.claude\/worktrees\/([^/]+)\/?$/)
-  if (worktree) return `${worktree[1]} · ${worktree[2]}`
+  const worktree = worktreeOf(cwd)
+  if (worktree) return `${projectName(worktree.project)} · ${worktree.name}`
   return cwd.replace(/\/+$/, '').split('/').pop() || cwd
 }
 
@@ -35,6 +41,20 @@ export function shortTime(ms: number): string {
   if (abs < 86_400) return `${Math.floor(abs / 3600)} h`
   if (abs < 7 * 86_400) return `${Math.floor(abs / 86_400)} d`
   return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+/** Hora de uma mensagem: só a hora, se foi hoje; "ontem 14:32"; a data sem o ano, se foi este ano; com ele, se não. */
+export function messageTime(ms: number): string {
+  const d = new Date(ms)
+  const now = new Date()
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  // Arredondado: o dia da mudança de horário de verão tem 23 ou 25 horas.
+  const days = Math.round((day(now) - day(d)) / 86_400_000)
+  if (days === 0) return time
+  if (days === 1) return `ontem ${time}`
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...(sameYear ? {} : { year: '2-digit' }) })} ${time}`
 }
 
 export function duration(ms: number): string {

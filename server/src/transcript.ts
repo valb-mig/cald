@@ -130,23 +130,45 @@ export class TranscriptTally<T> {
   }
 }
 
+/** Quando uma mensagem sua foi gravada e quem a gravou (`cli`, `claude-vscode`, `sdk-ts`…). */
+export type PromptMark = { at: number; entrypoint?: string };
+
+/** O que o transcript tem ao lado de cada mensagem e o `getSessionMessages` não traz, por UUID. */
+export type TranscriptMarks = { efforts: ReadonlyMap<string, string>; prompts: ReadonlyMap<string, PromptMark> };
+
 /**
- * O esforço com que cada resposta foi pensada, por UUID da mensagem. O Claude Code grava isso no
- * transcript ao lado da mensagem (`perTurnEffort`, quando o turno mudou o esforço, ou `effort`, o da
- * sessão), mas o `getSessionMessages` do SDK não repassa: sai daqui, lido só no trecho novo do arquivo.
+ * O Claude Code grava ao lado de cada resposta o esforço com que ela foi pensada (`perTurnEffort`,
+ * quando o turno mudou o esforço, ou `effort`, o da sessão), e ao lado de cada mensagem sua a hora e
+ * por onde ela entrou (`entrypoint`). O `getSessionMessages` do SDK não repassa nada disso: sai daqui,
+ * lido só no trecho novo do arquivo.
  */
-const efforts = new TranscriptTally<Map<string, string>>((state, line) => {
-  if (!line.includes('"type":"assistant"') || !line.includes('ffort"')) return;
-  try {
-    const d = JSON.parse(line) as { type?: string; uuid?: unknown; effort?: unknown; perTurnEffort?: unknown };
-    const effort = d.perTurnEffort ?? d.effort;
-    if (d.type === 'assistant' && typeof d.uuid === 'string' && typeof effort === 'string') state.set(d.uuid, effort);
-  } catch {
-    // Linha cortada (o Claude Code ainda está gravando): fica sem esforço.
+const marks = new TranscriptTally<{ efforts: Map<string, string>; prompts: Map<string, PromptMark> }>((state, line) => {
+  if (line.includes('"type":"assistant"') && line.includes('ffort"')) {
+    try {
+      const d = JSON.parse(line) as { type?: string; uuid?: unknown; effort?: unknown; perTurnEffort?: unknown };
+      const effort = d.perTurnEffort ?? d.effort;
+      if (d.type === 'assistant' && typeof d.uuid === 'string' && typeof effort === 'string') state.efforts.set(d.uuid, effort);
+    } catch {
+      // Linha cortada (o Claude Code ainda está gravando): fica sem esforço.
+    }
+  }
+  // Resultados de ferramenta também são "user", e são as linhas mais pesadas: ficam de fora sem parse.
+  if (line.includes('"type":"user"') && !line.includes('"tool_use_id"')) {
+    try {
+      const d = JSON.parse(line) as { type?: string; uuid?: unknown; timestamp?: unknown; entrypoint?: unknown; isMeta?: unknown };
+      const at = typeof d.timestamp === 'string' ? Date.parse(d.timestamp) : NaN;
+      if (d.type === 'user' && !d.isMeta && typeof d.uuid === 'string' && !Number.isNaN(at)) {
+        state.prompts.set(d.uuid, { at, entrypoint: typeof d.entrypoint === 'string' ? d.entrypoint : undefined });
+      }
+    } catch {
+      // Linha cortada: a mensagem fica sem hora.
+    }
   }
 });
 
-export async function transcriptEfforts(sessionId: string): Promise<ReadonlyMap<string, string>> {
+const NO_MARKS: TranscriptMarks = { efforts: new Map(), prompts: new Map() };
+
+export async function transcriptMarks(sessionId: string): Promise<TranscriptMarks> {
   const path = await transcriptPath(sessionId);
-  return path ? efforts.read(path, () => new Map()).catch(() => new Map()) : new Map();
+  return path ? marks.read(path, () => ({ efforts: new Map(), prompts: new Map() })).catch(() => NO_MARKS) : NO_MARKS;
 }

@@ -1,4 +1,4 @@
-import type { PanelEvent, Question } from '@/lib/types'
+import type { PanelEvent, Question, Sent } from '@/lib/types'
 import { questionsOf } from './questions'
 
 type Of<K extends PanelEvent['kind']> = Extract<PanelEvent, { kind: K }>
@@ -34,7 +34,7 @@ export type Item =
    * `from`: onde cortar para bifurcar a conversa nesta mensagem — a entrada do log logo antes dela.
    * Falta na primeira mensagem (não há o que manter antes) e nas conversas sem UUID no histórico.
    */
-  | { type: 'user'; key: string; text: string; images?: string[]; from?: string }
+  | { type: 'user'; key: string; text: string; images?: string[]; from?: string; sent?: Sent }
   | { type: 'assistant'; key: string; text: string; model?: string; effort?: string }
   | { type: 'notice'; key: string; text: string }
   | { type: 'activity'; key: string; entries: ActivityEntry[] }
@@ -125,7 +125,7 @@ export function buildItems(events: Keyed[]): Item[] {
         else push({ type: 'assistant', key: e.key, text: e.text, model: e.model, effort: e.effort })
         break
       case 'user':
-        push({ type: 'user', key: e.key, text: e.text, images: e.images, from: forks.get(e.key) })
+        push({ type: 'user', key: e.key, text: e.text, images: e.images, from: forks.get(e.key), sent: e.sent })
         break
       case 'notice':
         push({ type: 'notice', key: e.key, text: e.text })

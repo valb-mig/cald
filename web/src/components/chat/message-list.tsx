@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Clock, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Pause, Play, SquareTerminal } from 'lucide-react'
+import { Check, CircleAlert, Clock, Code, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Monitor, Pause, Play, Smartphone, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
@@ -9,12 +9,12 @@ import { Markdown, StreamingMarkdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
-import { duration } from '@/lib/format'
+import { duration, messageTime } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { machineOf } from '@/lib/machines'
 import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
-import type { BackgroundTask, PanelEvent } from '@/lib/types'
+import type { BackgroundTask, PanelEvent, Sent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Activity, LineCounts } from './activity'
 import { ApprovalCard } from './approval-card'
@@ -79,9 +79,28 @@ function withMentions(text: string): React.ReactNode[] {
   return out
 }
 
+const VIA: Record<NonNullable<Sent['via']>, string> = { cald: 'cald', terminal: 'Terminal', vscode: 'VSCode', desktop: 'Claude Desktop' }
+
+/**
+ * Por onde, de que máquina e quando a mensagem saiu: "Terminal · archlinux · 14:32". Com isso não
+ * precisa de "assumir": a conversa pode ir do terminal para o celular e voltar, e cada mensagem diz de onde veio.
+ */
+function SentLine({ sent }: { sent: Sent }) {
+  const parts = [sent.via && VIA[sent.via], sent.device, sent.at !== undefined && messageTime(sent.at)].filter(Boolean)
+  if (!parts.length) return null
+  // Do app sem saber o aparelho (mensagens de antes de o cald guardar isso), fica sem ícone.
+  const Icon = sent.via === 'terminal' ? SquareTerminal : sent.via === 'vscode' ? Code : sent.mobile ? Smartphone : sent.via === 'desktop' || sent.mobile === false ? Monitor : null
+  return (
+    <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground" title={sent.at !== undefined ? new Date(sent.at).toLocaleString('pt-BR') : undefined}>
+      {Icon && <Icon className="size-3 shrink-0" />}
+      <span className="truncate">{parts.join(' · ')}</span>
+    </div>
+  )
+}
+
 /**
  * `files`: anexos que ainda não viraram @caminho no PC (mensagem na fila). `anchor`: chave da mensagem,
- * para a faixa do topo saber qual mensagem já passou (ver sticky-prompt.tsx).
+ * para a faixa do topo saber qual mensagem já passou (ver sticky-prompt.tsx). `sent`: de onde ela saiu.
  */
 function UserBubble({
   sessionId,
@@ -89,6 +108,7 @@ function UserBubble({
   images,
   files,
   anchor,
+  sent,
   onBranch,
 }: {
   sessionId: string
@@ -96,6 +116,7 @@ function UserBubble({
   images?: string[]
   files?: string[]
   anchor?: string
+  sent?: Sent
   /** Bifurcar a conversa nesta mensagem; ausente quando não dá (a primeira, ou histórico sem UUID). */
   onBranch?: () => void
 }) {
@@ -131,6 +152,7 @@ function UserBubble({
           </div>
         </div>
       )}
+      {sent && <SentLine sent={sent} />}
     </div>
   )
 }
@@ -335,6 +357,7 @@ function ItemView({
           text={item.text}
           images={item.images}
           anchor={item.key}
+          sent={item.sent}
           onBranch={item.from && onBranch ? () => onBranch(item.from!, item.text) : undefined}
         />
       )
