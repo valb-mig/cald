@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { HttpError } from './errors.ts';
 import { git, gitWrite, requireRepo } from './git.ts';
@@ -197,6 +197,11 @@ export type WorktreeStatus = {
   current: string | null;
   /** Commits do worktree que a base ainda não tem. */
   ahead: number;
+  /**
+   * Desses, os que a base não tem nem com outro hash (o `git cherry`): um commit rebaseado ou trazido por
+   * outro caminho já está lá, e apagar o worktree não perde nada dele.
+   */
+  unmerged: number;
   /** Commits da base que o worktree ainda não tem. */
   behind: number;
   /** Arquivos alterados, novos ou apagados no worktree, ainda sem commit. */
@@ -221,7 +226,14 @@ export async function worktreeStatus(ref: WorktreeRef, info?: WorktreeInfo): Pro
     behind = counts[0] ?? 0;
     ahead = counts[1] ?? 0;
   }
-  return { name: ref.name, path: ref.path, project: ref.project, branch: status.branch, base, current, ahead, behind, changed: status.files.length };
+  const unmerged =
+    ahead > 0 && base
+      ? await git(ref.path, ['cherry', `refs/heads/${base}`, 'HEAD']).then(
+          (r) => r.stdout.split('\n').filter((l) => l.startsWith('+')).length,
+          () => ahead,
+        )
+      : 0;
+  return { name: ref.name, path: ref.path, project: ref.project, branch: status.branch, base, current, ahead, unmerged, behind, changed: status.files.length };
 }
 
 /**
@@ -253,15 +265,92 @@ export async function mergeWorktree(ref: WorktreeRef, info?: WorktreeInfo): Prom
   return { commits: s.ahead };
 }
 
-/** O que se perderia removendo o worktree: commits que a base não tem e mudanças sem commit. */
-export const unsaved = (s: WorktreeStatus) => s.ahead > 0 || s.changed > 0;
+/** O que se perderia removendo o worktree: commits que a base não tem (nem rebaseados) e mudanças sem commit. */
+export const unsaved = (s: WorktreeStatus) => s.unmerged > 0 || s.changed > 0;
 
 /**
- * Apaga o worktree e, se foi criado aqui, a branch dele. Quem chama já conferiu `unsaved` (ou o usuário
- * confirmou a perda) e fechou as conversas que estavam lá.
+ * Apaga o worktree e, se tudo dela já está na base, a branch dele. Quem chama já conferiu `unsaved` (ou
+ * o usuário confirmou a perda) e fechou as conversas que estavam lá.
  */
-export async function removeWorktree(ref: WorktreeRef, s: WorktreeStatus, info?: WorktreeInfo): Promise<void> {
+export async function removeWorktree(ref: WorktreeRef, s: WorktreeStatus): Promise<void> {
   await gitWrite(ref.root, ['worktree', 'remove', ...(unsaved(s) ? ['--force'] : []), ref.path]);
-  // A de um `claude --worktree`, ou uma que o Claude trocou no meio, fica: não foi o cald que criou.
-  if (info && s.branch === info.branch) await gitWrite(ref.root, ['branch', '-D', info.branch]).catch(() => undefined);
+  // A branch sai junto só se tudo dela já está na base: com commits que não voltaram ela fica, e o
+  // trabalho ainda dá para trazer depois. A do checkout principal nunca sai.
+  if (s.branch && s.unmerged === 0 && s.branch !== s.current) await gitWrite(ref.root, ['branch', '-D', s.branch]).catch(() => undefined);
 }
+
+/** Um worktree do repositório na lista da aba Claude: o status dele e de onde veio. */
+export type ListedWorktree = WorktreeStatus & {
+  /** Criado pelo cald ou pelo `claude --worktree` (fica em `.claude/worktrees` do projeto). */
+  managed: boolean;
+  /** A pasta sumiu (apagada à mão): só sobra o registro no git, que o "Apagar" limpa. */
+  missing: boolean;
+};
+
+/** O que o `git worktree list --porcelain` diz de cada worktree, o checkout principal primeiro. */
+async function listed(cwd: string): Promise<{ path: string; branch: string | null; bare: boolean }[]> {
+  const { stdout } = await git(cwd, ['worktree', 'list', '--porcelain']);
+  return stdout
+    .split('\n\n')
+    .filter((b) => b.startsWith('worktree '))
+    .map((block) => {
+      const lines = block.split('\n');
+      const path = lines[0]!.slice('worktree '.length);
+      const branch = lines.find((l) => l.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length) ?? null;
+      return { path, branch, bare: lines.includes('bare') };
+    });
+}
+
+/** O worktree de `path`, visto do checkout principal `root`, venha ele de onde vier. */
+const refAt = (root: string, path: string): WorktreeRef => worktreeOf(path) ?? { name: basename(path), root, path, project: path };
+
+/**
+ * Os worktrees do repositório de `cwd` (fora o checkout principal), com o status de cada um: os das
+ * conversas, os do `claude --worktree` e os criados à mão em qualquer pasta.
+ */
+export async function listWorktrees(cwd: string, infoOf: (path: string) => WorktreeInfo | undefined): Promise<{ root: string; worktrees: ListedWorktree[] }> {
+  const all = await listed(cwd).catch(() => {
+    throw new HttpError(400, 'not_a_repository');
+  });
+  const root = all[0]?.path;
+  if (!root) throw new HttpError(400, 'not_a_repository');
+  const worktrees = await Promise.all(
+    all.slice(1).filter((w) => !w.bare).map(async (w): Promise<ListedWorktree> => {
+      const ref = refAt(root, w.path);
+      const managed = Boolean(worktreeOf(w.path));
+      if (!(await isDirectory(w.path))) {
+        return { name: ref.name, path: w.path, project: w.path, branch: w.branch, base: null, current: null, ahead: 0, unmerged: 0, behind: 0, changed: 0, managed, missing: true };
+      }
+      // Um worktree que o git não consegue ler (corrompido, no meio de um rebase) aparece sem números.
+      const status = await worktreeStatus(ref, infoOf(w.path)).catch(
+        (): WorktreeStatus => ({ name: ref.name, path: w.path, project: w.path, branch: w.branch, base: null, current: null, ahead: 0, unmerged: 0, behind: 0, changed: 0 }),
+      );
+      return { ...status, managed, missing: false };
+    }),
+  );
+  return { root, worktrees };
+}
+
+/**
+ * O checkout principal do repositório de `dir` (o mesmo para o projeto e para os worktrees dele);
+ * `null` fora do git ou num repositório sem checkout (bare).
+ */
+export async function repoRootOf(dir: string): Promise<string | null> {
+  const common = await git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).then(
+    (r) => r.stdout.trim(),
+    () => '',
+  );
+  return common && basename(common) === '.git' ? dirname(common) : null;
+}
+
+/** O worktree `path` da lista do repositório de `cwd`; quem não está na lista não é tocado. */
+export async function listedWorktree(cwd: string, path: string): Promise<{ ref: WorktreeRef; missing: boolean }> {
+  const all = await listed(cwd).catch(() => []);
+  const root = all[0]?.path;
+  const found = all.slice(1).find((w) => w.path === path);
+  if (!root || !found) throw new HttpError(404, 'worktree_not_found');
+  return { ref: refAt(root, path), missing: !(await isDirectory(path)) };
+}
+
+/** Limpa o registro dos worktrees cuja pasta sumiu. */
+export const pruneWorktrees = (root: string) => gitWrite(root, ['worktree', 'prune']);

@@ -1,7 +1,5 @@
 import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { ClaudeMark } from '@/components/claude-mark'
-import { ClaudeTab } from '@/components/claude/claude-tab'
 import { ProjectMark } from '@/components/project-mark'
 import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
 import { RailItem } from '@/components/sidebar-rail'
@@ -14,7 +12,6 @@ import { projectName, shortPath, worktreeOf } from '@/lib/format'
 import { useGithubCounts } from '@/lib/github'
 import { useGitStatus, usePressMenu, useWide } from '@/lib/hooks'
 import { MachineContext } from '@/lib/machines'
-import { useMemoryAlerts } from '@/lib/memory'
 import {
   isPanelShown,
   PANEL_MAX,
@@ -59,7 +56,6 @@ function toward(width: number, fit: (w: number) => number, before: number): void
 }
 
 // A marca do Claude na cor das outras abas: o laranja dela ficaria aceso o tempo todo na alça.
-const ClaudeIcon = ({ className }: { className?: string }) => <ClaudeMark className={cn('fill-current', className)} />
 
 const TABS: { tab: PanelTab; label: string; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { tab: 'files', label: 'Arquivos', title: 'Arquivos do projeto', icon: FolderTree },
@@ -68,7 +64,6 @@ const TABS: { tab: PanelTab; label: string; title: string; icon: React.Component
   { tab: 'pulls', label: 'PRs', title: 'Pull requests abertos', icon: GitPullRequest },
   { tab: 'issues', label: 'Issues', title: 'Issues abertas', icon: CircleDot },
   { tab: 'todo', label: 'TODO', title: 'TODO do projeto', icon: ListTodo },
-  { tab: 'claude', label: 'Claude', title: 'Memória, skills e MCP do Claude', icon: ClaudeIcon },
 ]
 
 /** Contador cinza: quantidade, não alerta (o azul com brilho fica para os arquivos alterados). */
@@ -126,7 +121,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
         >
           {tabs ? (
             <>
-              {/* Sete abas não cabem em todo celular: a fileira rola de lado. */}
+              {/* Seis abas não cabem em todo celular: a fileira rola de lado. */}
               <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
                 {TABS.map(({ tab: t, label, title, icon: Icon }) => (
                   <button
@@ -173,10 +168,8 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
           <PullsTab project={project} />
         ) : tab === 'issues' ? (
           <IssuesTab project={project} />
-        ) : tab === 'todo' ? (
-          <TodoTab project={project} />
         ) : (
-          <ClaudeTab project={project} />
+          <TodoTab project={project} />
         )}
       </div>
     </MachineContext>
@@ -194,8 +187,6 @@ function ProjectRail({ project }: { project: PanelProject }) {
   // PRs e issues: só o que as abas já buscaram (a alça não consulta o GitHub). O TODO é local e leve.
   const github = useGithubCounts(project.machine, project.cwd)
   const todo = useTodos(project.machine, project.cwd)?.filter((t) => !t.done).length ?? 0
-  // A memória: só o que o Claude não chega a ver (fora do índice, link quebrado), não as só antigas.
-  const memory = useMemoryAlerts(project.machine, project.cwd)
   const counts: Record<PanelTab, { n: number; badge: string; tip: (n: number) => string } | null> = {
     files: null,
     search: null,
@@ -203,7 +194,6 @@ function ProjectRail({ project }: { project: PanelProject }) {
     pulls: github && { n: github.pulls, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberto' : 'abertos'}` },
     issues: github && { n: github.issues, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberta' : 'abertas'}` },
     todo: { n: todo, badge: COUNT_BADGE, tip: (n) => `${n} por fazer` },
-    claude: { n: memory, badge: 'bg-amber-500', tip: (n) => `${n} ${n === 1 ? 'memória pede' : 'memórias pedem'} atenção` },
   }
   const pick = (t: PanelTab) => {
     if (shown && tab === t) return setPanelShown(false)
