@@ -35,6 +35,7 @@ import { attachTerminal, openTerminal } from './terminal.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
+import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
@@ -897,6 +898,69 @@ app.get<{ Querystring: { cwd: string } }>(
   '/api/commands',
   { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
   async (req) => manager.commands(req.query.cwd),
+);
+
+// A memória automática do Claude Code (ver memory.ts): de todos os projetos ou, com `cwd`, de um só.
+app.get<{ Querystring: { cwd?: string } }>(
+  '/api/memory',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
+  async (req) => listMemory(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
+);
+
+const memoryRef = {
+  type: 'object',
+  required: ['folder', 'file'],
+  additionalProperties: false,
+  properties: { folder: { type: 'string', maxLength: 255 }, file: { type: 'string', maxLength: 210 } },
+};
+app.put<{ Body: { folder: string; file: string; description: string; body: string; mtime: number } }>(
+  '/api/memory',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['folder', 'file', 'description', 'body', 'mtime'],
+        additionalProperties: false,
+        properties: {
+          ...memoryRef.properties,
+          description: { type: 'string', maxLength: MAX_MEMORY_DESCRIPTION },
+          body: { type: 'string', maxLength: MAX_MEMORY_TEXT },
+          mtime: { type: 'number' },
+        },
+      },
+    },
+  },
+  async (req) => saveMemory(req.body),
+);
+
+app.post<{ Body: { items: { folder: string; file: string }[] } }>(
+  '/api/memory/trash',
+  {
+    schema: {
+      body: { type: 'object', required: ['items'], properties: { items: { type: 'array', minItems: 1, maxItems: 500, items: memoryRef } } },
+    },
+  },
+  async (req) => ({ ids: await trashMemories(req.body.items) }),
+);
+
+const trashIds = { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 64 } };
+app.post<{ Body: { ids: string[] } }>(
+  '/api/memory/restore',
+  { schema: { body: { type: 'object', required: ['ids'], properties: { ids: { ...trashIds, minItems: 1 } } } } },
+  async (req) => {
+    await restoreMemories(req.body.ids);
+    return { ok: true };
+  },
+);
+
+// Sem `ids`, esvazia a lixeira inteira.
+app.post<{ Body: { ids?: string[] } }>(
+  '/api/memory/trash/empty',
+  { schema: { body: { type: 'object', properties: { ids: trashIds } } } },
+  async (req) => {
+    await emptyTrash(req.body.ids);
+    return { ok: true };
+  },
 );
 
 app.get<{ Querystring: { cwd: string; q?: string } }>(
