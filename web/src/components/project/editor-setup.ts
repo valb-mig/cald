@@ -113,8 +113,11 @@ export const editorTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.667' },
   '.cm-content': { padding: '0.5rem 0' },
+  // A margem fica parada na rolagem para o lado, e o texto passa por baixo dela: precisa de fundo. Com a
+  // cena atrás, o mesmo vidro do topo (`--code-gutter`, ver viewer.tsx); sem, a cor da janela.
   '.cm-gutters': {
-    backgroundColor: 'transparent',
+    backgroundColor: 'var(--code-gutter, var(--background))',
+    backdropFilter: 'blur(12px)',
     border: 'none',
     color: 'color-mix(in oklab, var(--muted-foreground) 60%, transparent)',
   },

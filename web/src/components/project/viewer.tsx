@@ -841,7 +841,12 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
           // Focável pelo clique (sem entrar no Tab): é o que leva as teclas de mudança (ver `ChangeNav`).
           tabIndex={-1}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto outline-none"
-          style={{ '--code-font': `${fontSize}px` } as React.CSSProperties}
+          style={
+            {
+              '--code-font': `${fontSize}px`,
+              ...(glass && { '--code-gutter': 'color-mix(in oklab, var(--background) 70%, transparent)' }),
+            } as React.CSSProperties
+          }
           {...code.bind}
         >
           {diff ? (
