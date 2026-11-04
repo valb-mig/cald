@@ -11,8 +11,8 @@ import { workspaceColor } from '@/lib/workspaces'
 /**
  * Conteúdo de uma conversa numa lista, como numa lista de mensagens: o claudinho dela, com o estado
  * nele (como na alça e nas abas), o título com a hora no canto e, embaixo, o nome dele, o
- * projeto e se está aberta no PC. O estado só vira texto quando pede olhar: trabalhando (azul) ou
- * esperando você (âmbar); concluída é o normal e fica sem rótulo. `grouped`: dentro do grupo do
+ * projeto e se está aberta no PC. O estado fica só no claudinho (os pontinhos trabalhando, o balão de
+ * exclamação esperando você); em texto, só para o leitor de tela. `grouped`: dentro do grupo do
  * projeto (ver pages/sessions.tsx), que já diz o projeto e a máquina. `roomy`: na lista do celular,
  * claudinho e letras maiores, para o dedo e para ler de longe.
  */
@@ -79,14 +79,7 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
               </span>
             </>
           )}
-          {(tone === 'running' || tone === 'attention') && (
-            <>
-              <span>·</span>
-              <span className={cn('truncate', tone === 'running' ? 'text-sky-700 dark:text-sky-300' : 'text-amber-700 dark:text-amber-300')}>
-                {label}
-              </span>
-            </>
-          )}
+          {(tone === 'running' || tone === 'attention') && <span className="sr-only">{label}</span>}
           {/* No canto, como a hora em cima: subagentes trabalhando e se a conversa está aberta no PC. */}
           <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
             {s.agents ? (
