@@ -6,13 +6,15 @@ import { AddProjectDialog } from '@/components/add-project-dialog'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
+import { ProjectMark } from '@/components/project-mark'
+import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
 import { WorkspacesSection } from '@/components/workspaces/workspaces-section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, errorMessage } from '@/lib/api'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
-import { useWide } from '@/lib/hooks'
+import { usePressMenu, useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter } from '@/lib/machines'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
@@ -25,19 +27,23 @@ const pending = (g: GitSummary | undefined) => Boolean(g && (g.changed > 0 || g.
 
 const ROW = 'mx-2 flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-foreground/[0.04] active:bg-foreground/[0.07]'
 
-/** No PC, a linha abre o hub do projeto, e o + começa uma conversa nele; no celular, a linha toda começa. */
-function ProjectRow(props: { cwd: string; machine: string; stats?: Stats; git?: GitSummary }) {
+/**
+ * No PC, a linha abre o hub do projeto, e o + começa uma conversa nele; no celular, a linha toda começa.
+ * Botão direito ou dedo segurado: o menu do projeto (escolher a logo, ver ProjectMenu).
+ */
+function ProjectRow(props: { cwd: string; machine: string; stats?: Stats; git?: GitSummary; onMenu: (x: number, y: number) => void }) {
   const wide = useWide()
+  const press = usePressMenu(props.onMenu)
   if (!wide) {
     return (
-      <Link href={newChatUrl(props.cwd, props.machine)} className={ROW}>
+      <Link href={newChatUrl(props.cwd, props.machine)} {...press} className={cn(ROW, 'select-none [-webkit-touch-callout:none]')}>
         <ProjectInfo {...props} />
         <Plus className="size-4 shrink-0 text-muted-foreground" />
       </Link>
     )
   }
   return (
-    <div className="mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors hover:bg-foreground/[0.04]">
+    <div {...press} className="mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors select-none hover:bg-foreground/[0.04]">
       <button
         type="button"
         onClick={() => openProjectHub(props.machine, props.cwd)}
@@ -55,27 +61,31 @@ function ProjectRow(props: { cwd: string; machine: string; stats?: Stats; git?: 
   )
 }
 
-function ProjectInfo({ cwd, stats, git }: { cwd: string; stats?: Stats; git?: GitSummary }) {
+/** A marca do projeto (ver ProjectMark), o nome com o git e, embaixo, a branch e as sessões. */
+function ProjectInfo({ cwd, machine, stats, git }: { cwd: string; machine: string; stats?: Stats; git?: GitSummary }) {
   const changes = pending(git)
   return (
-    <div className="min-w-0 flex-1">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="truncate text-sm font-medium">{projectName(cwd)}</span>
-        {git && <GitBadges g={git} />}
+    <>
+      <ProjectMark machine={machine} cwd={cwd} name={projectName(cwd)} className="size-8 rounded-lg text-sm" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium">{projectName(cwd)}</span>
+          {git && <GitBadges g={git} />}
+        </div>
+        <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          {changes && git?.branch && (
+            <>
+              <GitBranch className="size-3 shrink-0" />
+              <span className="max-w-[40%] shrink-0 truncate">{git.branch}</span>
+              <span className="shrink-0">·</span>
+            </>
+          )}
+          <span className="truncate">
+            {stats ? `${stats.count} ${stats.count === 1 ? 'sessão' : 'sessões'} · ${relativeTime(stats.last)}` : shortPath(cwd)}
+          </span>
+        </div>
       </div>
-      <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-        {changes && git?.branch && (
-          <>
-            <GitBranch className="size-3 shrink-0" />
-            <span className="max-w-[40%] shrink-0 truncate">{git.branch}</span>
-            <span className="shrink-0">·</span>
-          </>
-        )}
-        <span className="truncate">
-          {stats ? `${stats.count} ${stats.count === 1 ? 'sessão' : 'sessões'} · ${relativeTime(stats.last)}` : shortPath(cwd)}
-        </span>
-      </div>
-    </div>
+    </>
   )
 }
 
@@ -89,6 +99,13 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const [checking, setChecking] = useState(false)
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
+  // O menu fica com o último projeto enquanto fecha, para não esvaziar na animação.
+  const [menu, setMenu] = useState<ProjectMenuAt | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const onMenu = (cwd: string) => (x: number, y: number) => {
+    setMenu({ machine, cwd, name: projectName(cwd), x, y })
+    setMenuOpen(true)
+  }
   // Muda quando um projeto entra ou sai da lista: o git é conferido de novo, com o projeto novo.
   const [version, setVersion] = useState(0)
   const [, navigate] = useLocation()
@@ -159,6 +176,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
           </div>
         }
       />
+      <ProjectMenu at={menu} open={menuOpen} onOpenChange={setMenuOpen} />
       <AddProjectDialog
         machine={machine}
         open={adding}
@@ -198,7 +216,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
               <h2 className="px-5 pb-1.5 text-xs font-medium text-muted-foreground">Com mudanças</h2>
               <div className="space-y-0.5">
                 {changed.map((p) => (
-                  <ProjectRow key={p} cwd={p} machine={machine} stats={stats.get(p)} git={git[p]} />
+                  <ProjectRow key={p} cwd={p} machine={machine} stats={stats.get(p)} git={git[p]} onMenu={onMenu(p)} />
                 ))}
               </div>
             </section>
@@ -219,7 +237,7 @@ export function ProjectsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
                 </Link>
               )}
               {rest.map((p) => (
-                <ProjectRow key={p} cwd={p} machine={machine} stats={stats.get(p)} git={git[p]} />
+                <ProjectRow key={p} cwd={p} machine={machine} stats={stats.get(p)} git={git[p]} onMenu={onMenu(p)} />
               ))}
               {changed.length + rest.length === 0 && <p className="px-4 py-3 text-sm text-muted-foreground">Nenhum projeto encontrado.</p>}
             </div>
