@@ -1,4 +1,5 @@
-import { HighlightStyle, syntaxTree } from '@codemirror/language'
+import { completeAnyWord, completeFromList, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from '@codemirror/autocomplete'
+import { ensureSyntaxTree, HighlightStyle, syntaxTree } from '@codemirror/language'
 import { linter, setDiagnosticsEffect, type Diagnostic } from '@codemirror/lint'
 import { diff } from '@codemirror/merge'
 import { EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, Text, type Extension } from '@codemirror/state'
@@ -98,6 +99,34 @@ export function minimapTokens(state: EditorState, dark: boolean): { content: str
   })
   emit(doc.length)
   return rows
+}
+
+// ---- autocomplete ----
+
+type AutocompleteData = CompletionSource | readonly (string | Completion)[]
+
+/**
+ * As sugestões sem LSP: o que a linguagem já sabe (nomes do escopo, palavras-chave, propriedades do
+ * CSS) mais as palavras do próprio arquivo, numa lista só e sem repetir o nome que as duas acham.
+ */
+export async function completions(ctx: CompletionContext): Promise<CompletionResult | null> {
+  const data = ctx.state.languageDataAt<AutocompleteData>('autocomplete', ctx.pos)
+  const sources = data.map((d) => (typeof d === 'function' ? d : completeFromList(d)))
+  const results = (await Promise.all([...sources, completeAnyWord].map((source) => source(ctx)))).filter((r): r is CompletionResult => Boolean(r))
+  if (results.length === 0) return null
+  // Só as que começam no mesmo ponto se juntam: cada lista filtra a partir do seu começo.
+  const from = results[0]!.from
+  const seen = new Set<string>()
+  const options: Completion[] = []
+  for (const r of results) {
+    if (r.from !== from) continue
+    for (const o of r.options) {
+      if (seen.has(o.label)) continue
+      seen.add(o.label)
+      options.push(o)
+    }
+  }
+  return { from, options, validFor: /^[\w$]*$/ }
 }
 
 // ---- tema ----
@@ -212,6 +241,26 @@ export const editorTheme = EditorView.theme({
     borderLeft: '6px solid var(--color-red-500)',
   },
   '.cm-change-del-top': { top: '-5px' },
+  // O que mudou no disco (ver `diskGutter`), na cor do Claude, à esquerda das marcas do git.
+  '.cm-disk .cm-gutterElement': { position: 'relative', width: '0.45em', cursor: 'pointer' },
+  '.cm-disk-bar': { position: 'absolute', top: '0', bottom: '0', left: '0.1em', width: '3px', backgroundColor: '#d97757', borderRadius: '1px' },
+  '.cm-disk .cm-gutterElement:hover .cm-disk-bar': { width: '5px' },
+  '.cm-disk-del': {
+    position: 'absolute',
+    top: '-4px',
+    left: '0.1em',
+    width: '0',
+    height: '0',
+    borderTop: '4px solid transparent',
+    borderBottom: '4px solid transparent',
+    borderLeft: '5px solid #d97757',
+  },
+  // As sugestões do autocomplete, com a cara dos menus do app.
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font)', maxHeight: '16em' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '1px 8px', lineHeight: '1.6' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'rgb(14 165 233 / 0.3)', color: 'inherit' },
+  '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '600', color: 'var(--color-sky-500)' },
+  '.cm-completionDetail': { fontStyle: 'normal', opacity: '0.6', marginLeft: '0.75em' },
   '.cm-change-del-bottom': { bottom: '-5px' },
   // O lampejo nas linhas que mudaram por fora (o Claude gravou) ou onde a seta de mudança parou.
   '.cm-flash': { animation: 'cm-flash 1.2s ease-out' },
@@ -477,6 +526,171 @@ export function changeGutter(onOpen: (index: number) => void): Extension {
       },
     }),
   ]
+}
+
+// ---- o que mudou no disco desde que o arquivo abriu ----
+
+/**
+ * Um trecho que mudou por fora (o Claude, outro editor, um `git checkout`) desde que o arquivo abriu:
+ * as linhas de `from` a `to` de agora, e o que havia antes da última troca ali. Numa troca que só tirou
+ * linhas, `from` é o começo da linha que ficou logo depois (ou o fim do arquivo).
+ */
+export type DiskMark = { from: number; to: number; removed: string[] }
+
+/** Novos trechos mudados no disco (posições no texto já trocado). */
+export const addDiskMarks = StateEffect.define<DiskMark[]>()
+/** Tira a marca `index` (o "Visto" do peek), ou todas com `'all'`. */
+export const clearDiskMark = StateEffect.define<number | 'all'>()
+
+/** Os trechos de `next` que mudaram em relação a `prev`, linha a linha, como marcas. */
+export function diskMarksOf(prev: Text, next: Text): DiskMark[] {
+  return (hunksOf(prev, next) ?? []).map((h) => {
+    const removed = Array.from({ length: h.toA - h.fromA }, (_, k) => prev.line(h.fromA + k).text)
+    if (h.toB === h.fromB) {
+      const at = h.fromB <= next.lines ? next.line(h.fromB).from : next.length
+      return { from: at, to: at, removed }
+    }
+    return { from: next.line(h.fromB).from, to: next.line(h.toB - 1).to, removed }
+  })
+}
+
+export const diskField = StateField.define<DiskMark[]>({
+  create: () => [],
+  update(marks, tr) {
+    if (tr.docChanged) marks = marks.map((m) => ({ ...m, from: tr.changes.mapPos(m.from, -1), to: Math.max(tr.changes.mapPos(m.from, -1), tr.changes.mapPos(m.to, 1)) }))
+    for (const e of tr.effects) {
+      if (e.is(clearDiskMark)) marks = e.value === 'all' ? [] : marks.filter((_, i) => i !== e.value)
+      if (!e.is(addDiskMarks)) continue
+      // Uma troca nova em cima de uma marca antiga fica no lugar dela: o "antes" passa a ser o da última troca.
+      const added = e.value
+      marks = marks.filter((m) => !added.some((n) => n.from <= m.to && m.from <= n.to)).concat(added)
+      marks.sort((a, b) => a.from - b.from)
+    }
+    return marks
+  },
+})
+
+class DiskMarker extends GutterMarker {
+  readonly kind: 'bar' | 'del'
+  constructor(kind: DiskMarker['kind']) {
+    super()
+    this.kind = kind
+  }
+  eq(other: DiskMarker) {
+    return other.kind === this.kind
+  }
+  toDOM() {
+    const el = document.createElement('span')
+    el.className = this.kind === 'bar' ? 'cm-disk-bar' : 'cm-disk-del'
+    return el
+  }
+}
+const DISK_BAR = new DiskMarker('bar')
+const DISK_DEL = new DiskMarker('del')
+
+/** A marca do disco que cobre a linha que começa em `from`. */
+export function diskMarkAtLine(state: EditorState, from: number): number {
+  const line = state.doc.lineAt(from)
+  return state.field(diskField).findIndex((m) => (m.from === m.to ? state.doc.lineAt(m.from).number === line.number : m.from <= line.to && line.from <= m.to))
+}
+
+/**
+ * A coluna laranja (a cor do Claude) à esquerda das marcas do git: o que mudou no disco desde que o
+ * arquivo abriu, até você marcar como visto. Clicar abre o antes e o depois (`onOpen`).
+ */
+export function diskGutter(onOpen: (index: number) => void): Extension {
+  return [
+    diskField,
+    gutter({
+      class: 'cm-disk',
+      markers: (view) => {
+        const b = new RangeSetBuilder<GutterMarker>()
+        const { doc } = view.state
+        for (const m of view.state.field(diskField)) {
+          if (m.from === m.to) {
+            const line = doc.lineAt(m.from)
+            b.add(line.from, line.from, DISK_DEL)
+            continue
+          }
+          const last = doc.lineAt(m.to).number
+          for (let n = doc.lineAt(m.from).number; n <= last; n++) b.add(doc.line(n).from, doc.line(n).from, DISK_BAR)
+        }
+        return b.finish()
+      },
+      domEventHandlers: {
+        mousedown: (view, line) => {
+          const k = diskMarkAtLine(view.state, line.from)
+          if (k < 0) return false
+          onOpen(k)
+          return true
+        },
+      },
+    }),
+  ]
+}
+
+/** A marca do disco no formato do peek (ver changes.tsx). */
+export function diskBlockOf(m: DiskMark, doc: Text): Block {
+  const start = doc.lineAt(m.from).number
+  if (m.from === m.to) return { kind: 'del', start, end: start, removed: m.removed, added: [] }
+  const end = doc.lineAt(m.to).number
+  const added = Array.from({ length: end - start + 1 }, (_, k) => doc.line(start + k).text)
+  return { kind: m.removed.length ? 'mod' : 'add', start, end, removed: m.removed, added }
+}
+
+// ---- os símbolos do arquivo (Ctrl+Shift+O) ----
+
+export type SymbolKind = 'function' | 'method' | 'class' | 'type' | 'heading'
+export type CodeSymbol = { name: string; kind: SymbolKind; from: number; line: number; depth: number }
+
+// Os nomes dos nós das gramáticas do CodeMirror (JavaScript/TypeScript, Python, Rust, Go, Java, PHP...).
+const SYMBOL_KINDS: [RegExp, SymbolKind][] = [
+  [/^(FunctionDeclaration|FunctionDefinition|FunctionItem|FunctionDecl)$/, 'function'],
+  [/^(MethodDeclaration|MethodDecl|MethodDefinition)$/, 'method'],
+  [/^(ClassDeclaration|ClassDefinition|InterfaceDeclaration|EnumDeclaration|StructItem|EnumItem|TraitItem|ImplItem)$/, 'class'],
+  [/^(TypeAliasDeclaration|TypeSpec|TypeItem)$/, 'type'],
+  [/^(ATXHeading\d|SetextHeading\d)$/, 'heading'],
+]
+const NAME_NODES = new Set(['VariableDefinition', 'PropertyDefinition', 'TypeDefinition', 'VariableName', 'Definition', 'Identifier', 'TypeIdentifier', 'BoundIdentifier', 'FieldIdentifier', 'PropertyName', 'Name'])
+
+/**
+ * As funções, classes, métodos e tipos do arquivo (no Markdown, os títulos), na ordem, tirados do parser
+ * do editor: nada de LSP. Uma constante de nível de cima que guarda uma função (`const Foo = () =>`)
+ * também conta, que é como se escreve componente React.
+ */
+export function symbolsOf(state: EditorState): CodeSymbol[] {
+  const tree = ensureSyntaxTree(state, state.doc.length, 300) ?? syntaxTree(state)
+  const out: CodeSymbol[] = []
+  // Os símbolos ainda abertos (onde terminam e o nó), para os métodos ficarem dentro da classe.
+  const open: { to: number; name: string }[] = []
+  tree.iterate({
+    enter: (node) => {
+      let kind = SYMBOL_KINDS.find(([re]) => re.test(node.name))?.[1]
+      // `const Foo = () => ...` no topo do arquivo (ou exportada).
+      if (!kind && node.name === 'VariableDeclaration') {
+        const parent = node.node.parent
+        const top = parent?.name === 'Script' || (parent?.name === 'ExportDeclaration' && parent.parent?.name === 'Script')
+        const fn = top && node.node.getChildren('ArrowFunction').length + node.node.getChildren('FunctionExpression').length > 0
+        if (fn) kind = 'function'
+      }
+      if (!kind) return
+      let name: string
+      if (kind === 'heading') name = state.sliceDoc(node.from, node.to).split('\n')[0]!.replace(/^#+\s*/, '').replace(/\s*#*$/, '')
+      else {
+        let child = node.node.firstChild
+        while (child && !NAME_NODES.has(child.name)) child = child.nextSibling
+        name = child ? state.sliceDoc(child.from, child.to) : ''
+      }
+      if (!name.trim()) return
+      out.push({ name: name.trim(), kind: kind === 'function' && open.length > 0 ? 'method' : kind, from: node.from, line: state.doc.lineAt(node.from).number, depth: kind === 'heading' ? Number(/\d/.exec(node.name)?.[0] ?? 1) - 1 : open.length })
+      if (kind !== 'heading') open.push({ to: node.to, name: node.name })
+    },
+    leave: (node) => {
+      const top = open.at(-1)
+      if (top && top.to === node.to && top.name === node.name) open.pop()
+    },
+  })
+  return out
 }
 
 // ---- o peek de uma mudança ----
