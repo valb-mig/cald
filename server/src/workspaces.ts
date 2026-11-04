@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { DATA_DIR } from './config.ts';
@@ -61,7 +62,8 @@ function safeName(name: string): string {
 
 const unique = (list: string[]) => [...new Set(list.map((s) => s.trim()).filter(Boolean))];
 
-export class WorkspaceStore {
+/** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
+export class WorkspaceStore extends EventEmitter {
   private workspaces: Workspace[] = [];
   private writing = Promise.resolve();
 
@@ -169,6 +171,7 @@ export class WorkspaceStore {
       await writeFile(`${FILE}.tmp`, snapshot);
       await rename(`${FILE}.tmp`, FILE);
     });
+    this.emit('change');
     return this.writing;
   }
 

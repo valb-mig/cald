@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from './api'
+import { onChanged } from './changes'
 import type { Workspace } from './types'
 
 /**
@@ -33,6 +34,11 @@ export function loadWorkspaces(machine: string): Promise<Workspace[]> {
   }
   return request
 }
+
+// Mudou no PC (o Claude criou um, outro aparelho editou): a máquina que já tem a lista busca de novo.
+onChanged((machine, c) => {
+  if (c.what === 'workspaces' && useWorkspaces.getState().byMachine[machine]) loadWorkspaces(machine).catch(() => {})
+})
 
 /** Põe na lista o workspace que acabou de ser salvo (ou tira, com `null` e o id). */
 export function putWorkspace(machine: string, ws: Workspace | null, id?: string): void {

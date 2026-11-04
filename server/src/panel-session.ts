@@ -12,6 +12,7 @@ import {
   type SDKUserMessage,
   type ModelInfo,
   type SlashCommand,
+  type McpSdkServerConfigWithInstance,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AgentTasks } from './agents.ts';
 import { imageStore } from './images.ts';
@@ -23,6 +24,7 @@ import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
 import { HttpError } from './errors.ts';
 import { agentsOf, teamPrompt, type TeamSnapshot } from './teams.ts';
+import { CALD_MCP, CALD_MCP_ALLOWED } from './cald-mcp.ts';
 import {
   fromSdkMessage,
   stampAssistant,
@@ -111,6 +113,8 @@ export type PanelSessionOptions = {
   worktree?: { prompt: string; configRoot: string };
   /** A pasta do plugin "cald" desta conversa, com as habilidades que valem nela (ver habilidades.ts). */
   habilidades?: string;
+  /** O MCP do cald (ver cald-mcp.ts), montado para esta conversa: recebe ela, para saber a quem pôr o time. */
+  mcp?: (session: PanelSession) => McpSdkServerConfigWithInstance;
 };
 
 /** O que vai no fim do prompt de sistema: o time, o workspace e o worktree da conversa. */
@@ -210,6 +214,11 @@ export class PanelSession extends EventEmitter {
         agents: opts.team ? agentsOf(opts.team) : undefined,
         // As habilidades do cald como plugin: o Claude as vê como skills (`/cald:nome`).
         plugins: opts.habilidades ? [{ type: 'local', path: opts.habilidades, skipMcpDiscovery: true }] : undefined,
+        // O MCP do cald: o Claude cria TODOs, times, workspaces e habilidades; ler e criar passam sem aprovação.
+        // A regra vai na camada de flags, e não em `allowedTools`: dá no mesmo, sem o SDK avisar a cada
+        // abertura que o `canUseTool` não é chamado para elas.
+        mcpServers: opts.mcp ? { [CALD_MCP]: opts.mcp(this) } : undefined,
+        settings: opts.mcp ? { permissions: { allow: CALD_MCP_ALLOWED } } : undefined,
         settingSources: ['user', 'project', 'local'],
         includePartialMessages: true,
         // O celular mostra o que cada subagente faz: falas e raciocínio também, não só as ferramentas,

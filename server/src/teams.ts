@@ -1,5 +1,6 @@
 import type { AgentDefinition, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { DATA_DIR } from './config.ts';
@@ -77,7 +78,8 @@ function clean(input: TeamInput, id: string): Team {
   return { id, name, members, updatedAt: Date.now() };
 }
 
-export class TeamStore {
+/** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
+export class TeamStore extends EventEmitter {
   private teams: Team[] = [];
   private writing = Promise.resolve();
 
@@ -123,6 +125,7 @@ export class TeamStore {
       await writeFile(`${FILE}.tmp`, snapshot);
       await rename(`${FILE}.tmp`, FILE);
     });
+    this.emit('change');
     return this.writing;
   }
 }

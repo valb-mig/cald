@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { api } from '@/lib/api'
 import { getGithub } from '@/lib/github'
 import { useMachine } from '@/lib/machines'
+import { onChanged } from '@/lib/changes'
 import { pastedFiles } from '@/lib/compose'
 import { getTodos } from '@/lib/todos'
 import type { CommandInfo } from '@/lib/types'
@@ -57,6 +58,8 @@ export function loadCommands(machine: string, cwd: string, session?: string): Pr
 
 /** Uma habilidade do cald mudou (criada, editada, ligada ou desligada): o "/" pede a lista de novo. */
 export const forgetCommands = () => commandCache.clear()
+// Também quando foi o Claude de uma conversa que criou ou editou (o MCP do cald).
+onChanged((_, c) => c.what === 'habilidades' && forgetCommands())
 
 /**
  * As sugestões da palavra sob o cursor e `ready`: a busca dela já respondeu. Sem nada achado, a lista

@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
+import { useOnChanged } from '@/lib/changes'
 import type { Team, TeamSnapshot } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { TeamFaces } from './team-faces'
@@ -46,6 +47,8 @@ export function TeamPill({
     // Servidor antigo, sem times: o botão só oferece montar um (e o PC avisa que precisa atualizar).
     api.teams(machine).then(setTeams, () => setTeams([]))
   }, [machine])
+  // O Claude de uma conversa montou ou mudou um time (o MCP do cald), ou outro aparelho mexeu.
+  useOnChanged(machine, 'teams', () => api.teams(machine).then(setTeams, () => {}))
   const chosen = current ?? teams.find((t) => t.id === value)
   // Na conversa nova, o time escolhido foi apagado no diálogo: ela volta a não ter time.
   useEffect(() => {
