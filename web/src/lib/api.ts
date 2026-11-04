@@ -80,6 +80,12 @@ const project = (cwd: string, path?: string) =>
 // Os endereços abaixo vão em `<img>` e links, que não mandam cabeçalho: o token do PIN segue na URL.
 /** Arquivo do projeto como está (imagens, PDF), para abrir no navegador. */
 export const fileRawUrl = (m: string, cwd: string, path: string) => withToken(`${at(m)}/file/raw?${project(cwd, path)}`)
+/**
+ * A marca do projeto (a escolhida no app ou a do repositório, em 128 px); 404 sem uma (ver ProjectMark).
+ * `version` muda quando ela é trocada neste aparelho, para a imagem nova entrar na hora.
+ */
+export const projectIconUrl = (m: string, cwd: string, version = 0) =>
+  withToken(`${at(m)}/project-icon?${project(cwd)}${version ? `&v=${version}` : ''}`)
 /** Um anexo de um item do TODO, para ver (imagem) ou baixar. */
 export const workspaceFileUrl = (m: string, id: string, file: WorkspaceFile) =>
   withToken(`${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`)
@@ -97,6 +103,11 @@ export const api = {
   projectSources: (m: string) => request<{ roots: string[]; added: string[] }>('GET', `${at(m)}/projects/sources`),
   createProject: (m: string, name: string, git: boolean) => post<{ path: string }>(`${at(m)}/projects`, { name, git }),
   addProject: (m: string, path: string) => post<{ path: string }>(`${at(m)}/projects/add`, { path }),
+  /** De onde vem a marca do projeto (escolhida no app ou do repositório) e se o repositório tem uma. */
+  projectIconInfo: (m: string, cwd: string) =>
+    request<{ source: 'custom' | 'repo' | null; repo: boolean }>('GET', `${at(m)}/project-icon/info?${project(cwd)}`),
+  setProjectIcon: (m: string, cwd: string, data: string) => post(`${at(m)}/project-icon`, { cwd, data }),
+  removeProjectIcon: (m: string, cwd: string) => post(`${at(m)}/project-icon/remove`, { cwd }),
   removeProject: (m: string, path: string) => post(`${at(m)}/projects/remove`, { path }),
   /** As subpastas de uma pasta do PC (sem `path`, a pasta pessoal). */
   folders: (m: string, path?: string) =>
@@ -271,6 +282,10 @@ export function errorMessage(err: unknown): string {
       return 'Esta versão do Claude Code não mostra a saída da tarefa.'
     case 'whisper_unavailable':
       return 'O Whisper não está instalado no PC.'
+    case 'invalid_image':
+      return 'Essa imagem não deu para ler. Tente um PNG, JPG, WebP ou SVG.'
+    case 'sharp_unavailable':
+      return 'O PC não tem o sharp para converter a imagem.'
     case 'transcribe_failed':
     case 'invalid_audio':
       return 'O Whisper não conseguiu transcrever o áudio.'

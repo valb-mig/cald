@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +25,7 @@ import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
 import { PinLock } from './pin.ts';
+import { clearProjectIcon, projectIcon, projectIconInfo, setProjectIcon } from './project-icon.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { sessionCost } from './session-cost.ts';
 import { AudioMonitor } from './audio.ts';
@@ -594,6 +596,39 @@ app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
 });
 
 app.get<ProjectQuery>('/api/git', projectQuery, async (req) => gitStatus(await manager.knownCwd(req.query.cwd)));
+
+// A marca do projeto (a escolhida no app ou a logo do próprio repositório). Com ETag e sem cache fixo:
+// trocar a logo num aparelho aparece nos outros na próxima vez que desenham. Sem uma, 404, guardado por
+// um tempo, para o app não perguntar de novo a cada vez.
+app.get<ProjectQuery>('/api/project-icon', projectQuery, async (req, reply) => {
+  const icon = await projectIcon(await manager.knownCwd(req.query.cwd));
+  if (!icon) return reply.code(404).header('cache-control', 'private, max-age=300').send({ error: 'no_icon' });
+  const etag = `"${createHash('sha1').update(icon.data).digest('hex').slice(0, 16)}"`;
+  reply.header('etag', etag).header('cache-control', 'private, no-cache');
+  if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+  return reply.header('content-type', icon.mediaType).send(icon.data);
+});
+app.get<ProjectQuery>('/api/project-icon/info', projectQuery, async (req) => projectIconInfo(await manager.knownCwd(req.query.cwd)));
+// Escolher uma logo para o projeto no app (em base64, como os anexos), ou tirar a escolhida.
+app.post<{ Body: { cwd: string; data: string } }>(
+  '/api/project-icon',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: { body: { type: 'object', required: ['cwd', 'data'], properties: { cwd: { type: 'string' }, data: { type: 'string', minLength: 1 } } } },
+  },
+  async (req) => {
+    await setProjectIcon(await manager.knownCwd(req.body.cwd), Buffer.from(req.body.data, 'base64'));
+    return { ok: true };
+  },
+);
+app.post<{ Body: { cwd: string } }>(
+  '/api/project-icon/remove',
+  { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
+  async (req) => {
+    await clearProjectIcon(await manager.knownCwd(req.body.cwd));
+    return { ok: true };
+  },
+);
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
   diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),

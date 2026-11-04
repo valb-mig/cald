@@ -7,6 +7,9 @@ import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
+import { PeerFaces } from '@/components/peer-faces'
+import { ProjectMark } from '@/components/project-mark'
+import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
 import { ProjectPicker } from '@/components/project-picker'
 import { SessionInfo } from '@/components/session-info'
 import { SessionMenu, type MenuAt } from '@/components/session-menu'
@@ -16,10 +19,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { projectName } from '@/lib/format'
 import { usePressMenu, useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter, useMachines } from '@/lib/machines'
+import { isWorking, namesOf } from '@/lib/peers'
 import {
   ALL_TAB,
   bySession,
   groupByProject,
+  railOf,
   setProjectTab,
   shownSessions,
   toggleProject,
@@ -27,6 +32,7 @@ import {
   useProjectTab,
   useProjectsGit,
   type ProjectGroup,
+  type RailSpot,
 } from '@/lib/project-groups'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { keyOf, openProjectHub, pinTab, revealChat } from '@/lib/workbench'
@@ -36,12 +42,82 @@ import { cn } from '@/lib/utils'
 import { workspaceColor } from '@/lib/workspaces'
 
 type OnMenu = (s: CatalogEntry, x: number, y: number) => void
+/** Botão direito ou dedo segurado num projeto: o menu dele (ver ProjectMenu). */
+type OnProjectMenu = (g: ProjectGroup, x: number, y: number) => void
+
+// Quantos claudinhos o cabeçalho de um projeto mostra antes do "+n".
+const FACES = 4
+
+// O trilho fica embaixo da setinha do grupo, e o claudinho, logo à direita dele (ver o recuo da linha).
+const RAIL_X = 14
+const RAIL_GAP = 6
+// O meio do claudinho na linha: o respiro de cima (10), o mt-0.5 (2) e metade dos 28.
+const NODE_Y = 26
+// A curva do desvio de um worktree, da linha até o claudinho.
+const ELBOW = 12
+
+/**
+ * O pedaço do trilho do projeto numa linha da lista (ver `railOf`): a linha passa pela conversa, com um
+ * nó no meio se ela está aberta no checkout, ou se desvia até o claudinho se ela roda num worktree.
+ * Trabalhando, o nó pulsa; esperando você, fica âmbar; aberta e parada, vazado. Entre duas ou mais
+ * trabalhando no checkout ao mesmo tempo, a linha ganha cor e uma corrente descendo por ela.
+ */
+function RailMark({ spot }: { spot: RailSpot }) {
+  const branch = spot.node === 'branch'
+  const segment = (live: boolean) => {
+    const width = live ? 2 : 1
+    return { className: cn('absolute', live ? 'rail-live' : 'bg-foreground/15'), left: RAIL_X - width / 2, width }
+  }
+  const up = segment(spot.liveAbove)
+  const down = segment(spot.liveBelow)
+  // No desvio que começa ou termina o trilho, a curva faz a ponta e a linha reta para antes dela.
+  const top = branch && !spot.above ? NODE_Y + ELBOW : NODE_Y
+  const end = branch && !spot.below ? NODE_Y - ELBOW : NODE_Y
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0">
+      {/* De cima, desde o vão entre as linhas (o space-y-0.5 da lista). */}
+      {spot.above && <span className={up.className} style={{ left: up.left, width: up.width, top: -2, height: end + 2 }} />}
+      {spot.below && <span className={down.className} style={{ left: down.left, width: down.width, top, bottom: 0 }} />}
+      {branch && (
+        <span
+          className={cn('absolute border-foreground/40', spot.above ? 'rounded-bl-lg border-b border-l' : 'rounded-tl-lg border-t border-l')}
+          style={{ left: RAIL_X - 0.5, width: RAIL_GAP + 0.5, top: spot.above ? NODE_Y - ELBOW : NODE_Y, height: ELBOW }}
+        />
+      )}
+      {spot.node && !branch && (
+        <span
+          className={cn(
+            'absolute size-[7px] rounded-full',
+            spot.node === 'working' && 'bg-sky-500',
+            spot.node === 'waiting' && 'bg-amber-500 shadow-[0_0_6px_rgb(245_158_11/0.8)]',
+            spot.node === 'open' && 'border border-foreground/40 bg-sidebar',
+          )}
+          style={{ left: RAIL_X - 3.5, top: NODE_Y - 3.5 }}
+        >
+          {spot.node === 'working' && <span className="absolute inset-0 animate-ping rounded-full bg-sky-400/70 motion-reduce:hidden" />}
+        </span>
+      )}
+    </span>
+  )
+}
 
 /**
  * `grouped`: dentro de um projeto, que já diz qual é (na aba de todas, cada uma diz o seu). `roomy`: na
  * lista do celular, a linha maior e sem o recuo do grupo (ver ProjectTabs).
  */
-function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEntry; onMenu: OnMenu; grouped?: boolean; roomy?: boolean }) {
+function SessionRow({
+  s,
+  onMenu,
+  grouped = true,
+  roomy = false,
+  rail,
+}: {
+  s: CatalogEntry
+  onMenu: OnMenu
+  grouped?: boolean
+  roomy?: boolean
+  rail?: RailSpot
+}) {
   // No PC a lista fica ao lado do chat: as conversas na tela ficam marcadas, a em foco mais forte.
   const split = useSplit()
   const wide = useWide()
@@ -80,16 +156,17 @@ function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEn
         style={s.workspace ? { '--ws': workspaceColor(s.workspace.color) } as React.CSSProperties : undefined}
         className={cn(
           // Segurar o dedo não seleciona o texto nem abre o menu de link do iPhone.
-          // O claudinho fica embaixo da setinha do grupo, e o título, recuado sob o nome do projeto.
+          // Embaixo da setinha do grupo, o trilho das conversas abertas; o claudinho logo depois dele.
           'relative mx-2 flex items-start gap-3 rounded-xl transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
           s.workspace &&
             'bg-[color-mix(in_oklab,var(--ws)_7%,transparent)] before:absolute before:inset-y-2.5 before:left-0 before:w-[3px] before:rounded-full before:bg-(--ws)',
-          roomy ? 'px-2 py-3' : 'py-2.5 pr-3 pl-1.5',
+          roomy ? 'px-2 py-3' : 'py-2.5 pr-3 pl-5',
           shown && 'bg-foreground/[0.04]',
           // A em foco ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta dela).
           focused && 'bg-sidebar-accent shadow-xs hover:bg-sidebar-accent',
         )}
       >
+        {rail && <RailMark spot={rail} />}
         <SessionInfo s={s} grouped={grouped} roomy={roomy} />
       </Link>
     </div>
@@ -101,7 +178,20 @@ function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEn
  * projeto; o git dele; o + começa uma conversa nele) e as conversas embaixo. `searching`: com busca,
  * aparece tudo o que achou, recolhido ou não.
  */
-function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup; git?: GitSummary; searching: boolean; onMenu: OnMenu }) {
+function ProjectSection({
+  group,
+  git,
+  searching,
+  onMenu,
+  onProjectMenu,
+}: {
+  group: ProjectGroup
+  git?: GitSummary
+  searching: boolean
+  onMenu: OnMenu
+  onProjectMenu: OnProjectMenu
+}) {
+  const press = usePressMenu((x, y) => onProjectMenu(group, x, y))
   const closed = useClosedProjects((s) => s.keys.includes(group.key)) && !searching
   const [all, setAll] = useState(false)
   // Com várias máquinas, o projeto diz de qual é.
@@ -109,9 +199,15 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
   const wide = useWide()
   const shown = searching ? group.sessions : shownSessions(group, closed, all)
   const hidden = group.sessions.length - shownSessions(group, false, false).length
+  // Recolhido, sobram só as que esperam você: sem o trilho, que ligaria só uma parte das abertas.
+  const rail = closed ? [] : railOf(group, shown)
+  const working = group.sessions.filter(isWorking)
+  // Os claudinhos do projeto no cabeçalho, quem trabalha primeiro; os que não cabem viram o "+n".
+  const faces = [...group.sessions].sort((a, b) => Number(isWorking(b)) - Number(isWorking(a)) || b.lastModified - a.lastModified).slice(0, FACES)
+  const more = group.sessions.length - faces.length
   return (
     <section className="mb-1.5">
-      <div className="group/project mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors hover:bg-foreground/[0.04]">
+      <div {...press} className="group/project mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors select-none hover:bg-foreground/[0.04]">
         <button
           type="button"
           onClick={() => toggleProject(group.key)}
@@ -128,6 +224,7 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
           title={wide && group.cwd ? `Abrir o hub de ${group.name}` : group.cwd}
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-xl py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
+          <ProjectMark machine={group.machine} cwd={group.cwd} name={group.name} />
           <span className="truncate text-[13px] font-medium">{group.name}</span>
           {machine && (
             <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
@@ -137,6 +234,17 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
           )}
           {git && <GitBadges g={git} />}
         </button>
+        {/* Quem mora no projeto, também com o grupo recolhido; trabalhando, o claudinho pisca. */}
+        <span
+          className="flex shrink-0 pl-1"
+          title={
+            working.length
+              ? `${namesOf(working)} ${working.length === 1 ? 'trabalha' : 'trabalham'} em ${group.name} agora`
+              : `${group.sessions.length} ${group.sessions.length === 1 ? 'conversa' : 'conversas'} em ${group.name}`
+          }
+        >
+          <PeerFaces list={faces} size={16} max={FACES} live />
+        </span>
         {group.waiting > 0 && (
           <span
             className="min-w-4 shrink-0 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white shadow-[0_0_10px_-1px_rgb(245_158_11/0.8)]"
@@ -145,10 +253,12 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
             {group.waiting}
           </span>
         )}
-        {/* O total some ao passar o mouse, e o + entra no lugar. */}
-        <span className="shrink-0 px-1 text-xs text-muted-foreground tabular-nums group-hover/project:hidden pointer-coarse:hidden">
-          {group.sessions.length}
-        </span>
+        {/* As que não couberam nos claudinhos somem ao passar o mouse, e o + entra no lugar. */}
+        {more > 0 && (
+          <span className="shrink-0 px-1 text-xs text-muted-foreground tabular-nums group-hover/project:hidden pointer-coarse:hidden">
+            +{more}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -162,8 +272,8 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
       </div>
       {shown.length > 0 && (
         <div className="mt-0.5 space-y-0.5">
-          {shown.map((s) => (
-            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} />
+          {shown.map((s, i) => (
+            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} rail={rail[i]} />
           ))}
         </div>
       )}
@@ -210,12 +320,14 @@ function ProjectTabs({
   git,
   query,
   onMenu,
+  onProjectMenu,
 }: {
   groups: ProjectGroup[]
   order: string[]
   git: Record<string, GitSummary>
   query: string
   onMenu: OnMenu
+  onProjectMenu: OnProjectMenu
 }) {
   const machines = useMachines((m) => m.machines)
   const keys = useStableOrder(order)
@@ -326,12 +438,19 @@ function ProjectTabs({
               aria-selected={i === index}
               aria-controls={`${id}-page-${i}`}
               onClick={() => go(i)}
+              // Botão direito (ou o toque longo do Android): o menu do projeto, como no cabeçalho da lista do PC.
+              onContextMenu={(e) => {
+                if (!t.group) return
+                e.preventDefault()
+                onProjectMenu(t.group, e.clientX, e.clientY)
+              }}
               // O peso da letra é o mesmo em todas: trocar o peso mudaria a largura da aba e o destaque sairia dela.
               className={cn(
                 'relative flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 i === index ? 'text-foreground' : 'text-muted-foreground active:text-foreground',
               )}
             >
+              {t.group && <ProjectMark machine={t.group.machine} cwd={t.group.cwd} name={t.group.name} />}
               <span className="max-w-48 truncate">{t.name}</span>
               {t.waiting > 0 && (
                 <span
@@ -428,6 +547,13 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [naming, setNaming] = useState<CatalogEntry | null>(null)
   const [namingOpen, setNamingOpen] = useState(false)
+  const [projectMenu, setProjectMenu] = useState<ProjectMenuAt | null>(null)
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
+  const onProjectMenu: OnProjectMenu = (g, x, y) => {
+    if (!g.cwd) return
+    setProjectMenu({ machine: g.machine, cwd: g.cwd, name: g.name, x, y })
+    setProjectMenuOpen(true)
+  }
   const onMenu: OnMenu = (session, x, y) => {
     setMenu({ session, x, y })
     setMenuOpen(true)
@@ -454,13 +580,13 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
     <>
       <div className="pb-6">
         {groups.map((g) => (
-          <ProjectSection key={g.key} group={g} git={git[g.key]} searching={searching} onMenu={onMenu} />
+          <ProjectSection key={g.key} group={g} git={git[g.key]} searching={searching} onMenu={onMenu} onProjectMenu={onProjectMenu} />
         ))}
       </div>
       {catalog.length > 0 && groups.length === 0 && <p className="px-4 text-sm text-muted-foreground">Nada encontrado para “{query}”.</p>}
     </>
   ) : (
-    <ProjectTabs groups={groups} order={projects.map((g) => g.key)} git={git} query={query} onMenu={onMenu} />
+    <ProjectTabs groups={groups} order={projects.map((g) => g.key)} git={git} query={query} onMenu={onMenu} onProjectMenu={onProjectMenu} />
   )
 
   const startNew = () => (here ? navigate(newChatUrl(here.cwd, here.machine)) : setPicker(true))
@@ -507,6 +633,7 @@ export function SessionsPage({ sidebar = false }: { sidebar?: boolean } = {}) {
           <Plus className="size-6" />
         </button>
       )}
+      <ProjectMenu at={projectMenu} open={projectMenuOpen} onOpenChange={setProjectMenuOpen} />
       <SessionMenu
         at={menu}
         open={menuOpen}

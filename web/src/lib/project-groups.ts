@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { api } from './api'
 import { projectName } from './format'
 import { HOME } from './machines'
+import { isWorking } from './peers'
 import type { CatalogEntry, GitSummary } from './types'
 
 /**
@@ -63,6 +64,47 @@ export function shownSessions(group: ProjectGroup, closed: boolean, all: boolean
   if (closed) return group.sessions.filter((s) => s.state === 'waiting')
   if (all) return group.sessions
   return group.sessions.filter((s, i) => i < SHOWN || live(s))
+}
+
+/**
+ * Onde uma conversa fica no trilho do projeto (ver RailMark em pages/sessions.tsx). `above`/`below`: o
+ * trilho chega de cima e segue para baixo. `node`: aberta no checkout do projeto, um nó na linha (pelo
+ * estado); aberta num worktree, um desvio da linha (`branch`); sem nó, fechada, o trilho só passa por
+ * ela. `liveAbove`/`liveBelow`: o trecho entre duas ou mais trabalhando agora no checkout, os mesmos
+ * arquivos mudando por mais de uma.
+ */
+export type RailSpot = {
+  above: boolean
+  below: boolean
+  node?: 'working' | 'waiting' | 'open' | 'branch'
+  liveAbove: boolean
+  liveBelow: boolean
+}
+
+/**
+ * O trilho que liga as conversas abertas (no painel ou no PC) de um projeto, como um grafo do git: as
+ * do checkout ficam na linha, as de worktree saem num desvio, cada uma na sua cópia. Só existe com
+ * duas ou mais abertas entre as mostradas; um item por conversa de `shown`.
+ */
+export function railOf(group: ProjectGroup, shown: CatalogEntry[]): (RailSpot | undefined)[] {
+  const first = shown.findIndex((s) => s.owner)
+  const last = shown.findLastIndex((s) => s.owner)
+  if (first === last) return shown.map(() => undefined)
+  const inCheckout = (s: CatalogEntry) => s.cwd === group.cwd
+  const working = shown.flatMap((s, i) => (s.owner && inCheckout(s) && isWorking(s) ? [i] : []))
+  // Da primeira à última trabalhando no checkout; com uma só, nenhum trecho vivo.
+  const [from, to] = working.length > 1 ? [working[0]!, working.at(-1)!] : [-1, -1]
+  return shown.map((s, i) =>
+    i < first || i > last
+      ? undefined
+      : {
+          above: i > first,
+          below: i < last,
+          node: !s.owner ? undefined : !inCheckout(s) ? 'branch' : s.state === 'waiting' ? 'waiting' : isWorking(s) ? 'working' : 'open',
+          liveAbove: i > from && i <= to,
+          liveBelow: i >= from && i < to,
+        },
+  )
 }
 
 // ---- projetos recolhidos ----
