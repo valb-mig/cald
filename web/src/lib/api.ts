@@ -40,6 +40,7 @@ import type {
   WorkspaceFile,
   WorkspaceInput,
   WorktreeStatus,
+  ListedWorktree,
   SearchResult,
 } from './types'
 
@@ -183,6 +184,11 @@ export const api = {
   mergeWorktree: (m: string, cwd: string) => post<{ commits: number }>(`${at(m)}/worktree/merge`, { cwd }),
   /** `force`: remove mesmo com commits que não voltaram ou mudanças sem commit. */
   removeWorktree: (m: string, cwd: string, force = false) => post(`${at(m)}/worktree/remove`, { cwd, force }),
+  /** Os worktrees de todos os projetos da máquina, por repositório (a seção Worktrees do Computador). */
+  worktrees: (m: string) => request<{ root: string; worktrees: ListedWorktree[] }[]>('GET', `${at(m)}/worktrees`),
+  /** Apaga um worktree da lista; `force` aceita perder o que não voltou para a base. */
+  removeListedWorktree: (m: string, cwd: string, path: string, force = false) => post(`${at(m)}/worktrees/remove`, { cwd, path, force }),
+  mergeListedWorktree: (m: string, cwd: string, path: string) => post<{ commits: number }>(`${at(m)}/worktrees/merge`, { cwd, path }),
   /** A memória do Claude Code (ver server/src/memory.ts): de todos os projetos ou, com `cwd`, de um. */
   memory: (m: string, cwd?: string) => request<MemoryList>('GET', `${at(m)}/memory${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`),
   saveMemory: (m: string, ref: MemoryRef & { description: string; body: string; mtime: number }) => request<{ mtime: number }>('PUT', `${at(m)}/memory`, ref),
@@ -448,6 +454,10 @@ export function errorMessage(err: unknown): string {
       return `O projeto está em ${String(err.details.current ?? 'nenhuma branch')}, não em ${String(err.details.base)}. Volte para ${String(err.details.base)} para trazer.`
     case 'merge_conflict':
       return `Conflito com ${String(err.details.base)} em ${((err.details.files as string[] | undefined) ?? []).join(', ') || 'alguns arquivos'}. Nada mudou no projeto: peça ao Claude para trazer ${String(err.details.base)} para o worktree e resolver.`
+    case 'worktree_not_found':
+      return 'Esse worktree não existe mais. Atualize a lista.'
+    case 'worktree_unsaved':
+      return 'O worktree tem trabalho que não voltou para a base. Confirme para apagar mesmo assim.'
     case 'worktree_removed':
       return 'O worktree desta conversa foi removido. O histórico continua aqui, só para leitura.'
     case 'cwd_gone':

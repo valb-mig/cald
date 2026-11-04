@@ -788,6 +788,22 @@ app.post<{ Body: { cwd: string; force?: boolean } }>('/api/worktree/remove', wor
   return { ok: true };
 });
 
+// Os worktrees de todos os projetos, por repositório, para a seção Worktrees do Computador.
+app.get('/api/worktrees', async () => manager.allWorktrees());
+
+const listedBody = {
+  schema: {
+    body: { type: 'object', required: ['cwd', 'path'], properties: { cwd: { type: 'string' }, path: { type: 'string' }, force: { type: 'boolean' } } },
+  },
+};
+
+app.post<{ Body: { cwd: string; path: string; force?: boolean } }>('/api/worktrees/remove', listedBody, async (req) => {
+  await manager.removeListedWorktree(req.body.cwd, req.body.path, req.body.force ?? false);
+  return { ok: true };
+});
+
+app.post<{ Body: { cwd: string; path: string } }>('/api/worktrees/merge', listedBody, async (req) => manager.mergeListedWorktree(req.body.cwd, req.body.path));
+
 // ---- GitHub e TODO do projeto (abas da barra do projeto) ----
 
 // PRs e issues abertos, pelo `gh` deste PC, com cache para não gastar a cota da API (ver github.ts).

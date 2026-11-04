@@ -36,13 +36,20 @@ import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
 import {
   createWorktree,
+  listedWorktree,
+  listWorktrees,
   mergeWorktree,
+  pruneWorktrees,
   removeWorktree,
+  repoRootOf,
   tagOf as worktreeTag,
   unsaved,
   worktreeOf,
   worktreePrompt,
   worktreeStatus,
+  type ListedWorktree,
+  type WorktreeInfo,
+  type WorktreeRef,
   type WorktreeStatus,
   type WorktreeTag,
 } from './worktrees.ts';
@@ -537,6 +544,46 @@ export class Manager extends EventEmitter {
    */
   async removeWorktree(cwd: string, force: boolean): Promise<void> {
     const { ref, info } = await this.worktreeAt(cwd);
+    await this.dropWorktree(ref, info, force);
+  }
+
+  /**
+   * Os worktrees de todos os projetos (os do seletor de projeto), por repositório, para a seção
+   * Worktrees do painel Computador. Só os repositórios que têm algum. `usable`: dentro das pastas de
+   * projetos, onde dá para abrir conversa e terminal.
+   */
+  async allWorktrees(): Promise<{ root: string; worktrees: (ListedWorktree & { usable: boolean })[] }[]> {
+    // Um projeto, os worktrees dele e as subpastas dão no mesmo repositório: cada um é lido uma vez só.
+    const roots = new Set((await Promise.all((await this.projects()).map(repoRootOf))).filter((r): r is string => r !== null));
+    const groups = await Promise.all(
+      [...roots].map(async (root) => {
+        const { worktrees } = await listWorktrees(root, (p) => this.meta.worktreeInfo(p)).catch(() => ({ worktrees: [] as ListedWorktree[] }));
+        return { root, worktrees: worktrees.map((w) => ({ ...w, usable: !w.missing && this.isAllowedCwd(w.path) })) };
+      }),
+    );
+    return groups.filter((g) => g.worktrees.length > 0).sort((a, b) => a.root.localeCompare(b.root));
+  }
+
+  /** Remove um worktree da lista do projeto, venha ele de onde vier; a pasta que já sumiu só sai do registro. */
+  async removeListedWorktree(cwd: string, path: string, force: boolean): Promise<void> {
+    const dir = await this.knownCwd(cwd);
+    const { ref, missing } = await listedWorktree(dir, path);
+    if (missing) {
+      await pruneWorktrees(ref.root);
+      await this.meta.setWorktree(ref.path, undefined);
+      return;
+    }
+    await this.dropWorktree(ref, this.meta.worktreeInfo(ref.path), force);
+  }
+
+  /** O "Trazer" de um worktree da lista do projeto. */
+  async mergeListedWorktree(cwd: string, path: string): Promise<{ commits: number }> {
+    const { ref, missing } = await listedWorktree(await this.knownCwd(cwd), path);
+    if (missing) throw new HttpError(410, 'worktree_removed');
+    return mergeWorktree(ref, this.meta.worktreeInfo(ref.path));
+  }
+
+  private async dropWorktree(ref: WorktreeRef, info: WorktreeInfo | undefined, force: boolean): Promise<void> {
     const status = await worktreeStatus(ref, info);
     if (!force && unsaved(status)) throw new HttpError(409, 'worktree_unsaved', { changed: status.changed, ahead: status.ahead });
     const inside = (dir?: string) => dir !== undefined && (dir === ref.path || dir.startsWith(ref.path + sep));
@@ -547,7 +594,7 @@ export class Manager extends EventEmitter {
     const busy = own.find((s) => s.state === 'running' || s.state === 'waiting' || s.agents.active);
     if (busy) throw new HttpError(409, 'session_busy', { state: busy.state, agents: busy.agents.active });
     await Promise.all(own.map((s) => s.shutdown()));
-    await removeWorktree(ref, status, info);
+    await removeWorktree(ref, status);
     await this.meta.setWorktree(ref.path, undefined);
     this.emit('catalog');
   }

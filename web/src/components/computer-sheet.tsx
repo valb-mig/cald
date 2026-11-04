@@ -1,9 +1,10 @@
-import { Activity, Armchair, Bell, Brain, ChevronRight, Gauge, Info, Lock, Monitor, Moon, Palette, Plug, RefreshCw, Sparkles, Sun, X } from 'lucide-react'
+import { Activity, Armchair, Bell, Brain, ChevronRight, Gauge, GitBranch, Info, Lock, Monitor, Moon, Palette, Plug, RefreshCw, Sparkles, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
 import { MemoryView } from '@/components/claude/memory-view'
 import { McpView, SkillsView } from '@/components/claude/setup-view'
+import { WorktreesView } from '@/components/claude/worktrees-view'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
@@ -19,6 +20,7 @@ import { setComputerOpen, useComputer } from '@/lib/computer'
 import { AUTOLOCK_MINUTES, lockNow, setAutoLock, useAutoLock, useLock } from '@/lib/lock'
 import { bytes, relativeTime, uptime } from '@/lib/format'
 import { HOME, baseOf, useMachineFilter } from '@/lib/machines'
+import { useMemoryAlerts } from '@/lib/memory'
 import { reconnectNow, useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -28,7 +30,7 @@ const CONNECTION = {
   closed: { label: 'Desconectado', dot: 'bg-red-500' },
 } as const
 
-type Section = 'status' | 'usage' | 'memory' | 'skills' | 'mcp' | 'alerts' | 'look' | 'about'
+type Section = 'status' | 'usage' | 'memory' | 'skills' | 'mcp' | 'worktrees' | 'alerts' | 'look' | 'about'
 
 /** `machine`: a seção é de uma máquina, e o filtro delas aparece no topo (com mais de uma). */
 const SECTIONS: { key: Section; label: string; description: string; icon: typeof Activity; machine?: boolean }[] = [
@@ -37,6 +39,7 @@ const SECTIONS: { key: Section; label: string; description: string; icon: typeof
   { key: 'memory', label: 'Memória', description: 'O que o Claude guardou sobre cada projeto.', icon: Brain, machine: true },
   { key: 'skills', label: 'Skills', description: 'Skills, comandos e agentes que valem em todo projeto.', icon: Sparkles, machine: true },
   { key: 'mcp', label: 'MCP', description: 'Os servidores que o Claude usa, e onde.', icon: Plug, machine: true },
+  { key: 'worktrees', label: 'Worktrees', description: 'Os worktrees de cada projeto, para trazer o trabalho ou apagar.', icon: GitBranch, machine: true },
   { key: 'alerts', label: 'Avisos', description: 'Notificações e sons deste aparelho.', icon: Bell },
   { key: 'look', label: 'Aparência', description: 'Tema e fundo, só neste aparelho.', icon: Palette },
   { key: 'about', label: 'Sobre', description: 'Versão, atualização e segurança.', icon: Info, machine: true },
@@ -114,7 +117,7 @@ function Computer() {
             <StatusSection />
           ) : section === 'usage' ? (
             <UsageSection />
-          ) : section === 'memory' || section === 'skills' || section === 'mcp' ? (
+          ) : section === 'memory' || section === 'skills' || section === 'mcp' || section === 'worktrees' ? (
             <ClaudeSection section={section} />
           ) : section === 'alerts' ? (
             <>
@@ -139,7 +142,19 @@ function NavMeta({ section }: { section: Section }) {
   const fiveHour = useStore((s) => s.usages[machine]?.plan?.fiveHour?.utilization)
   if (section === 'status') return <span className={cn('size-1.5 rounded-full', CONNECTION[connection].dot)} />
   if (section === 'usage' && fiveHour != null) return <span className="text-xs text-muted-foreground tabular-nums max-sm:hidden">{Math.round(fiveHour)}%</span>
+  if (section === 'memory') return <MemoryAlerts machine={machine} />
   return null
+}
+
+/** Memórias que o Claude não chega a ver (fora do índice, link quebrado), em todos os projetos. */
+function MemoryAlerts({ machine }: { machine: string }) {
+  const n = useMemoryAlerts(machine)
+  if (!n) return null
+  return (
+    <span className="min-w-4 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white tabular-nums" title={`${n} ${n === 1 ? 'memória pede' : 'memórias pedem'} atenção`}>
+      {n > 99 ? '99+' : n}
+    </span>
+  )
 }
 
 function StatusSection() {
@@ -291,11 +306,16 @@ function UsageSection() {
   )
 }
 
-/** O que o Claude Code carrega na máquina escolhida no topo: a memória de todos os projetos e o que vale em todos. */
-function ClaudeSection({ section }: { section: 'memory' | 'skills' | 'mcp' }) {
+/**
+ * O que o Claude Code carrega na máquina escolhida no topo (a memória de todos os projetos e o que vale
+ * em todos) e os worktrees de cada projeto dela.
+ */
+function ClaudeSection({ section }: { section: 'memory' | 'skills' | 'mcp' | 'worktrees' }) {
   const machine = useMachineFilter() ?? HOME
-  if (section === 'memory') return <MemoryView key={machine} machine={machine} onLeave={() => setComputerOpen(false)} />
+  const leave = () => setComputerOpen(false)
+  if (section === 'memory') return <MemoryView key={machine} machine={machine} onLeave={leave} />
   if (section === 'skills') return <SkillsView key={machine} machine={machine} />
+  if (section === 'worktrees') return <WorktreesView key={machine} machine={machine} onLeave={leave} />
   return <McpView key={machine} machine={machine} />
 }
 

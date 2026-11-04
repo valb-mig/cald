@@ -21,7 +21,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /**
  * A faixa da conversa que roda num worktree (ver server/src/worktrees.ts): a branch dela, o que ela tem
  * que a de origem não tem, e as duas saídas. "Trazer" faz o merge na branch de origem, no checkout
- * principal, e o worktree segue para a conversa continuar; "Remover" apaga o worktree e a branch, e a
+ * principal, e o worktree segue para a conversa continuar; "Remover" apaga o worktree (e a branch, se tudo dela já voltou), e a
  * conversa fica só de leitura. `refresh` muda quando o git da conversa muda, e os números andam junto.
  */
 export function WorktreeBar({ machine, cwd, tag, refresh }: { machine: string; cwd: string; tag: WorktreeTag; refresh: unknown }) {
@@ -78,7 +78,8 @@ export function WorktreeBar({ machine, cwd, tag, refresh }: { machine: string; c
   }
 
   const base = status?.base ?? tag.base
-  const lost = status ? status.ahead > 0 || status.changed > 0 : false
+  // Commit rebaseado (que a base já tem com outro hash) não conta: nada dele se perde.
+  const lost = status ? status.unmerged > 0 || status.changed > 0 : false
   // O "Trazer" só vai com commits a levar, nada sem commit e o projeto na branch de origem.
   const blocked = !status
     ? 'Carregando…'
@@ -138,7 +139,7 @@ export function WorktreeBar({ machine, cwd, tag, refresh }: { machine: string; c
             <AlertDialogTitle>Remover o worktree {tag.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               {lost && status
-                ? `Ele tem ${[status.ahead && plural(status.ahead, 'commit que não voltou', 'commits que não voltaram') + ` para ${base}`, status.changed && plural(status.changed, 'arquivo sem commit', 'arquivos sem commit')].filter(Boolean).join(' e ')}. Removendo, isso se perde, sem volta.`
+                ? `Ele tem ${[status.unmerged && plural(status.unmerged, 'commit que não voltou', 'commits que não voltaram') + ` para ${base}`, status.changed && plural(status.changed, 'arquivo sem commit', 'arquivos sem commit')].filter(Boolean).join(' e ')}. ${status.unmerged ? `A branch ${status.branch} fica com os commits, para trazer depois${status.changed ? ', e o que está sem commit se perde, sem volta.' : '.'}` : 'O que está sem commit se perde, sem volta.'}`
                 : `Apaga a pasta do worktree${tag.branch ? ` e a branch ${tag.branch}` : ''}. Tudo já está em ${base}.`}{' '}
               A conversa é fechada e fica na lista, só para leitura.
             </AlertDialogDescription>

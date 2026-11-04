@@ -135,11 +135,19 @@ export type WorktreeStatus = {
   current: string | null
   /** Commits do worktree que a base ainda não tem. */
   ahead: number
+  /** Desses, os que a base não tem nem com outro hash (um rebaseado já está lá). */
+  unmerged: number
   /** Commits da base que o worktree ainda não tem. */
   behind: number
   /** Arquivos ainda sem commit no worktree. */
   changed: number
 }
+
+/**
+ * Um worktree de um repositório, na seção Worktrees do Computador. `managed`: em `.claude/worktrees` (do
+ * cald ou do `claude --worktree`); `missing`: a pasta sumiu; `usable`: dá para abrir conversa e terminal.
+ */
+export type ListedWorktree = WorktreeStatus & { managed: boolean; missing: boolean; usable: boolean }
 
 export type WorkspaceFile = { id: string; name: string; mediaType: string; size: number }
 export type WorkspaceCommand = { label: string; command: string; cwd?: string }

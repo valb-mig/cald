@@ -23,7 +23,7 @@ import { Chip, Chips, Fold, SearchField, Tag, UndoBar } from './bits'
 
 /**
  * O que o Claude Code carrega numa pasta (ver lib/claude-setup.ts): sem `cwd`, o que vale em todo
- * projeto (o painel Computador); com, o de um projeto (a aba Claude da barra). Dá para ligar e
+ * projeto (o painel Computador); com, o de um projeto. Dá para ligar e
  * desligar e mandar para a lixeira do cald o que é seu ou do projeto.
  */
 type Props = { machine: string; cwd?: string }
@@ -162,7 +162,7 @@ export function SkillsView({ machine, cwd }: Props) {
       <p className="px-1 text-xs text-muted-foreground">
         {cwd
           ? 'Desligar aqui vale só neste projeto (no .claude/settings.local.json dele).'
-          : 'Desligar aqui vale em todo projeto (nas suas configurações do Claude Code). Por projeto, use a aba Claude da barra.'}
+          : 'Desligar aqui vale em todo projeto (nas suas configurações do Claude Code).'}
       </p>
       <div className="space-y-2">
         {SOURCES.map((s) => {
@@ -425,7 +425,7 @@ export function McpView({ machine, cwd }: Props) {
       <p className="px-1 text-xs text-muted-foreground">
         {cwd
           ? 'O botão liga e desliga só neste projeto. A lixeira tira a configuração do servidor (a deste projeto), e ela volta igual pela lixeira.'
-          : 'O Claude Code só desliga servidor por pasta: aqui, o botão vale para os de plugin (o plugin inteiro) e para os da pasta pessoal. Os outros, desligue por projeto na aba Claude da barra, ou mande para a lixeira.'}
+          : 'O Claude Code só desliga servidor por pasta: aqui, o botão vale para os de plugin (o plugin inteiro) e para os da pasta pessoal. Os outros, desligue numa conversa do projeto (/mcp) ou mande para a lixeira.'}
       </p>
       {setup.elsewhere.length > 0 && (
         <section className="space-y-1.5">
