@@ -1,10 +1,10 @@
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput, indentUnit, LanguageDescription, syntaxHighlighting, syntaxTree } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { lintKeymap } from '@codemirror/lint'
 import { diff } from '@codemirror/merge'
-import { highlightSelectionMatches, openSearchPanel, search, searchKeymap } from '@codemirror/search'
+import { gotoLine, highlightSelectionMatches, openSearchPanel, search, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorState, Text, Transaction } from '@codemirror/state'
 import {
   drawSelection,
@@ -18,25 +18,38 @@ import {
   rectangularSelection,
   type ViewUpdate,
 } from '@codemirror/view'
-import { AtSign, ClipboardPaste, Copy, RotateCcw, Scissors, TriangleAlert, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { AtSign, Box, Check, ClipboardPaste, Copy, Hash, RotateCcw, Scissors, SquareFunction, TriangleAlert, Type, X } from 'lucide-react'
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { api, ApiError, errorMessage, fileSocketUrl } from '@/lib/api'
+import { ASKS, askClaude, type Ask } from '@/lib/ask-claude'
 import { useCodeFont } from '@/lib/code-font'
+import { editorCommands, setEditorCursor } from '@/lib/editor-cursor'
 import { useTokens } from '@/lib/highlight'
 import { reloadGit, subscribeGit, useDarkMode } from '@/lib/hooks'
 import { insertInChat, type Viewing } from '@/lib/project-panel'
 import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
-import { drafts, registerSaver, setDirty, useUnsaved } from '@/lib/unsaved'
+import { drafts, draftsLoaded, persistDraft, registerSaver, setDirty, useUnsaved } from '@/lib/unsaved'
+import { cn } from '@/lib/utils'
 import { keyOf, pinTab } from '@/lib/workbench'
 import { ChangePeek, type Block } from './changes'
 import {
+  addDiskMarks,
   blockOf,
   changeGutter,
+  clearDiskMark,
+  completions,
+  diskBlockOf,
+  diskField,
+  diskGutter,
+  diskMarksOf,
+  symbolsOf,
+  type CodeSymbol,
   changesField,
   changeStats,
   detectIndent,
@@ -53,7 +66,6 @@ import {
   setHunks,
   setPeek,
   syntaxErrors,
-  type Hunk,
 } from './editor-setup'
 import { mention } from './file-menu'
 import type { CodeMap } from './viewer'
@@ -109,6 +121,13 @@ const label = ([from, to]: [number, number]) => (from === to ? `linha ${from}` :
 
 const NO_CHAT = { description: 'Aberta no PC: assuma a sessão para mencionar arquivos.' }
 
+/** Um lugar novo para cada peek: o CodeMirror tira o elemento do anterior quando ele muda de linha. */
+function peekHost(): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'cm-peek'
+  return el
+}
+
 export default function CodeEditor({
   viewing,
   file,
@@ -160,8 +179,13 @@ export default function CodeEditor({
   const size = useRef<number | null>(null)
   const [conflict, setConflict] = useState<Conflict | null>(null)
   // A mudança aberta no peek, já no formato dele (ver changes.tsx).
-  const [peek, setPeekOpen] = useState<{ index: number; total: number; hunk: Hunk; host: HTMLElement; block: Block } | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; lines: [number, number] | null; selection: boolean } | null>(null)
+  // A mudança aberta no peek: uma do git (contra o último commit) ou uma do disco (o que mudou por fora).
+  const [peek, setPeekOpen] = useState<{ source: 'git' | 'disk'; index: number; total: number; host: HTMLElement; block: Block; pos: number; above: boolean } | null>(
+    null,
+  )
+  // O menu do botão direito; com `ask` (o Ctrl+I), só os pedidos ao Claude, no lugar do cursor.
+  const [menu, setMenu] = useState<{ x: number; y: number; lines: [number, number] | null; selection: boolean; ask?: boolean } | null>(null)
+  const [symbols, setSymbols] = useState<CodeSymbol[] | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const conf = useMemo(() => ({ theme: new Compartment(), language: new Compartment(), wrap: new Compartment() }), [])
 
@@ -192,6 +216,22 @@ export default function CodeEditor({
     if (text === lastStatus.current) return
     lastStatus.current = text
     onStatus(status)
+  }
+
+  // A linha e a coluna para a barra de status (ver lib/editor-cursor.ts).
+  const language = useMemo(() => LanguageDescription.matchFilename(languages, name)?.name ?? null, [name])
+  const emitCursor = (state: EditorState) => {
+    const head = state.selection.main.head
+    const line = state.doc.lineAt(head)
+    const unit = state.facet(indentUnit)
+    setEditorCursor(key, {
+      line: line.number,
+      col: head - line.from + 1,
+      selected: state.selection.ranges.reduce((n, r) => n + r.to - r.from, 0),
+      indent: unit === '\t' ? `Tabs: ${state.tabSize}` : `Espaços: ${unit.length}`,
+      eol: eol.current === '\r\n' ? 'CRLF' : 'LF',
+      language,
+    })
   }
 
   const mapTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -256,10 +296,14 @@ export default function CodeEditor({
     const old = view.state.doc.toString()
     const changes = diff(old, content)
     // O texto novo vira o "salvo" antes de entrar, para a troca não contar como alteração sua.
-    saved.current = Text.of(content.split('\n'))
+    const next = Text.of(content.split('\n'))
+    const marks = diskMarksOf(view.state.doc, next)
+    saved.current = next
     base.current = hash
     view.dispatch({
       changes: changes.map((c) => ({ from: c.fromA, to: c.toA, insert: content.slice(c.fromB, c.toB) })),
+      // E fica marcado na margem, em laranja, até você ver (ver `diskGutter`).
+      effects: addDiskMarks.of(marks),
       // Fora do desfazer: o Ctrl+Z não pode trazer de volta, sem aviso, o texto que o Claude trocou.
       annotations: [Transaction.userEvent.of('input.disk'), Transaction.addToHistory.of(false)],
     })
@@ -354,14 +398,88 @@ export default function CodeEditor({
     const { base } = view.state.field(changesField)
     const hunk = hunks[k]
     if (!hunk || !base) return null
-    // Um lugar novo a cada vez: o CodeMirror tira o elemento do peek anterior quando ele muda de linha.
-    const host = document.createElement('div')
-    host.className = 'cm-peek'
-    return { index: k, total: hunks.length, hunk, host, block: blockOf(hunk, base, view.state.doc) }
+    const { doc } = view.state
+    // Debaixo da última linha da mudança; numa que só tirou linhas, logo acima da que ficou.
+    const above = hunk.toB === hunk.fromB && hunk.fromB <= doc.lines
+    const line = doc.line(above ? hunk.fromB : Math.min(Math.max(hunk.fromB, hunk.toB - 1), doc.lines))
+    return { source: 'git' as const, index: k, total: hunks.length, host: peekHost(), block: blockOf(hunk, base, doc), pos: above ? line.from : line.to, above }
+  }
+
+  /** O peek da marca `k` do que mudou no disco. */
+  const diskPeekOf = (k: number) => {
+    const view = viewRef.current
+    const marks = view?.state.field(diskField)
+    const mark = marks?.[k]
+    if (!view || !mark) return null
+    const { doc } = view.state
+    const above = mark.from === mark.to && mark.from < doc.length
+    const pos = above ? doc.lineAt(mark.from).from : doc.lineAt(mark.to).to
+    return { source: 'disk' as const, index: k, total: marks.length, host: peekHost(), block: diskBlockOf(mark, doc), pos, above }
+  }
+
+  /** Marca vista: some da margem, e o peek vai para a seguinte (ou fecha, se era a última). */
+  const seen = (k: number) => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({ effects: clearDiskMark.of(k) })
+    const left = view.state.field(diskField).length
+    setPeekOpen(left ? diskPeekOf(Math.min(k, left - 1)) : null)
+  }
+
+  const revealDisk = (k: number) => {
+    const view = viewRef.current
+    const m = view?.state.field(diskField)[k]
+    if (!view || !m) return
+    view.dispatch({ effects: EditorView.scrollIntoView(m.from, { y: 'start', yMargin: view.scrollDOM.clientHeight / 3 }) })
+  }
+
+  // ---- pedir ao Claude sobre o trecho ----
+
+  const askAbout = async (lines: [number, number], what: Ask) => {
+    if (await ensureSaved()) askClaude(path, lines, what)
+  }
+
+  /** O Ctrl+I: os pedidos ao Claude num menu no lugar do cursor, sobre a seleção (ou a linha dele). */
+  const openAsk = () => {
+    const view = viewRef.current
+    if (!view) return
+    const { head } = view.state.selection.main
+    const at = view.coordsAtPos(head)
+    const line = view.state.doc.lineAt(head).number
+    setMenu({ x: at?.left ?? 0, y: at?.bottom ?? 0, lines: selectedLines(view.state) ?? [line, line], selection: !view.state.selection.main.empty, ask: true })
+    setMenuOpen(true)
+  }
+
+  /** O Ctrl+Shift+O: os símbolos do arquivo, com o texto de agora. */
+  const openSymbols = () => {
+    const view = viewRef.current
+    if (view) setSymbols(symbolsOf(view.state))
+  }
+
+  const goSymbol = (sym: CodeSymbol) => {
+    setSymbols(null)
+    const view = viewRef.current
+    if (!view) return
+    const line = view.state.doc.lineAt(Math.min(sym.from, view.state.doc.length))
+    view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: view.scrollDOM.clientHeight / 3 }) })
+    flashLines(view, [{ from: line.from, to: line.to }])
+    view.focus()
   }
 
   // As funções acima leem o estado da vez; o CodeMirror, montado uma vez só, chama sempre a última.
-  const actions = useRef({ save, onDisk, ask, goChange, mentionLines, emitStatus, scheduleMap, togglePeek: (_k: number) => {}, onUpdate: (_u: ViewUpdate) => {} })
+  const actions = useRef({
+    save,
+    onDisk,
+    ask,
+    goChange,
+    mentionLines,
+    emitStatus,
+    scheduleMap,
+    openAsk,
+    openSymbols,
+    togglePeek: (_source: 'git' | 'disk', _k: number) => {},
+    onUpdate: (_u: ViewUpdate) => {},
+  })
   useLayoutEffect(() => {
     actions.current = {
       save,
@@ -371,19 +489,24 @@ export default function CodeEditor({
       mentionLines,
       emitStatus,
       scheduleMap,
-      togglePeek: (k) => setPeekOpen((p) => (p?.index === k ? null : peekOf(k))),
+      openAsk,
+      openSymbols,
+      togglePeek: (source, k) => setPeekOpen((p) => (p?.source === source && p.index === k ? null : source === 'git' ? peekOf(k) : diskPeekOf(k))),
       onUpdate: (u) => {
         if (u.docChanged && u.transactions.some((tr) => !tr.isUserEvent('input.disk'))) {
           const now = !u.state.doc.eq(saved.current)
           setDirty(key, now)
           // Escrever numa prévia a fixa, como no VSCode: o próximo arquivo aberto não toma o lugar dela.
           if (now) pinTab(key)
+          // E o texto vai para o aparelho, para sobreviver a recarregar a página.
+          if (now) persistDraft(key, () => u.state.doc.sliceString(0, u.state.doc.length, eol.current), base.current)
           setPeekOpen(null)
         }
         const treeChanged = syntaxTree(u.state) !== syntaxTree(u.startState)
         const changesChanged = u.state.field(changesField) !== u.startState.field(changesField)
         if (u.docChanged || treeChanged || changesChanged) scheduleMap()
         if (u.docChanged || u.selectionSet || changesChanged) emitStatus()
+        if (u.docChanged || u.selectionSet) emitCursor(u.state)
       },
     }
   })
@@ -403,7 +526,8 @@ export default function CodeEditor({
         doc: text,
         extensions: [
           lineNumbers(),
-          changeGutter((k) => actions.current.togglePeek(k)),
+          diskGutter((k) => actions.current.togglePeek('disk', k)),
+          changeGutter((k) => actions.current.togglePeek('git', k)),
           foldGutter({ openText: '⌄', closedText: '›' }),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
@@ -420,9 +544,16 @@ export default function CodeEditor({
           highlightActiveLine(),
           highlightSelectionMatches(),
           search({ top: true }),
+          // Sem LSP: as palavras do próprio arquivo, mais o que a linguagem já sabe (nomes locais, palavras-chave).
+          autocompletion({ activateOnTyping: true, icons: false, override: [completions] }),
           syntaxErrors((line, message) => void actions.current.ask(line, message)),
           keymap.of([
             { key: 'Mod-h', run: openSearchPanel, preventDefault: true },
+            { key: 'Mod-g', run: gotoLine, preventDefault: true },
+            { key: 'Mod-i', run: () => (actions.current.openAsk(), true), preventDefault: true },
+            { key: 'Mod-Shift-o', run: () => (actions.current.openSymbols(), true), preventDefault: true },
+            { key: 'Tab', run: acceptCompletion },
+            ...completionKeymap,
             { key: 'Mod-Alt-k', run: () => (void actions.current.mentionLines(selectedLines(view.state)), true) },
             { key: 'F7', run: () => (actions.current.goChange(1), true) },
             { key: 'Shift-F7', run: () => (actions.current.goChange(-1), true) },
@@ -472,7 +603,19 @@ export default function CodeEditor({
       mention: () => void actions.current.mentionLines(selectedLines(view.state)),
     }
     const unregister = registerSaver(key, () => actions.current.save())
+    editorCommands.set(key, { gotoLine: () => (gotoLine(view), view.focus()) })
     emitStatus()
+    emitCursor(view.state)
+
+    // O rascunho guardado no aparelho chegou depois de o editor montar (logo ao abrir o app): entra se
+    // você ainda não escreveu nada aqui.
+    void draftsLoaded.then(() => {
+      const late = drafts.get(key)
+      if (!late || viewRef.current !== view || !view.state.doc.eq(saved.current)) return
+      drafts.delete(key)
+      base.current = late.base
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: normalize(late.text) }, annotations: Transaction.addToHistory.of(false) })
+    })
 
     // A cor de cada linguagem baixa à parte, só a do arquivo aberto.
     void LanguageDescription.matchFilename(languages, name)
@@ -483,6 +626,8 @@ export default function CodeEditor({
       // Saiu da tela sem salvar (a aba foi para outro grupo): o texto espera o editor voltar.
       if (useUnsaved.getState().dirty[key]) drafts.set(key, { text: view.state.doc.sliceString(0, view.state.doc.length, eol.current), base: base.current })
       unregister()
+      editorCommands.delete(key)
+      setEditorCursor(key, null)
       clearTimeout(mapTimer.current)
       handle.current = null
       scrollRef.current = null
@@ -596,11 +741,7 @@ export default function CodeEditor({
     const v = viewRef.current
     if (!v) return
     if (!peek) return void v.dispatch({ effects: setPeek.of(null) })
-    const { hunk, host } = peek
-    const { doc } = v.state
-    const above = hunk.toB === hunk.fromB && hunk.fromB <= doc.lines
-    const line = doc.line(above ? hunk.fromB : Math.min(Math.max(hunk.fromB, hunk.toB - 1), doc.lines))
-    v.dispatch({ effects: setPeek.of({ pos: above ? line.from : line.to, above, host }) })
+    v.dispatch({ effects: setPeek.of({ pos: Math.min(peek.pos, v.state.doc.length), above: peek.above, host: peek.host }) })
   }, [peek])
 
   return (
@@ -667,9 +808,15 @@ export default function CodeEditor({
             index={peek.index}
             total={peek.total}
             path={path}
+            disk={peek.source === 'disk' ? () => seen(peek.index) : undefined}
             onGo={(k) => {
-              setPeekOpen(peekOf(k))
-              revealHunk(k, false)
+              if (peek.source === 'git') {
+                setPeekOpen(peekOf(k))
+                revealHunk(k, false)
+              } else {
+                setPeekOpen(diskPeekOf(k))
+                revealDisk(k)
+              }
             }}
             onClose={() => setPeekOpen(null)}
             onShown={() => viewRef.current?.requestMeasure()}
@@ -694,28 +841,61 @@ export default function CodeEditor({
             <>
               {menu.lines && (
                 <>
-                  <DropdownMenuLabel className="font-normal text-muted-foreground first-letter:uppercase">{label(menu.lines)}</DropdownMenuLabel>
+                  <DropdownMenuLabel className="font-normal text-muted-foreground first-letter:uppercase">
+                    {menu.ask ? `Pedir ao Claude · ${label(menu.lines)}` : label(menu.lines)}
+                  </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => void mentionLines(menu.lines)}>
-                    <AtSign /> Mencionar no chat
-                    <span className="ml-auto pl-4 text-xs text-muted-foreground">Ctrl+Alt+K</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+                  {!menu.ask && (
+                    <>
+                      <DropdownMenuItem onSelect={() => void mentionLines(menu.lines)}>
+                        <AtSign /> Mencionar no chat
+                        <span className="ml-auto pl-4 text-xs text-muted-foreground">Ctrl+Alt+K</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="py-1 text-xs font-normal text-muted-foreground">
+                        Pedir ao Claude <span className="float-right pl-4">Ctrl+I</span>
+                      </DropdownMenuLabel>
+                    </>
+                  )}
+                  {ASKS.map((a) => (
+                    <DropdownMenuItem key={a.kind} onSelect={() => void askAbout(menu.lines!, a)}>
+                      <a.icon /> {a.label}
+                    </DropdownMenuItem>
+                  ))}
+                  {!menu.ask && <DropdownMenuSeparator />}
                 </>
               )}
-              <DropdownMenuItem disabled={!menu.selection || readOnly} onSelect={() => clipboard('cut')}>
-                <Scissors /> Recortar
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!menu.selection} onSelect={() => clipboard('copy')}>
-                <Copy /> Copiar
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={readOnly} onSelect={() => clipboard('paste')}>
-                <ClipboardPaste /> Colar
-              </DropdownMenuItem>
+              {!menu.ask && (
+                <>
+                  <DropdownMenuItem disabled={!menu.selection || readOnly} onSelect={() => clipboard('cut')}>
+                    <Scissors /> Recortar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!menu.selection} onSelect={() => clipboard('copy')}>
+                    <Copy /> Copiar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={readOnly} onSelect={() => clipboard('paste')}>
+                    <ClipboardPaste /> Colar
+                  </DropdownMenuItem>
+                </>
+              )}
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      <Dialog open={symbols !== null} onOpenChange={(o) => !o && setSymbols(null)}>
+        <DialogContent
+          showCloseButton={false}
+          className="top-[12vh] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl"
+          onCloseAutoFocus={(e) => {
+            e.preventDefault()
+            viewRef.current?.focus()
+          }}
+        >
+          <DialogTitle className="sr-only">Ir para um símbolo</DialogTitle>
+          <DialogDescription className="sr-only">As funções, classes e títulos deste arquivo</DialogDescription>
+          {symbols && <SymbolList symbols={symbols} onPick={goSymbol} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 
@@ -746,6 +926,7 @@ function EditorPeek({
   index,
   total,
   path,
+  disk,
   onGo,
   onClose,
   onShown,
@@ -754,6 +935,8 @@ function EditorPeek({
   index: number
   total: number
   path: string
+  /** Uma mudança do disco (e não do git): o título é outro, e o "Visto" a tira da margem. */
+  disk?: () => void
   onGo: (k: number) => void
   onClose: () => void
   onShown: () => void
@@ -761,5 +944,93 @@ function EditorPeek({
   const tokens = useTokens(block.added.length ? block.added.join('\n') : null, path)
   // A altura do peek muda a das linhas abaixo: o editor mede de novo.
   useLayoutEffect(onShown, [onShown, block, tokens])
-  return <ChangePeek block={block} index={index} total={total} addedTokens={tokens ?? undefined} onGo={onGo} onClose={onClose} className="ml-1" />
+  return (
+    <ChangePeek
+      block={block}
+      index={index}
+      total={total}
+      addedTokens={tokens ?? undefined}
+      onGo={onGo}
+      onClose={onClose}
+      className="ml-1"
+      title={disk ? 'Mudou no disco (o Claude ou outro programa)' : undefined}
+      dot={disk ? 'bg-[#d97757]' : undefined}
+      actions={
+        disk && (
+          <Button variant="ghost" size="xs" onClick={disk} title="Tirar a marca da margem">
+            <Check /> Visto
+          </Button>
+        )
+      }
+    />
+  )
+}
+
+const SYMBOL_ICON = { function: SquareFunction, method: SquareFunction, class: Box, type: Type, heading: Hash }
+
+/** O Ctrl+Shift+O: os símbolos do arquivo, filtrados pelo que se digita (as letras na ordem, como no VSCode). */
+function SymbolList({ symbols, onPick }: { symbols: CodeSymbol[]; onPick: (s: CodeSymbol) => void }) {
+  const [q, setQ] = useState('')
+  const [active, setActive] = useState(0)
+  const list = useRef<HTMLDivElement>(null)
+  const needle = q.trim().toLowerCase()
+  const shown = needle
+    ? symbols.filter((s) => {
+        const name = s.name.toLowerCase()
+        let i = 0
+        for (const ch of name) if (ch === needle[i]) i++
+        return i === needle.length
+      })
+    : symbols
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+  return (
+    <>
+      <input
+        autoFocus
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value)
+          setActive(0)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            const n = shown.length
+            if (n) setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
+          } else if (e.key === 'Enter' && shown[active]) {
+            e.preventDefault()
+            onPick(shown[active]!)
+          }
+        }}
+        placeholder="Função, classe ou título deste arquivo"
+        aria-label="Buscar símbolo"
+        spellCheck={false}
+        className="h-11 w-full border-b bg-transparent px-4 font-mono text-sm outline-none placeholder:font-sans placeholder:text-muted-foreground"
+      />
+      <div ref={list} role="listbox" className="max-h-[min(60vh,420px)] overflow-y-auto py-1">
+        {shown.map((s, i) => (
+          <button
+            key={`${s.from}-${s.name}`}
+            type="button"
+            role="option"
+            data-index={i}
+            aria-selected={i === active}
+            onMouseMove={() => setActive(i)}
+            onClick={() => onPick(s)}
+            style={{ paddingLeft: `${1 + Math.min(s.depth, 4) * 0.9}rem` }}
+            className={cn('flex w-full min-w-0 items-center gap-2 py-1 pr-4 text-left text-[13px]', i === active && 'bg-muted')}
+          >
+            {createElement(SYMBOL_ICON[s.kind], { className: 'size-3.5 shrink-0 text-muted-foreground' })}
+            <span className="truncate font-mono">{s.name}</span>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">{s.line}</span>
+          </button>
+        ))}
+        {shown.length === 0 && (
+          <p className="px-4 py-2 text-xs text-muted-foreground">{symbols.length ? 'Nenhum símbolo com esse nome.' : 'Este arquivo não tem funções, classes nem títulos que o editor reconheça.'}</p>
+        )}
+      </div>
+    </>
+  )
 }

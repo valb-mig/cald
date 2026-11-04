@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { ASKS, askClaude } from '@/lib/ask-claude'
 import { useMediaQuery } from '@/lib/hooks'
 import { mention } from './file-menu'
 
@@ -255,6 +256,24 @@ export function useCodeSelection(path: string) {
                 <DropdownMenuItem onSelect={() => send(menu.lines!)}>
                   <AtSign /> Mencionar no chat
                 </DropdownMenuItem>
+              )}
+              {menu.lines && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="py-1 text-xs font-normal text-muted-foreground">Pedir ao Claude</DropdownMenuLabel>
+                  {ASKS.map((a) => (
+                    <DropdownMenuItem
+                      key={a.kind}
+                      onSelect={() => {
+                        setSelection(null)
+                        askClaude(path, menu.lines!, a)
+                      }}
+                    >
+                      <a.icon /> {a.label}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                </>
               )}
               <DropdownMenuItem onSelect={() => copy(menu.text)}>
                 <Copy /> Copiar

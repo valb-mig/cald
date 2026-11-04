@@ -139,6 +139,9 @@ export function ChangePeek({
   onGo,
   onClose,
   className = 'ml-[4.9em]',
+  title,
+  dot,
+  actions,
 }: {
   block: Block
   index: number
@@ -149,6 +152,11 @@ export function ChangePeek({
   onClose: () => void
   /** A margem à esquerda: no arquivo só leitura, a dos números; no editor, eles ficam fora do peek. */
   className?: string
+  /** No lugar do tipo da mudança (o que mudou no disco, no editor), com a cor do ponto (`dot`). */
+  title?: string
+  dot?: string
+  /** Botões a mais, antes das setas (o "Visto" das mudanças no disco). */
+  actions?: React.ReactNode
 }) {
   const pairs = Math.min(block.removed.length, block.added.length)
   const inner = Array.from({ length: pairs }, (_, k) => innerChange(block.removed[k]!, block.added[k]!))
@@ -158,15 +166,16 @@ export function ChangePeek({
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-2 border-b py-1 pr-1 pl-3 font-sans text-xs">
-        <span className={cn('size-2 shrink-0 rounded-full', MARK_BAR[block.kind])} />
+        <span className={cn('size-2 shrink-0 rounded-full', dot ?? MARK_BAR[block.kind])} />
         <span className="truncate">
-          {KIND_LABEL[block.kind]} · <span className="text-muted-foreground tabular-nums">mudança {index + 1} de {total}</span>
+          {title ?? KIND_LABEL[block.kind]} · <span className="text-muted-foreground tabular-nums">mudança {index + 1} de {total}</span>
         </span>
         <span className="shrink-0 tabular-nums">
           {block.added.length > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{block.added.length}</span>}{' '}
           {block.removed.length > 0 && <span className="text-red-600 dark:text-red-400">−{block.removed.length}</span>}
         </span>
         <div className="flex-1" />
+        {actions}
         <Button variant="ghost" size="icon-sm" disabled={total < 2} onClick={() => onGo((index - 1 + total) % total)} aria-label="Mudança anterior">
           <ChevronUp />
         </Button>

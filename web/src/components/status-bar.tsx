@@ -7,6 +7,7 @@ import { ResizeHandle } from '@/components/ui/resize-handle'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { PANEL_HEIGHT, PANEL_MIN_HEIGHT, saveBottomPanel, setBottomHeight, toggleBottomPanel, useBottomPanel, type BottomTab } from '@/lib/bottom-panel'
 import { useChatTools } from '@/lib/chat-tools'
+import { editorCommands, useEditorCursor } from '@/lib/editor-cursor'
 import { projectName, toolSummary } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { HOME, machineOf } from '@/lib/machines'
@@ -85,9 +86,36 @@ export function StatusBar() {
         </button>
       )}
       <span className="flex-1" />
+      <CursorItems />
       <PanelButton tab="terminal" label="Terminal" title="O terminal do projeto, na pasta dele" icon={SquareTerminal} />
       <PanelButton tab="commands" label="Comandos" title="Os comandos que o Claude rodou nesta conversa, com a resposta de cada um" icon={Bug} count={commands} />
     </footer>
+  )
+}
+
+/**
+ * Do arquivo em foco no editor, como o VSCode: linha e coluna (clicar abre o "ir para a linha"), a
+ * indentação, a quebra de linha e a linguagem (ver lib/editor-cursor.ts).
+ */
+function CursorItems() {
+  const key = useWorkbench((s) => {
+    const tab = activeTab(focusedGroup(s))
+    return tab?.kind === 'file' && !tab.diff ? tab.key : null
+  })
+  const cursor = useEditorCursor((s) => (key ? s[key] : undefined))
+  if (!key || !cursor) return null
+  return (
+    <>
+      <button type="button" className={ITEM} onClick={() => editorCommands.get(key)?.gotoLine()} title="Ir para a linha · Ctrl+G">
+        <span className="tabular-nums">
+          Ln {cursor.line}, Col {cursor.col}
+          {cursor.selected > 0 && ` (${cursor.selected} selecionados)`}
+        </span>
+      </button>
+      <span className={cn(ITEM, 'cursor-default hover:bg-transparent')}>{cursor.indent}</span>
+      <span className={cn(ITEM, 'cursor-default hover:bg-transparent')}>{cursor.eol}</span>
+      {cursor.language && <span className={cn(ITEM, 'cursor-default hover:bg-transparent')}>{cursor.language}</span>}
+    </>
   )
 }
 
