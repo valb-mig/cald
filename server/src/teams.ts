@@ -30,9 +30,11 @@ export type Team = { id: string; name: string; members: TeamMember[]; updatedAt:
 /** O time como a conversa guarda: o que vale para ela, sem a data da edição. */
 export type TeamSnapshot = Pick<Team, 'id' | 'name' | 'members'>;
 export type TeamInput = { id?: string; name: string; members: (Omit<TeamMember, 'id' | 'key'> & { id?: string })[] };
+export type TrashedTeam = Team & { deletedAt: number };
 
 export const MAX_MEMBERS = 8;
 export const MAX_INSTRUCTIONS = 8_000;
+const TRASH_DAYS = 30;
 
 // Dado seu, como os TODOs: fica com os dados do app, não no cache.
 const FILE = process.env.TEAMS_FILE ?? join(DATA_DIR, 'teams.json');
@@ -81,12 +83,16 @@ function clean(input: TeamInput, id: string): Team {
 /** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
 export class TeamStore extends EventEmitter {
   private teams: Team[] = [];
+  private trash: TrashedTeam[] = [];
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
     try {
-      const data = JSON.parse(await readFile(FILE, 'utf8')) as { teams?: Team[] };
-      this.teams = Array.isArray(data.teams) ? data.teams.filter((t) => t && typeof t.id === 'string' && Array.isArray(t.members)) : [];
+      const data = JSON.parse(await readFile(FILE, 'utf8')) as { teams?: Team[]; trash?: TrashedTeam[] };
+      const valid = (t: Team) => t && typeof t.id === 'string' && Array.isArray(t.members);
+      this.teams = Array.isArray(data.teams) ? data.teams.filter(valid) : [];
+      const cutoff = Date.now() - TRASH_DAYS * 24 * 60 * 60 * 1000;
+      this.trash = Array.isArray(data.trash) ? data.trash.filter((t) => valid(t) && t.deletedAt > cutoff) : [];
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
     }
@@ -112,14 +118,38 @@ export class TeamStore extends EventEmitter {
     return team;
   }
 
-  async remove(id: string): Promise<void> {
+  /** Os apagados, do mais recente ao mais antigo. */
+  trashed(): TrashedTeam[] {
+    return [...this.trash].sort((a, b) => b.deletedAt - a.deletedAt);
+  }
+
+  /** Para a lixeira, de onde volta igual (o mesmo id, que um workspace pode apontar) por 30 dias. */
+  async toTrash(id: string): Promise<void> {
+    const team = this.get(id);
     this.teams = this.teams.filter((t) => t.id !== id);
+    this.trash = [{ ...team, deletedAt: Date.now() }, ...this.trash];
+    await this.persist();
+  }
+
+  async restore(id: string): Promise<Team> {
+    const t = this.trash.find((x) => x.id === id);
+    if (!t) throw new HttpError(404, 'team_not_found');
+    const { deletedAt: _deletedAt, ...team } = t;
+    this.trash = this.trash.filter((x) => x.id !== id);
+    this.teams = [...this.teams, team].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    await this.persist();
+    return team;
+  }
+
+  /** Apaga de vez da lixeira. */
+  async purge(id: string): Promise<void> {
+    this.trash = this.trash.filter((x) => x.id !== id);
     await this.persist();
   }
 
   // Gravação atômica e em fila: um arquivo temporário renomeado por cima do atual.
   private persist(): Promise<void> {
-    const snapshot = JSON.stringify({ teams: this.teams }, null, 2);
+    const snapshot = JSON.stringify({ teams: this.teams, trash: this.trash }, null, 2);
     this.writing = this.writing.then(async () => {
       await mkdir(dirname(FILE), { recursive: true });
       await writeFile(`${FILE}.tmp`, snapshot);
