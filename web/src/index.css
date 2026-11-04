@@ -349,6 +349,26 @@
   }
 }
 
+/* O trilho da lista de conversas com duas ou mais mexendo no mesmo checkout agora (pages/sessions.tsx):
+   uma corrente descendo por ele. O brilho é fixo na tela, para seguir sem emenda de uma linha para a
+   outra (cada linha desenha o seu pedaço do trilho). */
+.rail-live {
+  background:
+    linear-gradient(to bottom, transparent, rgb(56 189 248 / 0.95) 50%, transparent) 0 0 / 100% 32px repeat-y fixed,
+    rgb(14 165 233 / 0.4);
+  animation: rail-live 1.3s linear infinite;
+}
+@keyframes rail-live {
+  to {
+    background-position: 0 32px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-live {
+    animation: none;
+  }
+}
+
 /* O claudinho de uma conversa trabalhando pisca de vez em quando (components/claudinho.tsx). */
 @keyframes claudinho-blink {
   0%,

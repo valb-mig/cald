@@ -7,6 +7,7 @@ import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { GitBadges } from '@/components/git-badges'
 import { PageHeader } from '@/components/layout'
 import { MachineFilter } from '@/components/machine-filter'
+import { PeerFaces } from '@/components/peer-faces'
 import { ProjectPicker } from '@/components/project-picker'
 import { SessionInfo } from '@/components/session-info'
 import { SessionMenu, type MenuAt } from '@/components/session-menu'
@@ -16,10 +17,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { projectName } from '@/lib/format'
 import { usePressMenu, useWide } from '@/lib/hooks'
 import { HOME, newChatUrl, useMachineFilter, useMachines } from '@/lib/machines'
+import { isWorking, namesOf } from '@/lib/peers'
 import {
   ALL_TAB,
   bySession,
   groupByProject,
+  railOf,
   setProjectTab,
   shownSessions,
   toggleProject,
@@ -27,6 +30,7 @@ import {
   useProjectTab,
   useProjectsGit,
   type ProjectGroup,
+  type RailSpot,
 } from '@/lib/project-groups'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { keyOf, openProjectHub, pinTab, revealChat } from '@/lib/workbench'
@@ -37,11 +41,76 @@ import { workspaceColor } from '@/lib/workspaces'
 
 type OnMenu = (s: CatalogEntry, x: number, y: number) => void
 
+// O trilho fica embaixo da setinha do grupo, e o claudinho, logo à direita dele (ver o recuo da linha).
+const RAIL_X = 14
+const RAIL_GAP = 6
+// O meio do claudinho na linha: o respiro de cima (10), o mt-0.5 (2) e metade dos 28.
+const NODE_Y = 26
+// A curva do desvio de um worktree, da linha até o claudinho.
+const ELBOW = 12
+
+/**
+ * O pedaço do trilho do projeto numa linha da lista (ver `railOf`): a linha passa pela conversa, com um
+ * nó no meio se ela está aberta no checkout, ou se desvia até o claudinho se ela roda num worktree.
+ * Trabalhando, o nó pulsa; esperando você, fica âmbar; aberta e parada, vazado. Entre duas ou mais
+ * trabalhando no checkout ao mesmo tempo, a linha ganha cor e uma corrente descendo por ela.
+ */
+function RailMark({ spot }: { spot: RailSpot }) {
+  const branch = spot.node === 'branch'
+  const segment = (live: boolean) => {
+    const width = live ? 2 : 1
+    return { className: cn('absolute', live ? 'rail-live' : 'bg-foreground/15'), left: RAIL_X - width / 2, width }
+  }
+  const up = segment(spot.liveAbove)
+  const down = segment(spot.liveBelow)
+  // No desvio que começa ou termina o trilho, a curva faz a ponta e a linha reta para antes dela.
+  const top = branch && !spot.above ? NODE_Y + ELBOW : NODE_Y
+  const end = branch && !spot.below ? NODE_Y - ELBOW : NODE_Y
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0">
+      {/* De cima, desde o vão entre as linhas (o space-y-0.5 da lista). */}
+      {spot.above && <span className={up.className} style={{ left: up.left, width: up.width, top: -2, height: end + 2 }} />}
+      {spot.below && <span className={down.className} style={{ left: down.left, width: down.width, top, bottom: 0 }} />}
+      {branch && (
+        <span
+          className={cn('absolute border-foreground/40', spot.above ? 'rounded-bl-lg border-b border-l' : 'rounded-tl-lg border-t border-l')}
+          style={{ left: RAIL_X - 0.5, width: RAIL_GAP + 0.5, top: spot.above ? NODE_Y - ELBOW : NODE_Y, height: ELBOW }}
+        />
+      )}
+      {spot.node && !branch && (
+        <span
+          className={cn(
+            'absolute size-[7px] rounded-full',
+            spot.node === 'working' && 'bg-sky-500',
+            spot.node === 'waiting' && 'bg-amber-500 shadow-[0_0_6px_rgb(245_158_11/0.8)]',
+            spot.node === 'open' && 'border border-foreground/40 bg-sidebar',
+          )}
+          style={{ left: RAIL_X - 3.5, top: NODE_Y - 3.5 }}
+        >
+          {spot.node === 'working' && <span className="absolute inset-0 animate-ping rounded-full bg-sky-400/70 motion-reduce:hidden" />}
+        </span>
+      )}
+    </span>
+  )
+}
+
 /**
  * `grouped`: dentro de um projeto, que já diz qual é (na aba de todas, cada uma diz o seu). `roomy`: na
  * lista do celular, a linha maior e sem o recuo do grupo (ver ProjectTabs).
  */
-function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEntry; onMenu: OnMenu; grouped?: boolean; roomy?: boolean }) {
+function SessionRow({
+  s,
+  onMenu,
+  grouped = true,
+  roomy = false,
+  rail,
+}: {
+  s: CatalogEntry
+  onMenu: OnMenu
+  grouped?: boolean
+  roomy?: boolean
+  rail?: RailSpot
+}) {
   // No PC a lista fica ao lado do chat: as conversas na tela ficam marcadas, a em foco mais forte.
   const split = useSplit()
   const wide = useWide()
@@ -80,16 +149,17 @@ function SessionRow({ s, onMenu, grouped = true, roomy = false }: { s: CatalogEn
         style={s.workspace ? { '--ws': workspaceColor(s.workspace.color) } as React.CSSProperties : undefined}
         className={cn(
           // Segurar o dedo não seleciona o texto nem abre o menu de link do iPhone.
-          // O claudinho fica embaixo da setinha do grupo, e o título, recuado sob o nome do projeto.
+          // Embaixo da setinha do grupo, o trilho das conversas abertas; o claudinho logo depois dele.
           'relative mx-2 flex items-start gap-3 rounded-xl transition-colors select-none [-webkit-touch-callout:none] hover:bg-foreground/[0.04] active:bg-foreground/[0.07]',
           s.workspace &&
             'bg-[color-mix(in_oklab,var(--ws)_7%,transparent)] before:absolute before:inset-y-2.5 before:left-0 before:w-[3px] before:rounded-full before:bg-(--ws)',
-          roomy ? 'px-2 py-3' : 'py-2.5 pr-3 pl-1.5',
+          roomy ? 'px-2 py-3' : 'py-2.5 pr-3 pl-5',
           shown && 'bg-foreground/[0.04]',
           // A em foco ganha o destaque da barra lateral (no claro, a cor da janela, como a aba aberta dela).
           focused && 'bg-sidebar-accent shadow-xs hover:bg-sidebar-accent',
         )}
       >
+        {rail && <RailMark spot={rail} />}
         <SessionInfo s={s} grouped={grouped} roomy={roomy} />
       </Link>
     </div>
@@ -109,6 +179,9 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
   const wide = useWide()
   const shown = searching ? group.sessions : shownSessions(group, closed, all)
   const hidden = group.sessions.length - shownSessions(group, false, false).length
+  // Recolhido, sobram só as que esperam você: sem o trilho, que ligaria só uma parte das abertas.
+  const rail = closed ? [] : railOf(group, shown)
+  const working = group.sessions.filter(isWorking)
   return (
     <section className="mb-1.5">
       <div className="group/project mx-2 flex items-center gap-1 rounded-xl pr-1.5 transition-colors hover:bg-foreground/[0.04]">
@@ -137,6 +210,12 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
           )}
           {git && <GitBadges g={git} />}
         </button>
+        {/* Quem trabalha no projeto agora, também com o grupo recolhido. */}
+        {working.length > 0 && (
+          <span className="flex shrink-0" title={`${namesOf(working)} ${working.length === 1 ? 'trabalha' : 'trabalham'} em ${group.name} agora`}>
+            <PeerFaces list={working} size={16} />
+          </span>
+        )}
         {group.waiting > 0 && (
           <span
             className="min-w-4 shrink-0 rounded-full bg-amber-500 px-1 text-center text-[10px] leading-4 font-semibold text-white shadow-[0_0_10px_-1px_rgb(245_158_11/0.8)]"
@@ -162,8 +241,8 @@ function ProjectSection({ group, git, searching, onMenu }: { group: ProjectGroup
       </div>
       {shown.length > 0 && (
         <div className="mt-0.5 space-y-0.5">
-          {shown.map((s) => (
-            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} />
+          {shown.map((s, i) => (
+            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} rail={rail[i]} />
           ))}
         </div>
       )}
