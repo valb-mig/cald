@@ -7,6 +7,7 @@ import { GitBadges } from '@/components/git-badges'
 import { BAR, plural, usd } from '@/components/home/scale'
 import { StateBadge } from '@/components/state-badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ProjectMark } from '@/components/project-mark'
 import { WorktreeToggle } from '@/components/worktree-toggle'
 import { useWorktreeChoice } from '@/lib/worktree'
 import { dayKey, noon, useToday } from '@/lib/activity'
@@ -273,6 +274,7 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
             aria-hidden
             className="pointer-events-none absolute -inset-x-24 -inset-y-20 bg-[radial-gradient(ellipse_at_center,var(--background)_35%,transparent_72%)]"
           />
+          <ProjectMark machine={machine} cwd={cwd} name={name} className="mx-auto mb-4 size-12 rounded-xl text-xl" />
           <h1 className="relative text-center text-3xl font-medium tracking-tight text-balance">O que vamos fazer no {name} hoje?</h1>
           <div className="relative mt-6">
             <WorktreeToggle choice={worktree} cwd={cwd} creating={creating} className="mx-2 mb-1 wide:mx-4" />
