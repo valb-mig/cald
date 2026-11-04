@@ -336,7 +336,7 @@ No chat:
   - **pílula do modelo**: com o esforço;
   - **modo**: Manual, Editar automaticamente, Plano ou Automático, com o nível de esforço no mesmo menu;
   - **enviar**: muda de cor conforme o modo, e vira **parar** enquanto o Claude trabalha, com o campo vazio. Com texto, a mensagem entra na fila.
-- Embaixo de cada resposta do Claude, **Ouvir** lê o texto em voz alta com a voz do próprio celular; nada roda no PC. No PC, com o Piper instalado, a voz é a dele (ver [Voz natural no PC](#voz-natural-no-pc-piper)). Blocos de código e tabelas viram um aviso ("Tem um trecho de código na tela"), caminhos viram só o nome do arquivo e links viram "um link". Durante a leitura:
+- Embaixo de cada resposta do Claude ficam a marca do Claude com o modelo e o esforço que a escreveram e, no PC, ao passar o mouse sobre ela, **Ouvir** e **Copiar** (a resposta em Markdown); no celular, sem mouse, os dois ficam sempre à vista. **Ouvir** lê o texto em voz alta com a voz do próprio celular; nada roda no PC. No PC, com o Piper instalado, a voz é a dele (ver [Voz natural no PC](#voz-natural-no-pc-piper)). Blocos de código e tabelas viram um aviso ("Tem um trecho de código na tela"), caminhos viram só o nome do arquivo e links viram "um link". Durante a leitura:
   - como a letra no Spotify, o trecho sendo lido fica em destaque, o resto da resposta esmaece e a conversa rola junto;
   - em cima da caixa de mensagem aparece uma barra com pausar/continuar, a frase atual e até onde já leu; tocar ou arrastar na barra pula para outra frase, e o **×** encerra;
   - o botão embaixo da resposta também pausa e continua (continuar repete a frase desde o começo), e tocar em outra resposta troca a leitura.
@@ -345,7 +345,7 @@ No chat:
 - O alto-falante no topo do chat liga a **leitura automática**: cada resposta nova do Claude é lida sozinha, sem tocar em **Ouvir**. Uma resposta que chega com outra sendo lida espera a vez, e o histórico nunca é lido. A escolha é de cada conversa: com duas lado a lado, ligar numa não lê a outra, e desligar cala só o que for dela. Fica salva no celular.
 
   No Android, a voz é a de **Configurações › Acessibilidade › Saída de texto para fala** (o nome muda conforme a marca do celular): escolha **Serviços de fala do Google**, idioma Português (Brasil), e baixe a voz para ela funcionar sem internet.
-- Na última resposta de cada turno (da sua mensagem até o fim da resposta), ao lado de **Ouvir**, aparecem atalhos do que o Claude fez nele, quando houver: **arquivos**, **comandos** e **links**. Cada um abre o painel **Nesta resposta** na seção dele:
+- Na última resposta de cada turno (da sua mensagem até o fim da resposta), ao lado do modelo, aparecem atalhos do que o Claude fez nele, quando houver: **arquivos**, **comandos** e **links**. Cada um abre o painel **Nesta resposta** na seção dele:
   - **Arquivos alterados**, com as linhas colocadas e tiradas; tocar mostra o diff de cada edição. Entram as mudanças feitas pelas ferramentas de edição do Claude (Edit, Write); arquivos mudados por um comando (um script, um formatador) aparecem só em **Comandos**.
   - **Comandos** do terminal, com ✓ ou ✗; tocar mostra o comando e a saída.
   - **Links**: as páginas que o Claude acessou e as pesquisas que fez na web, e os links citados na resposta.
