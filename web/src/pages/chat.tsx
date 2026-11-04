@@ -40,6 +40,7 @@ import { MessageList } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
+import { PeerChip } from '@/components/chat/peer-chip'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { SummarySheet } from '@/components/chat/summary-sheet'
@@ -637,6 +638,8 @@ export function ChatPage({ id }: { id: string }) {
               {(!slim || stateTone !== 'done') && (
                 <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
               )}
+              {/* Quem mais trabalha agora nos mesmos arquivos; estreito, só os claudinhos. */}
+              <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
             </div>
           </div>
           {speechSupported && !slim && (
