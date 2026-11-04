@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
+import { worktreeOf } from './worktrees.ts';
 
 /** Um anexo de um item do TODO (imagem ou documento), guardado no PC. */
 export type TodoFile = { id: string; name: string; mediaType: string; size: number };
@@ -43,6 +44,12 @@ type Project = { next: number; items: Todo[]; rev?: number };
 type Saved = { version: 2; projects: Record<string, Project> };
 type OldTodo = { id: string; text: string; done: boolean; createdAt: number };
 
+/**
+ * A lista de um worktree é a do projeto de que ele é cópia: a conversa que roda num (ver worktrees.ts)
+ * lê, menciona e marca os mesmos itens que as outras do projeto.
+ */
+const projectOf = (cwd: string) => worktreeOf(cwd)?.project ?? cwd;
+
 function safeName(name: string): string {
   const cleaned = name
     .normalize('NFKD')
@@ -81,12 +88,12 @@ export class TodoStore extends EventEmitter {
   }
 
   list(cwd: string): Todo[] {
-    return this.projects[cwd]?.items ?? [];
+    return this.projects[projectOf(cwd)]?.items ?? [];
   }
 
   /** Quantas vezes a lista do projeto já mudou: o app manda de volta ao salvar. */
   rev(cwd: string): number {
-    return this.projects[cwd]?.rev ?? 0;
+    return this.projects[projectOf(cwd)]?.rev ?? 0;
   }
 
   /** Os itens a fazer de todos os projetos, para a inbox. */
@@ -100,6 +107,7 @@ export class TodoStore extends EventEmitter {
    * que o app leu: senão um item que o Claude acabou de criar sumiria por baixo de uma lista velha.
    */
   async replace(cwd: string, incoming: TodoInput[], rev?: number): Promise<Todo[]> {
+    cwd = projectOf(cwd);
     if (rev !== undefined && rev !== this.rev(cwd)) throw new HttpError(409, 'todos_changed');
     const current = this.projects[cwd] ?? { next: 1, items: [] };
     let next = Math.max(current.next, ...current.items.map((t) => t.n + 1), 1);

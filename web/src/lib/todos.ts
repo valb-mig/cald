@@ -4,6 +4,7 @@ import { create } from 'zustand'
 import { ApiError, api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from './api'
 import { onChanged } from './changes'
 import type { Todo } from './types'
+import { projectOf } from './worktree'
 
 /**
  * O TODO de cada projeto, a lista simples do próprio cald, guardada no PC (ver
@@ -19,7 +20,9 @@ const saving = new Map<string, Promise<unknown>>()
 const revs = new Map<string, number>()
 /** Sobe quando o PC recusa uma lista velha: as gravações que estavam na fila saem sem ir (eram da lista velha). */
 const epochs = new Map<string, number>()
-const keyOf = (machine: string, cwd: string) => `${machine}\n${cwd}`
+// Um worktree tem a lista do projeto (ver server/src/todos.ts): a mesma chave, para a mudança avisada com
+// a pasta do projeto chegar também à barra da conversa que roda no worktree.
+const keyOf = (machine: string, cwd: string) => `${machine}\n${projectOf(cwd)}`
 
 /**
  * O servidor de antes de reiniciar manda o item só com `text`, sem título, descrição nem anexos: o

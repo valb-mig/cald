@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { usePeers } from './peers'
 import type { GitStatus } from './types'
 
-const isWorktree = (cwd: string) => /\/\.claude\/worktrees\/[^/]+/.test(cwd)
+const WORKTREE = /\/\.claude\/worktrees\/[^/]+/
+const isWorktree = (cwd: string) => WORKTREE.test(cwd)
+
+/** O projeto de que a pasta é cópia, se ela fica num worktree (como `worktreeOf` no servidor); senão, ela mesma. */
+export const projectOf = (cwd: string) => cwd.replace(WORKTREE, '')
 
 /**
  * Conversa nova num projeto em que outra já mexe: oferece rodar num worktree separado (ver
