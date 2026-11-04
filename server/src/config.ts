@@ -14,6 +14,9 @@ export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();
 export const HOST = '127.0.0.1';
 
 export const CLAUDE_HOME = env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+// A config global do Claude Code (MCPs de cada projeto, entre outras coisas): fora da pasta, a não
+// ser que CLAUDE_CONFIG_DIR mude o lugar das duas.
+export const CLAUDE_JSON = env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(homedir(), '.claude.json');
 
 // Pastas do painel no PC: o que dura (listas, histórico), o estado (fixadas, avisos) e o cache.
 export const DATA_DIR = join(homedir(), '.local', 'share', 'cald');

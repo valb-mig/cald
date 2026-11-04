@@ -36,6 +36,8 @@ import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, ty
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
 import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
+import { claudeItemText } from './claude-config.ts';
+import { emptyClaudeTrash, restoreClaude, setPlugin, setSkill, trashItem, trashMcp, type McpScope } from './claude-manage.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
@@ -959,6 +961,110 @@ app.post<{ Body: { ids?: string[] } }>(
   { schema: { body: { type: 'object', properties: { ids: trashIds } } } },
   async (req) => {
     await emptyTrash(req.body.ids);
+    return { ok: true };
+  },
+);
+
+// Skills, agentes e servidores MCP de uma pasta (sem `cwd`, os que valem em todas). Pode subir uma sonda.
+app.get<{ Querystring: { cwd?: string; refresh?: string } }>(
+  '/api/claude/setup',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' }, refresh: { type: 'string' } } } } },
+  async (req) => manager.claudeSetup(req.query.cwd, req.query.refresh === '1'),
+);
+
+app.get<{ Querystring: { cwd?: string; path: string } }>(
+  '/api/claude/text',
+  { schema: { querystring: { type: 'object', required: ['path'], properties: { cwd: { type: 'string' }, path: { type: 'string' } } } } },
+  async (req) => ({ text: await claudeItemText(req.query.cwd ? await manager.knownCwd(req.query.cwd) : homedir(), req.query.path) }),
+);
+
+// Liga e desliga: servidor MCP numa pasta (sem `cwd`, na pessoal), skill (sem `cwd`, em todo projeto) e plugin.
+const toggleBody = (required: string[], name: object) => ({
+  body: {
+    type: 'object',
+    required,
+    additionalProperties: false,
+    properties: { cwd: { type: 'string' }, ...name, enabled: { type: 'boolean' } },
+  },
+});
+const nameField = { name: { type: 'string', minLength: 1, maxLength: 200 } };
+
+app.post<{ Body: { cwd?: string; name: string; enabled: boolean } }>(
+  '/api/claude/mcp',
+  { schema: toggleBody(['name', 'enabled'], nameField) },
+  async (req) => {
+    await manager.toggleMcp(req.body.cwd, req.body.name, req.body.enabled);
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { cwd?: string; name: string; enabled: boolean } }>(
+  '/api/claude/skill',
+  { schema: toggleBody(['name', 'enabled'], nameField) },
+  async (req) => {
+    await setSkill(req.body.cwd ? await manager.knownCwd(req.body.cwd) : undefined, req.body.name, req.body.enabled);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { key: string; enabled: boolean } }>(
+  '/api/claude/plugin',
+  { schema: toggleBody(['key', 'enabled'], { key: { type: 'string', minLength: 1, maxLength: 200 } }) },
+  async (req) => {
+    await setPlugin(req.body.key, req.body.enabled);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+// Para a lixeira do cald: uma skill, comando ou agente (pelo caminho) ou a configuração de um servidor MCP.
+app.post<{ Body: { cwd?: string; path?: string; mcp?: { name: string; scope: McpScope; project?: string } } }>(
+  '/api/claude/trash',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          cwd: { type: 'string' },
+          path: { type: 'string', maxLength: 1000 },
+          mcp: {
+            type: 'object',
+            required: ['name', 'scope'],
+            additionalProperties: false,
+            properties: { ...nameField, scope: { enum: ['user', 'local', 'project'] }, project: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { cwd, path, mcp } = req.body;
+    let id: string;
+    if (mcp) id = await trashMcp(mcp.name, mcp.scope, mcp.project ? await manager.knownCwd(mcp.project) : null);
+    else if (path) id = await trashItem(cwd ? await manager.knownCwd(cwd) : homedir(), path);
+    else throw new HttpError(400, 'invalid_request');
+    manager.forgetSetup();
+    return { id };
+  },
+);
+
+app.post<{ Body: { ids: string[] } }>(
+  '/api/claude/restore',
+  { schema: { body: { type: 'object', required: ['ids'], properties: { ids: { ...trashIds, minItems: 1 } } } } },
+  async (req) => {
+    await restoreClaude(req.body.ids);
+    manager.forgetSetup();
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { ids?: string[] } }>(
+  '/api/claude/trash/empty',
+  { schema: { body: { type: 'object', properties: { ids: trashIds } } } },
+  async (req) => {
+    await emptyClaudeTrash(req.body.ids);
     return { ok: true };
   },
 );

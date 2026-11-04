@@ -18,6 +18,7 @@ import { imageStore } from './images.ts';
 import { BackgroundTasks } from './tasks.ts';
 import { AGENT_TOOLS, OfficeLog, workersFrom, type OfficeSnapshot, type OpenTool } from './office.ts';
 import { UPLOADS_DIR, childEnv } from './config.ts';
+import { probeSetup, type RawSetup } from './claude-config.ts';
 import { readPlanUsage } from './claude-usage.ts';
 import type { PlanUsage } from './system.ts';
 import { HttpError } from './errors.ts';
@@ -299,6 +300,17 @@ export class PanelSession extends EventEmitter {
   commands(): Promise<SlashCommand[]> {
     this.commandsCache ??= this.q.supportedCommands();
     return this.commandsCache;
+  }
+
+  /** Skills, agentes e servidores MCP desta sessão, sem subir uma sonda (ver claude-config.ts). */
+  setup(): Promise<RawSetup> {
+    return probeSetup(this.q);
+  }
+
+  /** Liga ou desliga um servidor MCP: vale já nesta sessão e fica gravado para a pasta. */
+  async toggleMcp(name: string, enabled: boolean): Promise<void> {
+    await this.q.toggleMcpServer(name, enabled);
+    this.commandsCache = undefined;
   }
 
   answer(requestId: string, decision: { allow: boolean; message?: string; always?: boolean }): void {
