@@ -5,6 +5,7 @@ import type {
   Activity,
   AttachmentPayload,
   CommandInfo,
+  ClaudeSetup,
   ContextUsage,
   DiffSide,
   FileView,
@@ -18,6 +19,9 @@ import type {
   GitStatus,
   GitSummary,
   LoggedEvent,
+  McpScope,
+  MemoryList,
+  MemoryRef,
   ModelOption,
   OfficeRoom,
   PushPrefs,
@@ -160,6 +164,31 @@ export const api = {
   mergeWorktree: (m: string, cwd: string) => post<{ commits: number }>(`${at(m)}/worktree/merge`, { cwd }),
   /** `force`: remove mesmo com commits que não voltaram ou mudanças sem commit. */
   removeWorktree: (m: string, cwd: string, force = false) => post(`${at(m)}/worktree/remove`, { cwd, force }),
+  /** A memória do Claude Code (ver server/src/memory.ts): de todos os projetos ou, com `cwd`, de um. */
+  memory: (m: string, cwd?: string) => request<MemoryList>('GET', `${at(m)}/memory${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`),
+  saveMemory: (m: string, ref: MemoryRef & { description: string; body: string; mtime: number }) => request<{ mtime: number }>('PUT', `${at(m)}/memory`, ref),
+  trashMemories: (m: string, items: MemoryRef[]) => post<{ ids: string[] }>(`${at(m)}/memory/trash`, { items }),
+  restoreMemories: (m: string, ids: string[]) => post(`${at(m)}/memory/restore`, { ids }),
+  /** Sem `ids`, a lixeira inteira. */
+  emptyMemoryTrash: (m: string, ids?: string[]) => post(`${at(m)}/memory/trash/empty`, ids ? { ids } : {}),
+  /** Skills, agentes e servidores MCP de uma pasta (ver server/src/claude-config.ts); sem `cwd`, os que valem em todas. */
+  claudeSetup: (m: string, cwd?: string, refresh = false) => {
+    const params = new URLSearchParams()
+    if (cwd) params.set('cwd', cwd)
+    if (refresh) params.set('refresh', '1')
+    const query = params.toString()
+    return request<ClaudeSetup>('GET', `${at(m)}/claude/setup${query ? `?${query}` : ''}`)
+  },
+  claudeText: (m: string, path: string, cwd?: string) =>
+    request<{ text: string }>('GET', `${at(m)}/claude/text?${new URLSearchParams({ path, ...(cwd ? { cwd } : {}) })}`),
+  /** Sem `cwd`: na pasta pessoal (o servidor MCP) ou em todo projeto (a skill). */
+  toggleMcp: (m: string, cwd: string | undefined, name: string, enabled: boolean) => post(`${at(m)}/claude/mcp`, { ...(cwd ? { cwd } : {}), name, enabled }),
+  toggleSkill: (m: string, cwd: string | undefined, name: string, enabled: boolean) => post(`${at(m)}/claude/skill`, { ...(cwd ? { cwd } : {}), name, enabled }),
+  togglePlugin: (m: string, key: string, enabled: boolean) => post(`${at(m)}/claude/plugin`, { key, enabled }),
+  trashClaudeItem: (m: string, cwd: string | undefined, path: string) => post<{ id: string }>(`${at(m)}/claude/trash`, { ...(cwd ? { cwd } : {}), path }),
+  trashMcp: (m: string, mcp: { name: string; scope: McpScope; project?: string }) => post<{ id: string }>(`${at(m)}/claude/trash`, { mcp }),
+  restoreClaude: (m: string, ids: string[]) => post(`${at(m)}/claude/restore`, { ids }),
+  emptyClaudeTrash: (m: string, ids?: string[]) => post(`${at(m)}/claude/trash/empty`, ids ? { ids } : {}),
   /** Times de agentes (ver server/src/teams.ts). */
   teams: (m: string) => request<Team[]>('GET', `${at(m)}/teams`),
   saveTeam: (m: string, team: TeamInput) => post<Team>(`${at(m)}/teams`, team),
@@ -388,6 +417,26 @@ export function errorMessage(err: unknown): string {
       return 'Sem branch (HEAD destacado): não há para onde sincronizar.'
     case 'not_a_repository':
       return 'Esse projeto não usa git.'
+    case 'memory_changed':
+      return 'O Claude mudou esta memória enquanto você editava. Abra de novo para ver como ficou.'
+    case 'memory_not_found':
+      return 'Essa memória não existe mais.'
+    case 'memory_exists':
+      return `Já existe outra memória com o nome ${String(err.details.file ?? '')} nesse projeto.`
+    case 'invalid_memory':
+      return 'Memória inválida.'
+    case 'settings_invalid':
+      return `As configurações do Claude Code não abrem (${String(err.details.file ?? '')}); nada foi mudado.`
+    case 'claude_cli_failed':
+      return `O Claude Code recusou: ${String(err.details.message ?? '')}`
+    case 'claude_exists':
+      return `Já existe outro ${String(err.details.name ?? '')} no lugar: tire-o antes de restaurar.`
+    case 'plugin_not_found':
+      return 'Esse plugin não está instalado.'
+    case 'mcp_not_found':
+      return 'A configuração desse servidor não foi achada.'
+    case 'probe_timeout':
+      return 'O Claude Code demorou demais para responder.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

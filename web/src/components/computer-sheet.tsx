@@ -1,7 +1,9 @@
-import { Activity, Armchair, Bell, ChevronRight, Gauge, Info, Lock, Monitor, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
+import { Activity, Armchair, Bell, Brain, ChevronRight, Gauge, Info, Lock, Monitor, Moon, Palette, Plug, RefreshCw, Sparkles, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'wouter'
+import { MemoryView } from '@/components/claude/memory-view'
+import { McpView, SkillsView } from '@/components/claude/setup-view'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { PushSettings } from '@/components/push-settings'
@@ -26,12 +28,15 @@ const CONNECTION = {
   closed: { label: 'Desconectado', dot: 'bg-red-500' },
 } as const
 
-type Section = 'status' | 'usage' | 'alerts' | 'look' | 'about'
+type Section = 'status' | 'usage' | 'memory' | 'skills' | 'mcp' | 'alerts' | 'look' | 'about'
 
 /** `machine`: a seção é de uma máquina, e o filtro delas aparece no topo (com mais de uma). */
 const SECTIONS: { key: Section; label: string; description: string; icon: typeof Activity; machine?: boolean }[] = [
   { key: 'status', label: 'Status', description: 'O PC que roda as conversas.', icon: Activity, machine: true },
   { key: 'usage', label: 'Uso do Claude', description: 'Os limites do seu plano.', icon: Gauge, machine: true },
+  { key: 'memory', label: 'Memória', description: 'O que o Claude guardou sobre cada projeto.', icon: Brain, machine: true },
+  { key: 'skills', label: 'Skills', description: 'Skills, comandos e agentes que valem em todo projeto.', icon: Sparkles, machine: true },
+  { key: 'mcp', label: 'MCP', description: 'Os servidores que o Claude usa, e onde.', icon: Plug, machine: true },
   { key: 'alerts', label: 'Avisos', description: 'Notificações e sons deste aparelho.', icon: Bell },
   { key: 'look', label: 'Aparência', description: 'Tema e fundo, só neste aparelho.', icon: Palette },
   { key: 'about', label: 'Sobre', description: 'Versão, atualização e segurança.', icon: Info, machine: true },
@@ -71,7 +76,7 @@ function Computer() {
             </Button>
           </DialogClose>
         </div>
-        <DialogDescription className="sr-only">O PC, os limites do Claude e os ajustes deste aparelho.</DialogDescription>
+        <DialogDescription className="sr-only">O PC, os limites do Claude, o que ele carrega e os ajustes deste aparelho.</DialogDescription>
         <div className="flex gap-1 max-sm:overflow-x-auto max-sm:[scrollbar-width:none] sm:flex-col">
           {SECTIONS.map((s) => (
             <button
@@ -109,6 +114,8 @@ function Computer() {
             <StatusSection />
           ) : section === 'usage' ? (
             <UsageSection />
+          ) : section === 'memory' || section === 'skills' || section === 'mcp' ? (
+            <ClaudeSection section={section} />
           ) : section === 'alerts' ? (
             <>
               <PushSettings />
@@ -282,6 +289,14 @@ function UsageSection() {
       )}
     </Group>
   )
+}
+
+/** O que o Claude Code carrega na máquina escolhida no topo: a memória de todos os projetos e o que vale em todos. */
+function ClaudeSection({ section }: { section: 'memory' | 'skills' | 'mcp' }) {
+  const machine = useMachineFilter() ?? HOME
+  if (section === 'memory') return <MemoryView key={machine} machine={machine} onLeave={() => setComputerOpen(false)} />
+  if (section === 'skills') return <SkillsView key={machine} machine={machine} />
+  return <McpView key={machine} machine={machine} />
 }
 
 function LookSection() {
