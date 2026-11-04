@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
+import { ClaudeMark } from '@/components/claude-mark'
 import { ImageThumb } from '@/components/image-viewer'
 import { Markdown, StreamingMarkdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
@@ -235,10 +236,12 @@ function CopyMarkdown({ text }: { text: string }) {
 }
 
 /**
- * Resposta do Claude, com **Ouvir** e **Copiar** (em Markdown) embaixo: Ouvir lê o texto em voz alta
- * com a voz do aparelho, e o trecho sendo lido fica em destaque (a barra de controle fica em cima da
- * caixa de mensagem). Na última resposta de cada turno, os atalhos do que o turno fez. `fresh`: acabou
- * de chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
+ * Resposta do Claude, com quem escreveu e, na última de cada turno, os atalhos do que o turno fez
+ * embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
+ * cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular, sem mouse,
+ * ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
+ * de controle fica em cima da caixa de mensagem); lendo, o botão fica à vista. `fresh`: acabou de
+ * chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
  */
 function AssistantMessage({
   id,
@@ -260,32 +263,40 @@ function AssistantMessage({
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
   return (
-    <div>
+    <div className="group/answer">
       <ReadingLine value={line}>
         <Markdown text={text} />
       </ReadingLine>
       <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
-        {speechSupported && (
-          <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
-            {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-            {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
-          </Button>
-        )}
-        <CopyMarkdown text={text} />
-        {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
         {model && <WrittenBy model={model} effort={effort} />}
+        {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
+        <span
+          className={cn(
+            'flex items-center gap-1.5 transition-opacity duration-150',
+            !state && 'opacity-0 group-hover/answer:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100',
+          )}
+        >
+          {speechSupported && (
+            <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
+              {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+              {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
+            </Button>
+          )}
+          <CopyMarkdown text={text} />
+        </span>
       </Arrival>
     </div>
   )
 }
 
 /**
- * Quem escreveu a resposta: o modelo e o esforço com que pensou, discretos no fim da fileira de botões.
- * O id completo do modelo fica na dica, para quando o nome curto não bastar.
+ * Quem escreveu a resposta: a marca do Claude, o modelo e o esforço com que pensou, discretos no começo
+ * da fileira. O id completo do modelo fica na dica, para quando o nome curto não bastar.
  */
 function WrittenBy({ model, effort }: { model: string; effort?: string }) {
   return (
-    <span title={effort ? `${model} · esforço ${effort}` : model} className="px-1.5 text-xs text-muted-foreground">
+    <span title={effort ? `${model} · esforço ${effort}` : model} className="flex items-center gap-1 pr-1.5 text-xs text-muted-foreground">
+      <ClaudeMark className="size-3.5" />
       {prettyModel(model)}
       {effort && ` · ${(EFFORTS[effort] ?? effort).toLowerCase()}`}
     </span>
