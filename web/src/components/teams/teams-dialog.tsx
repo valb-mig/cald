@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from '@/lib/api'
+import { useOnChanged } from '@/lib/changes'
 import type { Effort, Team, TeamInput } from '@/lib/types'
 import { memberSeed, newMember, ROLES } from './model'
 import { TeamFaces } from './team-faces'
@@ -223,6 +224,8 @@ export function TeamsDialog({
       failed(err)
     })
   }, [open, machine])
+  // Aberto enquanto o Claude monta um time: ele aparece na lista (quem está sendo editado fica como está).
+  useOnChanged(machine, 'teams', () => open && api.teams(machine).then(setTeams, () => {}))
 
   const update = (next: Team[]) => {
     setTeams(next)

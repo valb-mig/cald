@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { api, errorMessage } from '@/lib/api'
+import { useOnChanged } from '@/lib/changes'
 import { projectName, relativeTime } from '@/lib/format'
 import { useMediaQuery } from '@/lib/hooks'
 import { useProjectPanel } from '@/lib/project-panel'
@@ -85,6 +86,8 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
     )
   }, [machine, cwd])
   useEffect(load, [load])
+  // Criada ou editada pelo Claude de uma conversa (o MCP do cald), ou em outro aparelho.
+  useOnChanged(machine, 'habilidades', load)
   useEffect(() => {
     if (session) api.sessionHabilidades(session).then((r) => setOff(r.off), () => {})
   }, [session])

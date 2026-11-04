@@ -287,9 +287,10 @@ export const api = {
   /** Faz a ação e devolve o item como ficou (ver server/src/github.ts). */
   githubAct: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, action: GithubAction) =>
     request<GithubItem>('POST', `${at(m)}/github/action`, { cwd, kind, number, action }),
-  todos: (m: string, cwd: string) => request<{ items: Todo[] }>('GET', `${at(m)}/todos?${project(cwd)}`),
-  /** A lista inteira, como ficou depois da mudança. */
-  saveTodos: (m: string, cwd: string, items: Todo[]) => post<{ items: Todo[] }>(`${at(m)}/todos`, { cwd, items }),
+  /** `rev`: quantas vezes a lista já mudou no PC (servidor antigo não manda). */
+  todos: (m: string, cwd: string) => request<{ items: Todo[]; rev?: number }>('GET', `${at(m)}/todos?${project(cwd)}`),
+  /** A lista inteira, como ficou depois da mudança; com o `rev` lido, o PC recusa se alguém mexeu no meio. */
+  saveTodos: (m: string, cwd: string, items: Todo[], rev?: number) => post<{ items: Todo[]; rev?: number }>(`${at(m)}/todos`, { cwd, items, rev }),
   /** Um anexo de um item do TODO; o item leva o que volta. */
   uploadTodoFile: (m: string, cwd: string, file: { name: string; mediaType: string; data: string }) =>
     post<TodoFile>(`${at(m)}/todos/files`, { cwd, ...file }),
@@ -349,6 +350,8 @@ export function errorMessage(err: unknown): string {
       return 'Esta versão do Claude Code não mostra a saída da tarefa.'
     case 'file_changed':
       return 'O arquivo mudou no disco desde que foi aberto.'
+    case 'todos_changed':
+      return 'O TODO mudou no PC enquanto você mexia (o Claude ou outro aparelho). Veja como ficou e refaça.'
     case 'rg_unavailable':
       return 'A busca usa o ripgrep: instale o `rg` no PC (pacote ripgrep).'
     case 'invalid_search':

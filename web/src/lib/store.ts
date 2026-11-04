@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { onAudio, onAudioReady, quietAudio, type Spectrum } from './audio'
+import { emitChanged, type Changed } from './changes'
 import { useLooks } from './claudinho'
 import { pinRejected, useLock } from './lock'
 import { HOME, baseOf, machineOf, noteSession, noteSessions, useMachines } from './machines'
@@ -317,6 +318,7 @@ type ServerMsg =
   | { type: 'audio'; spectrum: Spectrum }
   | { type: 'audio_ready'; available: boolean }
   | { type: 'usage'; usage: UsageSnapshot }
+  | ({ type: 'changed' } & Changed)
 
 type LiveListener = (sessionId: string, runId: string, event: LoggedEvent) => void
 const liveListeners = new Set<LiveListener>()
@@ -343,6 +345,8 @@ function handle(machine: string, m: ServerMsg): void {
       return useStore.setState((s) => ({ systems: { ...s.systems, [machine]: m.system } }))
     case 'usage':
       return useStore.setState((s) => ({ usages: { ...s.usages, [machine]: m.usage } }))
+    case 'changed':
+      return emitChanged(machine, { what: m.what, cwd: m.cwd, rev: m.rev })
     case 'snapshot':
       if (m.state !== 'running') clearStream(m.sessionId)
       return patchView(m.sessionId, (v) => {
