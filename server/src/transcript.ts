@@ -172,3 +172,21 @@ export async function transcriptMarks(sessionId: string): Promise<TranscriptMark
   const path = await transcriptPath(sessionId);
   return path ? marks.read(path, () => ({ efforts: new Map(), prompts: new Map() })).catch(() => NO_MARKS) : NO_MARKS;
 }
+
+/**
+ * Quando cada mensagem foi gravada, por UUID. O `getSessionMessages` também não traz a hora; no
+ * transcript, o `uuid` e o `timestamp` vêm juntos depois da mensagem, então sai por expressão regular,
+ * sem desmontar o JSON de cada linha (os transcripts passam de 60 MB).
+ */
+const STAMP = /"uuid":"([^"]+)","timestamp":"([^"]+)"/;
+const times = new TranscriptTally<Map<string, number>>((state, line) => {
+  if (!line.includes('"type":"assistant"') && !line.includes('"type":"user"')) return;
+  const m = STAMP.exec(line);
+  const at = m ? Date.parse(m[2]!) : NaN;
+  if (m && !Number.isNaN(at)) state.set(m[1]!, at);
+});
+
+export async function transcriptTimes(sessionId: string): Promise<ReadonlyMap<string, number>> {
+  const path = await transcriptPath(sessionId);
+  return path ? times.read(path, () => new Map()).catch(() => new Map()) : new Map();
+}
