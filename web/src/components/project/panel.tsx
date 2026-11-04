@@ -1,14 +1,16 @@
 import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, X } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ProjectMark } from '@/components/project-mark'
+import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
 import { RailItem } from '@/components/sidebar-rail'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { projectName } from '@/lib/format'
+import { projectName, shortPath, worktreeOf } from '@/lib/format'
 import { useGithubCounts } from '@/lib/github'
-import { useGitStatus, useWide } from '@/lib/hooks'
+import { useGitStatus, usePressMenu, useWide } from '@/lib/hooks'
 import { MachineContext } from '@/lib/machines'
 import {
   isPanelShown,
@@ -64,6 +66,35 @@ const TABS: { tab: PanelTab; label: string; title: string; icon: typeof FolderTr
 const COUNT_BADGE = 'bg-zinc-500'
 
 /**
+ * De que projeto é a barra: a marca e o nome dele e, numa conversa em worktree, o nome da cópia ao lado
+ * (a marca é a do projeto). Botão direito, ou o dedo segurado, abre o menu do projeto, o de escolher a logo.
+ */
+function ProjectTitle({ project }: { project: PanelProject }) {
+  const worktree = worktreeOf(project.cwd)
+  const cwd = worktree?.project ?? project.cwd
+  const name = projectName(cwd)
+  const [menu, setMenu] = useState<ProjectMenuAt | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const press = usePressMenu((x, y) => {
+    setMenu({ machine: project.machine, cwd, name, x, y })
+    setMenuOpen(true)
+  })
+  return (
+    <div {...press} title={shortPath(project.cwd)} className="flex min-w-0 flex-1 items-center gap-2 px-1 select-none">
+      <ProjectMark machine={project.machine} cwd={cwd} name={name} className="size-5 rounded-md text-[11px]" />
+      <span className="shrink-0 text-[13px] font-medium">{name}</span>
+      {worktree && (
+        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{worktree.name}</span>
+        </span>
+      )}
+      <ProjectMenu at={menu} open={menuOpen} onOpenChange={setMenuOpen} />
+    </div>
+  )
+}
+
+/**
  * O conteúdo da aba aberta. Na folha (celular, janela estreita), com as abas e o X no topo; ao lado das
  * conversas, as abas estão na alça, e o topo fica só com o nome da aba, como no VSCode.
  */
@@ -116,7 +147,11 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
               </Button>
             </>
           ) : (
-            <h2 className="px-1 text-[13px] font-medium">{TABS.find((t) => t.tab === tab)!.title}</h2>
+            // No topo, de que projeto é a barra; a aba aberta já está acesa na alça, e o nome dela vai ao lado.
+            <>
+              <ProjectTitle project={project} />
+              <h2 className="shrink-0 px-1 text-xs text-muted-foreground">{TABS.find((t) => t.tab === tab)!.label}</h2>
+            </>
           )}
         </div>
         {tab === 'files' ? (

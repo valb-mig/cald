@@ -1,10 +1,16 @@
 import type { CatalogState, SessionState } from './types'
 
+/** A pasta é um worktree (`<projeto>/.claude/worktrees/<nome>`): o projeto de que ele é cópia e o nome dele. */
+export function worktreeOf(cwd: string): { project: string; name: string } | null {
+  const m = cwd.match(/^(.*\/[^/]+)\/\.claude\/worktrees\/([^/]+)\/?$/)
+  return m ? { project: m[1], name: m[2] } : null
+}
+
 /** Nome curto do projeto; worktrees aparecem como "projeto · worktree". */
 export function projectName(cwd?: string): string {
   if (!cwd) return '—'
-  const worktree = cwd.match(/\/([^/]+)\/\.claude\/worktrees\/([^/]+)\/?$/)
-  if (worktree) return `${worktree[1]} · ${worktree[2]}`
+  const worktree = worktreeOf(cwd)
+  if (worktree) return `${projectName(worktree.project)} · ${worktree.name}`
   return cwd.replace(/\/+$/, '').split('/').pop() || cwd
 }
 
