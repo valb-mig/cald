@@ -65,7 +65,7 @@ export function TeamPill({
             aria-label={chosen ? `Time: ${chosen.name}` : 'Escolher um time de agentes'}
             title="Time de agentes"
           >
-            {chosen ? <TeamFaces team={chosen} size={16} /> : <Users className="size-4 shrink-0" />}
+            {chosen ? <TeamFaces team={chosen} size={16} placeholder /> : <Users className="size-4 shrink-0" />}
             {/* No celular a barra é estreita: os claudinhos bastam, e o nome fica no menu. */}
             {chosen && <span className="truncate text-foreground/80 max-sm:hidden">{chosen.name}</span>}
             <ChevronDown className="size-3 shrink-0 max-sm:hidden" />
@@ -85,7 +85,7 @@ export function TeamPill({
             <DropdownMenuRadioItem value={NONE}>Sem time</DropdownMenuRadioItem>
             {teams.map((t) => (
               <DropdownMenuRadioItem key={t.id} value={t.id} className="gap-2">
-                <TeamFaces team={t} size={16} />
+                <TeamFaces team={t} size={16} placeholder />
                 <span className="truncate">{t.name}</span>
               </DropdownMenuRadioItem>
             ))}

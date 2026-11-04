@@ -48,6 +48,8 @@ const specOf = (m: Pick<TeamMember, 'model' | 'effort'>) => [m.model && prettyMo
 const LABEL = 'block px-1 text-xs font-medium text-muted-foreground'
 // Uma linha de membro dentro do bloco, com o alvo de toque do celular.
 const ROW = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-foreground/[0.04]'
+// O modelo no canto da linha; longo ("Sonnet 4.5 · 1M · Muito alto"), corta antes do nome no celular.
+const SPEC = 'max-w-[40%] shrink-0 truncate text-xs text-muted-foreground'
 
 /** `onSaved` avisa qual time acabou de ser salvo; `onChange`, a lista depois de salvar, apagar ou restaurar. */
 export function TeamsDialog({
@@ -183,7 +185,7 @@ function Body({ machine, onChange, onSaved }: { machine: string; onChange?: (tea
                 onClick={() => setView({ kind: 'show', id: t.id })}
                 className={NAV_ITEM}
               >
-                <TeamFaces team={t} size={16} max={3} />
+                <TeamFaces team={t} size={16} max={3} placeholder />
                 <span className="min-w-0 flex-1 truncate text-left">{t.name}</span>
               </button>
             ))}
@@ -221,6 +223,10 @@ function Body({ machine, onChange, onSaved }: { machine: string; onChange?: (tea
               team={current}
               canUndo={trash !== null}
               onEdit={(member) => setView({ kind: 'edit', draft: draftOf(current), open: member })}
+              onAdd={(m) => {
+                const draft = draftOf(current)
+                setView({ kind: 'edit', draft: { ...draft, members: [...draft.members, m] }, open: m.id })
+              }}
               onTrash={() => void toTrash(current)}
               onBack={() => setView(null)}
             />
@@ -256,11 +262,15 @@ function Intro({ onNew }: { onNew: () => void }) {
   )
 }
 
-/** O time escolhido: os membros, cada um com o modelo dele. Tocar num membro abre o editor nele. */
+/**
+ * O time escolhido: os membros, cada um com o modelo dele. Tocar num membro abre o editor nele. Sem
+ * ninguém, a janela é a de vazio, com pôr o primeiro (já aberto no editor) como a ação.
+ */
 function Detail({
   team,
   canUndo,
   onEdit,
+  onAdd,
   onTrash,
   onBack,
 }: {
@@ -268,14 +278,17 @@ function Detail({
   /** Sem lixeira no PC (servidor antigo), apagar é de vez e pede confirmação. */
   canUndo: boolean
   onEdit: (member?: string) => void
+  onAdd: (member: Member) => void
   onTrash: () => void
   onBack: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const n = team.members.length
+  const when = relativeTime(team.updatedAt)
   return (
     <>
-      <WindowHeader title={team.name} subtitle={`${n === 1 ? '1 membro' : `${n} membros`} · editado ${relativeTime(team.updatedAt)}`} onBack={onBack}>
+      {/* Sem membros, quem diz é o corpo da janela: o subtítulo fica só com a data. */}
+      <WindowHeader title={team.name} subtitle={n ? `${n === 1 ? '1 membro' : `${n} membros`} · editado ${when}` : `Editado ${when}`} onBack={onBack}>
         <Button variant="ghost" size="icon-sm" onClick={() => onEdit()} aria-label="Editar" title="Editar" className="-mt-1">
           <Pencil />
         </Button>
@@ -296,26 +309,34 @@ function Detail({
           </Button>
         )}
       </WindowHeader>
-      <div className="tab-panel-in min-h-0 flex-1 overflow-y-auto px-6 pb-6 max-sm:px-4">
-        <Group title="Membros">
-          {team.members.map((m) => (
-            <button key={m.id} type="button" onClick={() => onEdit(m.id)} className={ROW}>
-              <Claudinho seed={memberSeed(m)} size={32} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm">{m.name}</span>
-                {m.role && <span className="block truncate text-xs text-muted-foreground">{m.role}</span>}
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground">{specOf(m)}</span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
-          ))}
-          {n === 0 && (
-            <button type="button" onClick={() => onEdit()} className={cn(ROW, 'text-sm text-muted-foreground')}>
-              <Plus className="size-4" /> Pôr alguém no time
-            </button>
-          )}
-        </Group>
-      </div>
+      {n ? (
+        <div className="tab-panel-in min-h-0 flex-1 overflow-y-auto px-6 pb-6 max-sm:px-4">
+          <Group title="Membros">
+            {team.members.map((m) => (
+              <button key={m.id} type="button" onClick={() => onEdit(m.id)} className={ROW}>
+                <Claudinho seed={memberSeed(m)} size={32} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{m.name}</span>
+                  {m.role && <span className="block truncate text-xs text-muted-foreground">{m.role}</span>}
+                </span>
+                <span className={SPEC}>{specOf(m)}</span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </Group>
+        </div>
+      ) : (
+        // O lugar tracejado é o mesmo da lista, maior; o botão já abre a escolha do papel.
+        <div className="tab-panel-in flex flex-1 flex-col items-center justify-center gap-3 px-8 pb-16 text-center">
+          <TeamFaces team={team} size={32} placeholder />
+          <p className="text-sm text-muted-foreground">Ninguém no time ainda</p>
+          <AddMember onAdd={onAdd} align="center">
+            <Button size="sm">
+              <Plus /> Pôr alguém
+            </Button>
+          </AddMember>
+        </div>
+      )}
     </>
   )
 }
@@ -421,7 +442,7 @@ function MemberItem({
           <span className={cn('block truncate text-sm', !m.name.trim() && 'text-muted-foreground')}>{m.name.trim() || 'Sem nome'}</span>
           {m.role && <span className="block truncate text-xs text-muted-foreground">{m.role}</span>}
         </span>
-        {!open && <span className="shrink-0 text-xs text-muted-foreground">{specOf(m)}</span>}
+        {!open && <span className={SPEC}>{specOf(m)}</span>}
         <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
@@ -465,19 +486,24 @@ function MemberItem({
   )
 }
 
-/** A última linha do bloco de membros: começar um por um dos papéis prontos, ou em branco. */
-function AddMember({ onAdd }: { onAdd: (m: Member) => void }) {
+/**
+ * Pôr um membro, começando por um dos papéis prontos ou em branco. Sem `children`, é a última linha do
+ * bloco de membros do editor; com, o botão que abre a escolha (o do time vazio).
+ */
+function AddMember({ onAdd, align = 'start', children }: { onAdd: (m: Member) => void; align?: 'start' | 'center'; children?: React.ReactNode }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(ROW, 'text-sm text-muted-foreground hover:text-foreground')}>
-          <span className="flex size-8 shrink-0 items-center justify-center">
-            <Plus className="size-4" />
-          </span>
-          Membro
-        </button>
+        {children ?? (
+          <button type="button" className={cn(ROW, 'text-sm text-muted-foreground hover:text-foreground')}>
+            <span className="flex size-8 shrink-0 items-center justify-center">
+              <Plus className="size-4" />
+            </span>
+            Membro
+          </button>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align={align}>
         <DropdownMenuLabel>Começar como</DropdownMenuLabel>
         {ROLES.map((r) => (
           <DropdownMenuItem key={r.role} onSelect={() => onAdd(newMember(r))}>
@@ -499,7 +525,7 @@ function TrashView({ items, onBack, onRestore, onPurge }: { items: TrashedTeam[]
           <Group>
             {items.map((t) => (
               <div key={t.id} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2">
-                <TeamFaces team={t} size={20} max={3} />
+                <TeamFaces team={t} size={20} max={3} placeholder />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{t.name}</div>
                   <div className="text-xs text-muted-foreground">{relativeTime(t.deletedAt)}</div>
