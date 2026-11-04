@@ -27,6 +27,7 @@ import { tokenStyle, useTokens } from '@/lib/highlight'
 import { setMinimap, useMinimap } from '@/lib/minimap'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { closeViewer, openViewer, useProjectPanel, type Viewing } from '@/lib/project-panel'
+import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
 import { useUnsaved } from '@/lib/unsaved'
 import { cn } from '@/lib/utils'
@@ -157,6 +158,16 @@ function TextContent({
     onCode?.({ lines: shown, tokens, marks: layout.marks, changes: layout.changes, added: layout.added, removed: layout.removed })
   }, [onCode, shown, tokens, layout])
   useEffect(() => () => onCode?.(null), [onCode])
+
+  // Aberto já numa linha (a busca nos arquivos): leva até ela quando o código aparece.
+  const rkey = revealKey(machine, cwd, path)
+  const reveal = useReveal((s) => s[rkey])
+  useEffect(() => {
+    const scroller = box.current?.parentElement
+    if (!reveal || !scroller) return
+    requestAnimationFrame(() => revealRow(scroller, Math.min(reveal.line, shown.length) - 1))
+    doneReveal(rkey)
+  }, [reveal, rkey, shown.length])
 
   const openPeek = (k: number) => setPeek((p) => (p === k ? null : k))
   const goPeek = (k: number) => {

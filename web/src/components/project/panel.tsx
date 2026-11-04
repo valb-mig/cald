@@ -1,4 +1,4 @@
-import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, X } from 'lucide-react'
+import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { ClaudeMark } from '@/components/claude-mark'
 import { ClaudeTab } from '@/components/claude/claude-tab'
@@ -32,6 +32,7 @@ import { broughtFocus, GAP, MIN_CHAT, useMainWidth, usePane, useSplit } from '@/
 import { useTodos } from '@/lib/todos'
 import { cn } from '@/lib/utils'
 import { FilesTab } from './files'
+import { SearchTab } from './search'
 import { IssuesTab, PullsTab } from './github'
 import { SourceControlTab } from './source-control'
 import { TodoTab } from './todo'
@@ -60,6 +61,7 @@ const ClaudeIcon = ({ className }: { className?: string }) => <ClaudeMark classN
 
 const TABS: { tab: PanelTab; label: string; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { tab: 'files', label: 'Arquivos', title: 'Arquivos do projeto', icon: FolderTree },
+  { tab: 'search', label: 'Buscar', title: 'Buscar nos arquivos · Ctrl+Shift+F', icon: Search },
   { tab: 'git', label: 'Git', title: 'Controle de código-fonte', icon: GitBranch },
   { tab: 'pulls', label: 'PRs', title: 'Pull requests abertos', icon: GitPullRequest },
   { tab: 'issues', label: 'Issues', title: 'Issues abertas', icon: CircleDot },
@@ -93,7 +95,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
         >
           {tabs ? (
             <>
-              {/* Seis abas não cabem em todo celular: a fileira rola de lado. */}
+              {/* Sete abas não cabem em todo celular: a fileira rola de lado. */}
               <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
                 {TABS.map(({ tab: t, label, title, icon: Icon }) => (
                   <button
@@ -128,6 +130,8 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
         </div>
         {tab === 'files' ? (
           <FilesTab project={project} status={git.status} />
+        ) : tab === 'search' ? (
+          <SearchTab project={project} />
         ) : tab === 'git' ? (
           <SourceControlTab project={project} status={git.status} loading={git.loading} />
         ) : tab === 'pulls' ? (
@@ -159,6 +163,7 @@ function ProjectRail({ project }: { project: PanelProject }) {
   const memory = useMemoryAlerts(project.machine, project.cwd)
   const counts: Record<PanelTab, { n: number; badge: string; tip: (n: number) => string } | null> = {
     files: null,
+    search: null,
     git: { n: changes, badge: 'bg-sky-600 shadow-[0_0_10px_-1px_rgb(14_165_233/0.8)]', tip: (n) => `${n} ${n === 1 ? 'alterado' : 'alterados'}` },
     pulls: github && { n: github.pulls, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberto' : 'abertos'}` },
     issues: github && { n: github.issues, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberta' : 'abertas'}` },

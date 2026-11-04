@@ -38,6 +38,7 @@ import type {
   WorkspaceFile,
   WorkspaceInput,
   WorktreeStatus,
+  SearchResult,
 } from './types'
 
 export class ApiError extends Error {
@@ -231,6 +232,14 @@ export const api = {
   /** Grava o texto do editor; recusa com `file_changed` se o arquivo não é mais o de `base`, a não ser com `force`. */
   saveFile: (m: string, cwd: string, path: string, content: string, base: string, force = false) =>
     post<{ hash: string; size: number }>(`${at(m)}/file/save`, { cwd, path, content, base, force }),
+  /** Busca texto nos arquivos do projeto (o ripgrep, no PC). */
+  search: (m: string, cwd: string, q: string, o: { regex: boolean; caseSensitive: boolean; word: boolean }, signal?: AbortSignal) =>
+    request<SearchResult>(
+      'GET',
+      `${at(m)}/search?${project(cwd)}&q=${encodeURIComponent(q)}${o.regex ? '&regex=1' : ''}${o.caseSensitive ? '&case=1' : ''}${o.word ? '&word=1' : ''}`,
+      undefined,
+      signal,
+    ),
   /** O arquivo no último commit; `''` se é novo, `null` fora do git (ou ignorado por ele). */
   gitBase: (m: string, cwd: string, path: string) => request<{ content: string | null }>('GET', `${at(m)}/git/base?${project(cwd, path)}`),
   git: (m: string, cwd: string) => request<GitStatus | null>('GET', `${at(m)}/git?${project(cwd)}`),
@@ -321,6 +330,10 @@ export function errorMessage(err: unknown): string {
       return 'Esta versão do Claude Code não mostra a saída da tarefa.'
     case 'file_changed':
       return 'O arquivo mudou no disco desde que foi aberto.'
+    case 'rg_unavailable':
+      return 'A busca usa o ripgrep: instale o `rg` no PC (pacote ripgrep).'
+    case 'invalid_search':
+      return `A expressão não vale: ${String(err.details.message ?? '')}`
     case 'not_utf8':
       return 'O arquivo não está em UTF-8: salvar pelo painel trocaria os acentos.'
     case 'file_too_large':

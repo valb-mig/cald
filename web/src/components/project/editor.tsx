@@ -29,6 +29,7 @@ import { useCodeFont } from '@/lib/code-font'
 import { useTokens } from '@/lib/highlight'
 import { reloadGit, subscribeGit, useDarkMode } from '@/lib/hooks'
 import { insertInChat, type Viewing } from '@/lib/project-panel'
+import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
 import { drafts, registerSaver, setDirty, useUnsaved } from '@/lib/unsaved'
 import { keyOf, pinTab } from '@/lib/workbench'
@@ -491,6 +492,22 @@ export default function CodeEditor({
     }
     // Montado uma vez por arquivo (a aba é dele); o que muda depois entra pelos efeitos abaixo.
   }, [])
+
+  // Aberto já numa linha (a busca nos arquivos, o `arquivo:12` do Ctrl+P): vai até ela e seleciona o achado.
+  const rkey = revealKey(machine, cwd, path)
+  const reveal = useReveal((s) => s[rkey])
+  useEffect(() => {
+    const view = viewRef.current
+    if (!reveal || !view) return
+    const { doc } = view.state
+    const line = doc.line(Math.min(Math.max(1, reveal.line), doc.lines))
+    const from = Math.min(line.from + (reveal.col ?? 0), line.to)
+    const to = Math.min(from + (reveal.len ?? 0), line.to)
+    view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) })
+    flashLines(view, [{ from: line.from, to: line.to }])
+    view.focus()
+    doneReveal(rkey)
+  }, [reveal, rkey])
 
   // O último commit, para as marcas: ao abrir, ao voltar para a janela e quando o git do projeto é relido (um commit).
   useEffect(() => {

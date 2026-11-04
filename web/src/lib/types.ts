@@ -243,6 +243,13 @@ export type FileView =
   | { kind: 'text'; size: number; content: string; truncated: boolean; hash?: string }
   | { kind: 'image' | 'pdf' | 'binary' | 'large'; size: number }
 
+/**
+ * O que a busca nos arquivos achou (ver server/src/search.ts): por arquivo, as linhas com o trecho de
+ * cada achado (`ranges`, no `text` mostrado) e a coluna do primeiro na linha inteira, para o editor.
+ */
+export type SearchMatch = { line: number; text: string; ranges: [number, number][]; col: number; len: number }
+export type SearchResult = { files: { path: string; matches: SearchMatch[] }[]; total: number; truncated: boolean }
+
 /** Linhas a mais e a menos; `null` em arquivo binário. */
 export type LineCount = { additions: number | null; deletions: number | null }
 
