@@ -27,12 +27,14 @@ type Meta = {
   projects: string[];
   /** Worktrees criados para conversas, pela pasta: a branch dele e a de origem (ver worktrees.ts). */
   worktrees: Record<string, WorktreeInfo>;
+  /** As habilidades do cald desligadas em cada conversa, pelo id (ver habilidades.ts); o resto vale. */
+  habilidadesOff: Record<string, string[]>;
 };
 
 const FILE = process.env.META_FILE ?? join(STATE_DIR, 'meta.json');
 
 export class MetaStore {
-  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [], worktrees: {} };
+  private meta: Meta = { pinned: [], forks: {}, names: {}, looks: {}, cleared: {}, teams: {}, workspaces: {}, projects: [], worktrees: {}, habilidadesOff: {} };
   private writing = Promise.resolve();
 
   async load(): Promise<void> {
@@ -48,6 +50,7 @@ export class MetaStore {
         workspaces: data.workspaces && typeof data.workspaces === 'object' ? data.workspaces : {},
         projects: Array.isArray(data.projects) ? data.projects.filter((p) => typeof p === 'string') : [],
         worktrees: data.worktrees && typeof data.worktrees === 'object' ? data.worktrees : {},
+        habilidadesOff: data.habilidadesOff && typeof data.habilidadesOff === 'object' ? data.habilidadesOff : {},
       };
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
@@ -164,6 +167,27 @@ export class MetaStore {
     const { [path]: _old, ...worktrees } = this.meta.worktrees;
     this.meta = { ...this.meta, worktrees: info ? { ...worktrees, [path]: info } : worktrees };
     await this.save();
+  }
+
+  /** As habilidades do cald desligadas nesta conversa. */
+  habilidadesOff(sessionId: string): string[] {
+    return this.meta.habilidadesOff[sessionId] ?? [];
+  }
+
+  /** A conversa ganhou outro id (bifurcou, continuou depois de um /clear): o que estava desligado segue com ela. */
+  async copyHabilidades(from: string, to: string): Promise<void> {
+    const off = this.meta.habilidadesOff[from];
+    if (!off?.length || from === to) return;
+    this.meta = { ...this.meta, habilidadesOff: { ...this.meta.habilidadesOff, [to]: off } };
+    await this.save();
+  }
+
+  async setHabilidade(sessionId: string, id: string, on: boolean): Promise<string[]> {
+    const { [sessionId]: old = [], ...rest } = this.meta.habilidadesOff;
+    const off = on ? old.filter((x) => x !== id) : [...new Set([...old, id])];
+    this.meta = { ...this.meta, habilidadesOff: off.length ? { ...rest, [sessionId]: off } : rest };
+    await this.save();
+    return off;
   }
 
   // Gravação atômica e em fila: um arquivo temporário renomeado por cima do atual.

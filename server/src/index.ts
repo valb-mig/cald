@@ -14,6 +14,7 @@ import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
+import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
 import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
 import { gitBase, gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
 import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
@@ -61,7 +62,11 @@ await workspaces.load();
 const origins = new OriginLog();
 await origins.load();
 const devices = new DeviceDirectory();
-const manager = new Manager(live, meta, teams, workspaces, origins);
+// As habilidades do cald (ver habilidades.ts); os plugins de conversas de antes de subir saem.
+const habilidades = new HabilidadeStore();
+await habilidades.load();
+await clearPlugins();
+const manager = new Manager(live, meta, teams, workspaces, origins, habilidades);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
@@ -962,10 +967,60 @@ app.post<{ Body: { cwd?: string; path?: string; category?: 'code reviewing' | 'p
   },
 );
 
-app.get<{ Querystring: { cwd: string } }>(
+app.get<{ Querystring: { cwd: string; session?: string } }>(
   '/api/commands',
-  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
-  async (req) => manager.commands(req.query.cwd),
+  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, session: { type: 'string' } } } } },
+  async (req) => manager.commands(req.query.cwd, req.query.session),
+);
+
+// ---- Habilidades do cald (ver habilidades.ts) ----
+
+// As globais, as do projeto de `cwd` (se veio) e a lixeira delas.
+app.get<{ Querystring: { cwd?: string } }>(
+  '/api/habilidades',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
+  async (req) => manager.listHabilidades(req.query.cwd),
+);
+
+// Cria (sem `id`) ou edita. `project`: a pasta do projeto, ou `null` para global.
+app.post<{ Body: HabilidadeInput }>(
+  '/api/habilidades',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'description', 'body', 'project'],
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', maxLength: 64 },
+          name: { type: 'string', maxLength: 64 },
+          description: { type: 'string', maxLength: MAX_HABILIDADE_DESCRIPTION },
+          body: { type: 'string', maxLength: MAX_HABILIDADE_BODY },
+          project: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+  async (req) => manager.saveHabilidade(req.body),
+);
+
+const habilidadeId = { schema: { body: { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 64 } } } } };
+app.post<{ Body: { id: string } }>('/api/habilidades/trash', habilidadeId, async (req) => {
+  await habilidades.toTrash(req.body.id);
+  return { ok: true };
+});
+app.post<{ Body: { id: string } }>('/api/habilidades/restore', habilidadeId, async (req) => habilidades.restore(req.body.id));
+app.post<{ Body: { id: string } }>('/api/habilidades/purge', habilidadeId, async (req) => {
+  await habilidades.purge(req.body.id);
+  return { ok: true };
+});
+
+// O que está desligado numa conversa, e liga ou desliga uma (vale na hora, nas abertas no painel).
+app.get<{ Params: IdParams }>('/api/sessions/:id/habilidades', async (req) => manager.sessionHabilidades(req.params.id));
+app.post<{ Params: IdParams; Body: { id: string; on: boolean } }>(
+  '/api/sessions/:id/habilidades',
+  { schema: { body: { type: 'object', required: ['id', 'on'], properties: { id: { type: 'string', minLength: 1, maxLength: 64 }, on: { type: 'boolean' } } } } },
+  async (req) => manager.setSessionHabilidade(req.params.id, req.body.id, req.body.on),
 );
 
 // A memória automática do Claude Code (ver memory.ts): de todos os projetos ou, com `cwd`, de um só.

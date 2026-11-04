@@ -29,6 +29,7 @@ import { imageStore, type StoredImage } from './images.ts';
 import { transcriptCwd, transcriptFile, transcriptMarks, transcriptTimes } from './transcript.ts';
 import type { Device, OriginLog } from './origins.ts';
 import { pcOffice, type OfficeSnapshot } from './office.ts';
+import { pluginDir, removePlugin, writePlugin, type Habilidade, type HabilidadeInput, type HabilidadeStore } from './habilidades.ts';
 import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
@@ -130,18 +131,67 @@ export class Manager extends EventEmitter {
   private readonly delivered = new Set<string>();
   private readonly live: LiveRegistry;
   private readonly meta: MetaStore;
+  private readonly habilidades: HabilidadeStore;
   private readonly teams: TeamStore;
   private readonly workspaces: WorkspaceStore;
   private readonly origins: OriginLog;
 
-  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog) {
+  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog, habilidades: HabilidadeStore) {
     super();
     this.live = live;
     this.meta = meta;
     this.teams = teams;
     this.workspaces = workspaces;
     this.origins = origins;
+    this.habilidades = habilidades;
     live.on('change', () => this.emit('catalog'));
+    // Uma habilidade criada, editada ou para a lixeira: as conversas abertas no painel já veem.
+    habilidades.on('change', () => {
+      for (const s of this.sessions.values()) void this.refreshHabilidades(s);
+    });
+  }
+
+  // ---- habilidades do cald (ver habilidades.ts) ----
+
+  /** As habilidades que valem numa conversa em `cwd`, tirando as desligadas nela. */
+  private habilidadesFor(cwd: string, sessionId?: string) {
+    const off = new Set(sessionId ? this.meta.habilidadesOff(sessionId) : []);
+    return this.habilidades.visibleIn(cwd).filter((h) => !off.has(h.id));
+  }
+
+  /** O plugin de uma conversa que vai abrir no painel: uma pasta nova com as habilidades dela. */
+  private async habilidadesPlugin(cwd: string, sessionId?: string): Promise<string> {
+    const dir = pluginDir();
+    await writePlugin(dir, this.habilidadesFor(cwd, sessionId));
+    return dir;
+  }
+
+  /** Refaz o plugin de uma conversa aberta e pede ao processo para reler, sem reiniciar. */
+  private async refreshHabilidades(session: PanelSession): Promise<void> {
+    if (!session.habilidades || session.state === 'exited') return;
+    await writePlugin(session.habilidades, this.habilidadesFor(session.cwd, session.id));
+    await session.reloadHabilidades().catch(() => undefined);
+  }
+
+  /** As globais, as do projeto de `cwd` e a lixeira, para o modal de habilidades. */
+  async listHabilidades(cwd?: string) {
+    return this.habilidades.list(cwd ? await this.knownCwd(cwd) : undefined);
+  }
+
+  async saveHabilidade(input: HabilidadeInput): Promise<Habilidade> {
+    return this.habilidades.save({ ...input, project: input.project ? await this.knownCwd(input.project) : null });
+  }
+
+  /** O que está desligado nesta conversa (as do painel, e também uma do PC, que só vale quando ela vier para o painel). */
+  sessionHabilidades(sessionId: string): { off: string[] } {
+    return { off: this.meta.habilidadesOff(sessionId) };
+  }
+
+  async setSessionHabilidade(sessionId: string, id: string, on: boolean): Promise<{ off: string[] }> {
+    const off = await this.meta.setHabilidade(sessionId, id, on);
+    const open = this.sessions.get(sessionId);
+    if (open) await this.refreshHabilidades(open);
+    return { off };
   }
 
   get(sessionId: string): PanelSession {
@@ -441,7 +491,15 @@ export class Manager extends EventEmitter {
     }
     const workspace = ws ? ((await this.workspaces.context(ws.id, cwd)) ?? undefined) : undefined;
     const session = this.adopt(
-      new PanelSession({ ...rest, cwd, team, workspace, worktree: this.worktreeContext(cwd), label: opts.title || prompt.slice(0, 80) }),
+      new PanelSession({
+        ...rest,
+        cwd,
+        team,
+        workspace,
+        worktree: this.worktreeContext(cwd),
+        habilidades: await this.habilidadesPlugin(cwd),
+        label: opts.title || prompt.slice(0, 80),
+      }),
     );
     if (team) await this.meta.setTeam(session.id, team);
     if (ws) await this.meta.setWorkspace(session.id, ws.id);
@@ -530,9 +588,19 @@ export class Manager extends EventEmitter {
     }
   }
 
-  /** Comandos e skills para o autocompletar do "/", por projeto. */
-  async commands(cwd: string): Promise<CommandInfo[]> {
+  /**
+   * Comandos e skills para o autocompletar do "/", por projeto. As habilidades do cald entram como
+   * `cald:nome`, tiradas daqui e não do processo (a sonda não leva o plugin), sem as desligadas na
+   * conversa `sessionId`.
+   */
+  async commands(cwd: string, sessionId?: string): Promise<CommandInfo[]> {
     const dir = await this.knownCwd(cwd);
+    const ours = this.habilidadesFor(dir, sessionId).map((h) => ({ name: `cald:${h.name}`, description: h.description, argumentHint: '', builtin: false }));
+    const theirs = (await this.claudeCommands(dir)).filter((c) => !c.name.startsWith('cald:'));
+    return [...ours, ...theirs];
+  }
+
+  private async claudeCommands(dir: string): Promise<CommandInfo[]> {
     const open = [...this.sessions.values()].find((s) => s.cwd === dir);
     if (open) return filterCommands(await open.commands());
     const hit = this.commandsCache.get(dir);
@@ -739,6 +807,8 @@ export class Manager extends EventEmitter {
         team: this.meta.teamOf(sessionId),
         workspace: await this.workspaceContext(sessionId, cwd),
         worktree: this.worktreeContext(cwd),
+        // Retomada (ou bifurcada), com as habilidades que estavam desligadas nela.
+        habilidades: await this.habilidadesPlugin(cwd, sessionId),
       }),
     );
     // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.
@@ -841,6 +911,7 @@ export class Manager extends EventEmitter {
       if (session.team) void this.meta.setTeam(to, session.team);
       const wsId = this.meta.workspaceOf(session.origin ?? from);
       if (wsId) void this.meta.setWorkspace(to, wsId);
+      void this.meta.copyHabilidades(session.origin ?? from, to);
       this.emit('rekey', from, to);
       this.emit('catalog');
     });
@@ -852,6 +923,7 @@ export class Manager extends EventEmitter {
     session.on('delta', (text: string) => this.emit('delta', session.id, text));
     session.on('state', () => this.emit('catalog'));
     session.on('exit', () => {
+      if (session.habilidades) void removePlugin(session.habilidades);
       this.sessions.delete(session.id);
       this.savedCache = undefined;
       this.emit('catalog');
