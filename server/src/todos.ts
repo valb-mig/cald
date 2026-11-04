@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +38,8 @@ const FILE = process.env.TODOS_FILE ?? join(DATA_DIR, 'todos.json');
 // Um anexo por pasta, com o nome original (limpo): o caminho que o Claude lê é legível.
 const FILES_DIR = join(dirname(FILE), 'todo-files');
 
-type Project = { next: number; items: Todo[] };
+/** `rev` sobe a cada mudança: o app manda o que leu, e uma lista velha não passa por cima (ver `replace`). */
+type Project = { next: number; items: Todo[]; rev?: number };
 type Saved = { version: 2; projects: Record<string, Project> };
 type OldTodo = { id: string; text: string; done: boolean; createdAt: number };
 
@@ -50,8 +52,11 @@ function safeName(name: string): string {
   return cleaned.slice(-120) || 'arquivo';
 }
 
-/** O TODO de cada projeto, pela pasta. A lista vai inteira a cada mudança: é pequena e só sua. */
-export class TodoStore {
+/**
+ * O TODO de cada projeto, pela pasta. A lista vai inteira a cada mudança: é pequena e só sua. Avisa
+ * `change` (com a pasta) a cada gravação, venha do app ou do Claude (ver cald-mcp.ts).
+ */
+export class TodoStore extends EventEmitter {
   private projects: Record<string, Project> = {};
   private writing = Promise.resolve();
 
@@ -79,6 +84,11 @@ export class TodoStore {
     return this.projects[cwd]?.items ?? [];
   }
 
+  /** Quantas vezes a lista do projeto já mudou: o app manda de volta ao salvar. */
+  rev(cwd: string): number {
+    return this.projects[cwd]?.rev ?? 0;
+  }
+
   /** Os itens a fazer de todos os projetos, para a inbox. */
   open(): { cwd: string; todo: Todo }[] {
     return Object.entries(this.projects).flatMap(([cwd, p]) => p.items.filter((t) => !t.done).map((todo) => ({ cwd, todo })));
@@ -86,9 +96,11 @@ export class TodoStore {
 
   /**
    * A lista como o app mandou. Item sem número ganha o próximo do projeto; os anexos de um item que
-   * saiu (ou que tiraram do item) são apagados do disco.
+   * saiu (ou que tiraram do item) são apagados do disco. Com `rev`, só grava se ninguém mexeu desde
+   * que o app leu: senão um item que o Claude acabou de criar sumiria por baixo de uma lista velha.
    */
-  async replace(cwd: string, incoming: TodoInput[]): Promise<Todo[]> {
+  async replace(cwd: string, incoming: TodoInput[], rev?: number): Promise<Todo[]> {
+    if (rev !== undefined && rev !== this.rev(cwd)) throw new HttpError(409, 'todos_changed');
     const current = this.projects[cwd] ?? { next: 1, items: [] };
     let next = Math.max(current.next, ...current.items.map((t) => t.n + 1), 1);
     const used = new Set<number>();
@@ -102,13 +114,46 @@ export class TodoStore {
     const kept = new Set(items.flatMap((t) => t.files.map((f) => f.id)));
     const gone = current.items.flatMap((t) => t.files).filter((f) => !kept.has(f.id));
     const projects = { ...this.projects };
-    if (items.length) projects[cwd] = { next, items };
-    else if (current.next > 1) projects[cwd] = { next, items: [] };
+    const changed = (current.rev ?? 0) + 1;
+    if (items.length || current.next > 1) projects[cwd] = { next, items, rev: changed };
     else delete projects[cwd];
     this.projects = projects;
-    await this.save();
+    await this.save(cwd);
     await Promise.all(gone.map((f) => rm(join(FILES_DIR, f.id), { recursive: true, force: true })));
     return this.list(cwd);
+  }
+
+  /** Itens novos no fim da lista, cada um com o próximo número do projeto (é o que o Claude usa). */
+  async add(cwd: string, incoming: { title: string; body?: string }[]): Promise<Todo[]> {
+    const items = this.list(cwd);
+    if (items.length + incoming.length > MAX_TODOS) throw new HttpError(400, 'too_many_todos', { max: MAX_TODOS });
+    const now = Date.now();
+    const fresh = incoming.map((t) => ({ id: randomUUID(), title: t.title.trim().slice(0, MAX_TODO_TITLE), body: (t.body ?? '').trim().slice(0, MAX_TODO_BODY), done: false, createdAt: now }));
+    if (fresh.some((t) => !t.title)) throw new HttpError(400, 'todo_title_required');
+    const saved = await this.replace(cwd, [...items, ...fresh]);
+    const ids = new Set<string>(fresh.map((t) => t.id));
+    return saved.filter((t) => ids.has(t.id));
+  }
+
+  /** Muda um item pelo número; o que não veio fica como está. */
+  async update(cwd: string, n: number, patch: { title?: string; body?: string; done?: boolean }): Promise<Todo> {
+    const items = this.list(cwd);
+    const old = items.find((t) => t.n === n);
+    if (!old) throw new HttpError(404, 'todo_not_found', { n });
+    const title = patch.title === undefined ? old.title : patch.title.trim().slice(0, MAX_TODO_TITLE);
+    if (!title) throw new HttpError(400, 'todo_title_required');
+    const next: Todo = {
+      ...old,
+      title,
+      body: patch.body === undefined ? old.body : patch.body.trim().slice(0, MAX_TODO_BODY),
+      done: patch.done ?? old.done,
+      updatedAt: Date.now(),
+    };
+    const saved = await this.replace(
+      cwd,
+      items.map((t) => (t.n === n ? next : t)),
+    );
+    return saved.find((t) => t.n === n)!;
   }
 
   /** Guarda um anexo (em base64, como os do chat) e devolve o que o item leva dele. */
@@ -132,7 +177,8 @@ export class TodoStore {
   /**
    * O que o Claude precisa saber dos `TODO:n` mencionados numa mensagem: título, se está feito, a
    * descrição (com as menções a arquivos como estão) e o caminho de cada anexo no PC, que ele consegue
-   * abrir. Vai num bloco à parte, que a tela do chat não mostra (ver `userTextEvents`).
+   * abrir. Vai num bloco à parte, que a tela do chat não mostra (ver `userTextEvents`). Só as conversas
+   * do painel recebem, e elas têm o MCP do cald (ver cald-mcp.ts) para marcar o item quando terminar.
    */
   async context(cwd: string, text: string): Promise<string | null> {
     const wanted = [...new Set([...text.matchAll(/\bTODO:(\d+)\b/gi)].map((m) => Number(m[1])))];
@@ -155,6 +201,7 @@ export class TodoStore {
           `Título: ${t.title}`,
           t.body.trim() ? `Descrição:\n${t.body.trim()}` : 'Sem descrição.',
           files.some(Boolean) ? `Anexos, no PC:\n${files.filter(Boolean).join('\n')}` : '',
+          t.done ? '' : 'Quando terminar, marque como feito pela ferramenta `editar_todo` do MCP cald.',
           '</cald-todo>',
         ]
           .filter(Boolean)
@@ -165,13 +212,14 @@ export class TodoStore {
   }
 
   // Gravação atômica e em fila, como em meta.ts: um arquivo temporário renomeado por cima do atual.
-  private save(): Promise<void> {
+  private save(cwd: string): Promise<void> {
     const snapshot = JSON.stringify({ version: 2, projects: this.projects } satisfies Saved, null, 2);
     this.writing = this.writing.then(async () => {
       await mkdir(dirname(FILE), { recursive: true });
       await writeFile(`${FILE}.tmp`, snapshot);
       await rename(`${FILE}.tmp`, FILE);
     });
+    this.emit('change', cwd);
     return this.writing;
   }
 }

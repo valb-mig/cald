@@ -9,6 +9,7 @@ import {
   listSessions,
   renameSession,
   type EffortLevel,
+  type McpSdkServerConfigWithInstance,
   type PermissionMode,
   type SDKSessionInfo,
   type SlashCommand,
@@ -34,6 +35,7 @@ import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
+import type { CaldMcpContext } from './cald-mcp.ts';
 import {
   createWorktree,
   listedWorktree,
@@ -136,6 +138,8 @@ export class Manager extends EventEmitter {
   private readonly setupCache = new Map<string, { at: number; setup: Promise<ClaudeSetup> }>();
   /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
   private readonly delivered = new Set<string>();
+  /** Times que o Claude pôs na própria conversa (`usar_time`, ver cald-mcp.ts): entram quando o turno acaba. */
+  private readonly teamLater = new Map<PanelSession, string>();
   private readonly live: LiveRegistry;
   private readonly meta: MetaStore;
   private readonly habilidades: HabilidadeStore;
@@ -505,6 +509,7 @@ export class Manager extends EventEmitter {
         workspace,
         worktree: this.worktreeContext(cwd),
         habilidades: await this.habilidadesPlugin(cwd),
+        mcp: this.caldMcp(cwd),
         label: opts.title || prompt.slice(0, 80),
       }),
     );
@@ -604,6 +609,32 @@ export class Manager extends EventEmitter {
    * menciona (ver todos.ts). Posto pelo index.ts, que tem a lista.
    */
   todoContext?: (cwd: string, text: string) => Promise<string | null>;
+
+  /** O MCP do cald para uma conversa do painel (ver cald-mcp.ts). Posto pelo index.ts, que tem o TODO. */
+  mcpFor?: (ctx: CaldMcpContext) => McpSdkServerConfigWithInstance;
+
+  /** O MCP de uma conversa que vai abrir em `cwd`, amarrado a ela para o `usar_time`. */
+  private caldMcp(cwd: string): PanelSessionOptions['mcp'] {
+    const build = this.mcpFor;
+    return build && ((session) => build({ cwd, useTeam: (teamId) => this.useTeamLater(session, teamId) }));
+  }
+
+  /**
+   * O time pedido pelo Claude no meio do turno: trocar agora derrubaria o processo que está rodando a
+   * ferramenta, então ele entra quando a conversa para (sem subagente nem tarefa em segundo plano),
+   * pelo mesmo caminho do seletor de time.
+   */
+  private useTeamLater(session: PanelSession, teamId: string): void {
+    this.teamLater.set(session, teamId);
+    this.applyTeamLater(session);
+  }
+
+  private applyTeamLater(session: PanelSession): void {
+    const teamId = this.teamLater.get(session);
+    if (teamId === undefined || session.state !== 'idle' || session.pendingWork) return;
+    this.teamLater.delete(session);
+    this.changeTeam(session.id, teamId).catch((err: unknown) => console.warn(`[cald] o time ${teamId} não entrou na conversa ${session.id}:`, err));
+  }
 
   /**
    * `notice`: um aviso do cald para o Claude, junto do contexto dos TODOs (fora da tela também).
@@ -856,6 +887,7 @@ export class Manager extends EventEmitter {
         worktree: this.worktreeContext(cwd),
         // Retomada (ou bifurcada), com as habilidades que estavam desligadas nela.
         habilidades: await this.habilidadesPlugin(cwd, sessionId),
+        mcp: this.caldMcp(cwd),
       }),
     );
     // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.
@@ -968,8 +1000,12 @@ export class Manager extends EventEmitter {
     });
     session.on('event', (ev: LoggedEvent) => this.emit('event', session.id, ev, session.runId));
     session.on('delta', (text: string) => this.emit('delta', session.id, text));
-    session.on('state', () => this.emit('catalog'));
+    session.on('state', () => {
+      this.emit('catalog');
+      this.applyTeamLater(session);
+    });
     session.on('exit', () => {
+      this.teamLater.delete(session);
       if (session.habilidades) void removePlugin(session.habilidades);
       this.sessions.delete(session.id);
       this.savedCache = undefined;

@@ -34,6 +34,7 @@ import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { attachTerminal, openTerminal } from './terminal.ts';
+import { caldMcp } from './cald-mcp.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
@@ -69,6 +70,8 @@ await clearPlugins();
 const manager = new Manager(live, meta, teams, workspaces, origins, habilidades);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
+// O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
+manager.mcpFor = (ctx) => caldMcp({ todos, teams, workspaces, habilidades, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
@@ -877,10 +880,14 @@ app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: Gi
 app.get<{ Querystring: { cwd: string } }>(
   '/api/todos',
   { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
-  async (req) => ({ items: todos.list(await manager.knownCwd(req.query.cwd)) }),
+  async (req) => {
+    const cwd = await manager.knownCwd(req.query.cwd);
+    return { items: todos.list(cwd), rev: todos.rev(cwd) };
+  },
 );
 
-// A lista inteira de uma vez: o app manda como ficou depois de cada mudança.
+// A lista inteira de uma vez: o app manda como ficou depois de cada mudança, e o `rev` que leu (o Claude
+// pode ter mexido no meio; app antigo não manda, e grava como antes).
 const todoFile = {
   type: 'object',
   required: ['id', 'name', 'mediaType', 'size'],
@@ -892,7 +899,7 @@ const todoFile = {
     size: { type: 'number' },
   },
 };
-app.post<{ Body: { cwd: string; items: TodoInput[] } }>(
+app.post<{ Body: { cwd: string; items: TodoInput[]; rev?: number } }>(
   '/api/todos',
   {
     schema: {
@@ -901,6 +908,7 @@ app.post<{ Body: { cwd: string; items: TodoInput[] } }>(
         required: ['cwd', 'items'],
         properties: {
           cwd: { type: 'string' },
+          rev: { type: 'integer', minimum: 0 },
           items: {
             type: 'array',
             maxItems: MAX_TODOS,
@@ -924,7 +932,10 @@ app.post<{ Body: { cwd: string; items: TodoInput[] } }>(
       },
     },
   },
-  async (req) => ({ items: await todos.replace(await manager.knownCwd(req.body.cwd), req.body.items) }),
+  async (req) => {
+    const cwd = await manager.knownCwd(req.body.cwd);
+    return { items: await todos.replace(cwd, req.body.items, req.body.rev), rev: todos.rev(cwd) };
+  },
 );
 
 // Um anexo de um item do TODO (imagem ou documento), em base64 como os do chat; o item leva o que volta.
@@ -1546,6 +1557,12 @@ function broadcastAll(payload: unknown): void {
 monitor.on('system', (system) => broadcastAll({ type: 'system', system }));
 audio.on('spectrum', (spectrum: unknown) => sendEach(listening, { type: 'audio', spectrum }));
 monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
+// Mudou o TODO de um projeto, um time, um workspace ou uma habilidade (pelo app ou pelo Claude, ver
+// cald-mcp.ts): cada aparelho recarrega o que tiver aberto disso.
+todos.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'todos', cwd, rev: todos.rev(cwd) }));
+teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
+workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
+habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidades' }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
 manager.on('catalog', () => {
