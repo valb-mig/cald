@@ -26,7 +26,7 @@ import {
   VolumeOff,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { AgentSheet } from '@/components/agents/agent-sheet'
@@ -35,6 +35,7 @@ import { TeamPill } from '@/components/teams/team-pill'
 import { AgentsContext, agentTree } from '@/components/agents/model'
 import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
+import { liveKey, useAutoScroll, useConversation } from '@/components/chat/feed'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
@@ -80,78 +81,19 @@ import { keyOf, pinTab } from '@/lib/workbench'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { setZen, useZen } from '@/lib/zen'
 import { putDraft } from '@/lib/drafts'
-import { enqueue, useOutbox } from '@/lib/outbox'
+import { enqueue } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
 import { useMachine, useMachines } from '@/lib/machines'
 import { CHAT_DRAG, closeChat, openBeside, swapChat, useDraggingChat, usePane, useSplit } from '@/lib/split'
-import { onLiveEvent, selectView, subscribe, unsubscribe, useStore } from '@/lib/store'
-import type { ContextUsage, LoggedEvent, RunOptions } from '@/lib/types'
+import { onLiveEvent, subscribe, unsubscribe, useStore } from '@/lib/store'
+import type { ContextUsage, RunOptions } from '@/lib/types'
 import { backHref } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
 import { useActivityPing } from '@/lib/wakatime'
 
 // O desenho do mapa mental só chega quando ele for aberto; a árvore (model.ts) é leve e fica aqui.
 const MindMap = lazy(() => import('@/components/mindmap/mind-map').then((m) => ({ default: m.MindMap })))
-
-/**
- * Histórico salvo da conversa. Com a sessão aberta no painel, o servidor devolve só o que
- * existia antes do processo (o resto vem ao vivo). Aberta no PC, atualiza periodicamente.
- */
-function useHistory(id: string, machine: string, panelOpen: boolean, pcOwned: boolean, pcWorking: boolean) {
-  const [events, setEvents] = useState<LoggedEvent[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const latest = useRef(0)
-
-  const load = useCallback(async () => {
-    const ticket = ++latest.current
-    try {
-      const result = await api.history(id)
-      if (ticket === latest.current) {
-        // A atualização periódica quase sempre traz o mesmo histórico: sem trocar o array, nada renderiza.
-        setEvents((current) => (current && sameHistory(current, result) ? current : result))
-        setError(null)
-      }
-    } catch (err) {
-      if (ticket === latest.current) setError(errorMessage(err))
-    }
-    // A máquina muda quando o catálogo dela chega (conversa aberta por link direto): busca de novo lá.
-  }, [id, machine])
-
-  useEffect(() => {
-    void load()
-  }, [load, panelOpen])
-
-  useEffect(() => {
-    if (!pcOwned) return
-    const timer = setInterval(() => document.visibilityState === 'visible' && void load(), pcWorking ? 4_000 : 15_000)
-    return () => clearInterval(timer)
-  }, [load, pcOwned, pcWorking])
-
-  return { events, error }
-}
-
-// O histórico salvo só cresce no fim (e a janela das últimas mensagens desliza): bastam as pontas e o tamanho.
-function sameHistory(a: LoggedEvent[], b: LoggedEvent[]): boolean {
-  if (a.length !== b.length) return false
-  if (!a.length) return true
-  return a[0]!.uuid === b[0]!.uuid && JSON.stringify(a.at(-1)) === JSON.stringify(b.at(-1))
-}
-
-/**
- * Chave de cada evento do histórico: pela mensagem de onde ele veio, não pela posição. A lista são as
- * últimas mensagens, então a posição de todas muda quando chega uma nova, e cada item renderizaria
- * do zero (e o que estava aberto pularia para outro).
- */
-function historyKeys(events: LoggedEvent[]): Keyed[] {
-  const seen = new Map<string, number>()
-  return events.map((e, i) => {
-    if (!e.uuid) return { ...e, key: `h${i}` }
-    const n = seen.get(e.uuid) ?? 0
-    seen.set(e.uuid, n + 1)
-    return { ...e, key: `h${e.uuid}-${n}` }
-  })
-}
 
 /** Ocupação do contexto da sessão aberta no painel; relida a cada turno concluído. */
 function useContextUsage(id: string, enabled: boolean, turns: number): ContextUsage | null {
@@ -181,94 +123,6 @@ function ForkBanner({ from }: { from: { sessionId: string; title?: string } }) {
       </span>
     </Link>
   )
-}
-
-/** Chave de um evento ao vivo no chat; a resposta lida sozinha precisa da mesma, para o destaque. */
-const liveKey = (runId: string | undefined, seq: number) => `l${runId}-${seq}`
-
-// Preferência (o "cadeado") de acompanhar o fim da conversa; vale para todas as sessões.
-const FOLLOW_KEY = 'cr:chat-follow'
-
-/**
- * Mantém o feed acompanhando o fim da conversa, de forma robusta.
- * - `follow` (o cadeado) liga/desliga o acompanhamento automático e fica salvo.
- * - Ligado, novas mensagens, streaming, imagens e blocos que crescem grudam no fim. Se o usuário
- *   rola para cima para ler, pausa até ele voltar ao fim (ou tocar em "descer").
- * - `atBottom` diz se já dá para esconder o botão flutuante de "descer".
- */
-function useAutoScroll(deps: unknown[]) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const [follow, setFollowState] = useState(() => {
-    try {
-      return localStorage.getItem(FOLLOW_KEY) !== '0'
-    } catch {
-      return true
-    }
-  })
-  const [atBottom, setAtBottom] = useState(true)
-  // Rolou para cima para ler: segura o acompanhamento até voltar ao fim.
-  const paused = useRef(false)
-
-  const nearBottom = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return true
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
-  }, [])
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const el = scrollRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
-  }, [])
-
-  const onScroll = useCallback(() => {
-    const near = nearBottom()
-    paused.current = !near
-    setAtBottom(near)
-  }, [nearBottom])
-
-  // Conteúdo cresceu (markdown, imagens, atividade): gruda no fim se estiver acompanhando.
-  useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
-    const observer = new ResizeObserver(() => {
-      if (follow && !paused.current) scrollToBottom()
-      setAtBottom(nearBottom())
-    })
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [follow, nearBottom, scrollToBottom])
-
-  // Novo item/turno/streaming: gruda no fim se estiver acompanhando.
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (el && follow && !paused.current) el.scrollTop = el.scrollHeight
-  }, deps)
-
-  const jumpToBottom = useCallback(() => {
-    paused.current = false
-    scrollToBottom('smooth')
-    setAtBottom(true)
-  }, [scrollToBottom])
-
-  const setFollow = useCallback(
-    (next: boolean) => {
-      try {
-        localStorage.setItem(FOLLOW_KEY, next ? '1' : '0')
-      } catch {
-        // localStorage indisponível (modo privado): segue só em memória.
-      }
-      setFollowState(next)
-      if (next) {
-        paused.current = false
-        scrollToBottom('smooth')
-        setAtBottom(true)
-      }
-    },
-    [scrollToBottom],
-  )
-
-  return { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom }
 }
 
 // Os /clear cuja animação já rodou: a conversa remontada (a aba troca para o id novo) não repete.
@@ -321,13 +175,12 @@ export function ChatPage({ id }: { id: string }) {
   const handle = pane.split && !tabs
   const split = useSplit()
   const [besideOpen, setBesideOpen] = useState(false)
-  const view = useStore(selectView(id))
-  const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
-  // Logo depois de um /clear, o catálogo ainda não tem o id novo (chega uns 300 ms depois): até lá, a
-  // pasta é a da conversa de antes, que é a mesma. Sem ela, a barra do projeto sumia e voltava na queda.
-  const cwd = useStore((s) => entry?.cwd ?? s.catalog.find((c) => s.rekeys[c.sessionId] === id)?.cwd)
   // Máquina da conversa (posta pelo ChatSplit, ver machines.ts): tudo desta tela vai para ela.
   const machine = useMachine()
+  const { view, entry, cwd, panelOpen, owner, state, waitingFor, working, history, events, cut, items, background, uses, queued } = useConversation(
+    id,
+    machine,
+  )
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const rekeyed = useStore((s) => s.rekeys[id])
   // O tempo que você passa nesta conversa conta no WakaTime, como o do Claude (ver lib/wakatime.ts).
@@ -377,23 +230,6 @@ export function ChatPage({ id }: { id: string }) {
     [id],
   )
 
-  // O WebSocket sabe primeiro quando o processo do painel abre ou fecha; o catálogo cobre o resto.
-  const panelOpen = view.open === true || (view.open === null && entry?.owner === 'panel')
-  const owner = panelOpen ? 'panel' : entry?.owner === 'pc' ? 'pc' : null
-  const state = panelOpen ? view.state : entry?.state
-  const waitingFor = panelOpen ? view.waitingFor : entry?.waitingFor
-  const working = panelOpen && (state === 'running' || state === 'starting')
-
-  const history = useHistory(id, machine, panelOpen, owner === 'pc', entry?.state === 'running')
-
-  const saved = useMemo(() => historyKeys(history.events ?? []), [history.events])
-  const events: Keyed[] = useMemo(
-    () => [...saved, ...(panelOpen ? view.events.map((e) => ({ ...e, key: liveKey(view.runId, e.seq) })) : [])],
-    [saved, panelOpen, view.events, view.runId],
-  )
-  // Depois de um /clear, a tela mostra só dali para baixo: o que veio antes foi para o lixo.
-  const cut = useMemo(() => events.findLastIndex((e) => e.kind === 'cleared'), [events])
-  const items = useMemo(() => buildItems(cut >= 0 ? events.slice(cut) : events), [events, cut])
   const trash = useTrashFall(events, cut)
   // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
   const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
@@ -403,24 +239,10 @@ export function ChatPage({ id }: { id: string }) {
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
   const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId, team: entry?.team }), [agents, entry?.team])
   const agentsWorking = agents.count.running + agents.count.waiting
-  // O que roda em segundo plano agora (monitores, comandos, subagentes): a última lista do processo do painel.
-  const background = useMemo(() => {
-    if (!panelOpen) return []
-    const last = view.events.findLast((e) => e.kind === 'tasks')
-    return last?.kind === 'tasks' ? last.tasks : []
-  }, [panelOpen, view.events])
-  // Chamadas de ferramenta, para o cartão de segundo plano mostrar o comando e o tipo de cada tarefa.
-  const uses = useMemo(() => new Map(events.flatMap((e) => (e.kind === 'tool_use' ? [[e.id, e] as const] : []))), [events])
   // Turno encerrado com algo em segundo plano: a conversa ainda trabalha (como na lista de conversas).
   const inBackground = state === 'idle' && background.length > 0
   const shownState = state === 'idle' && (agentsWorking || inBackground) ? 'running' : state
   const shownWaiting = inBackground ? 'background' : waitingFor
-  const outbox = useOutbox((s) => s.items)
-  const queued = useMemo(() => {
-    // O evento da mensagem costuma chegar pelo WebSocket antes da resposta do envio: aí ela já saiu da fila.
-    const delivered = new Set(view.events.flatMap((e) => (e.kind === 'user' && e.clientId ? [e.clientId] : [])))
-    return outbox.filter((i) => i.sessionId === id && !delivered.has(i.id))
-  }, [outbox, id, view.events])
   const turns = useMemo(() => view.events.filter((e) => e.kind === 'result').length, [view.events])
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.

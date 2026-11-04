@@ -282,13 +282,26 @@ function resync(id: string): void {
   socketOf(id)?.send({ type: 'subscribe', sessionId: id, sinceSeq: 0 })
 }
 
+/**
+ * Quantas telas acompanham cada sessão: a mesma conversa pode estar na aba dela e na mesa do projeto
+ * (ver project/hub.tsx), e fechar uma não pode cortar o ao vivo da outra. Numa troca de id (o rekey),
+ * a inscrição passa para o novo e a conta fica no velho, que a tela solta ao remontar com o novo.
+ */
+const watchers = new Map<string, number>()
+
 export function subscribe(id: string): void {
+  const count = watchers.get(id) ?? 0
+  watchers.set(id, count + 1)
+  if (count) return
   const machine = machineOf(id)
   subscribed.set(id, machine)
   sockets.get(machine)?.sendSubscribe(id)
 }
 
 export function unsubscribe(id: string): void {
+  const left = (watchers.get(id) ?? 1) - 1
+  if (left > 0) return void watchers.set(id, left)
+  watchers.delete(id)
   const machine = subscribed.get(id)
   subscribed.delete(id)
   if (machine !== undefined) sockets.get(machine)?.send({ type: 'unsubscribe', sessionId: id })
