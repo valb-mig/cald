@@ -81,6 +81,14 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock) {
     const host = req.headers.host ?? '';
     // Numa porta HTTPS extra do `tailscale serve` (ex.: uma instância de teste em :10000), o Host traz a porta.
     const name = host.replace(/:\d+$/, '');
+
+    // Só o nome da máquina (`http://valb`, pelo MagicDNS, com o `tailscale serve --http=80`): vai para o
+    // endereço completo. O certificado só vale para ele, e sem https o navegador não deixa o app instalar,
+    // notificar nem usar o microfone. Nada é servido por aqui, então não precisa conferir quem pede.
+    const short = policy.tailnetHost?.split('.')[0];
+    if (short && name === short) {
+      return reply.redirect(`https://${policy.tailnetHost}${req.url}`, 302);
+    }
     const viaTailnet =
       name === policy.tailnetHost || 'x-forwarded-for' in req.headers || 'tailscale-user-login' in req.headers;
 

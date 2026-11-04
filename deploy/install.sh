@@ -134,6 +134,9 @@ if have tailscale; then
       warn "Falha ao publicar: $serve_out"
     fi
   fi
+  # Em http, na porta 80: digitar só o nome da máquina (http://<máquina>, pelo MagicDNS) cai no
+  # endereço completo, que o servidor devolve (ver server/src/guard.ts). Falhar aqui não atrapalha o resto.
+  tailscale serve --bg --http=80 "$PORT" >/dev/null 2>&1 || warn "Não deu para publicar o atalho em http (porta 80)."
   REMOTE_URL="$(tailscale serve status 2>/dev/null | awk '/^https:\/\// {print $1; exit}')"
   if [ -z "$REMOTE_URL" ]; then
     warn "Ainda não há link publicado. Confira MagicDNS e HTTPS Certificates no painel do Tailscale."
