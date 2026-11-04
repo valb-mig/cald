@@ -22,9 +22,18 @@ export type Question = {
   options: { label: string; description: string; preview?: string }[];
 };
 
+/**
+ * Por onde, de que máquina e quando uma mensagem sua saiu (ver server/src/origins.ts). `mobile`: o
+ * aparelho é um celular ou tablet. Cada campo falta quando não se sabe.
+ */
+export type Sent = { via?: 'cald' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
+
 export type PanelEvent =
-  /** `images`: chaves das imagens no PC (GET /api/sessions/:id/images/:key); `clientId`: ID na fila do celular. */
-  | { kind: 'user'; text: string; images?: string[]; clientId?: string }
+  /**
+   * `images`: chaves das imagens no PC (GET /api/sessions/:id/images/:key); `clientId`: ID na fila do
+   * celular; `sent`: de onde ela saiu.
+   */
+  | { kind: 'user'; text: string; images?: string[]; clientId?: string; sent?: Sent }
   | { kind: 'notice'; text: string }
   /** `model` e `effort`: o modelo que escreveu a resposta e o esforço com que pensou, quando se sabe. */
   | { kind: 'assistant'; text: string; parentToolUseId?: string | null; model?: string; effort?: string }

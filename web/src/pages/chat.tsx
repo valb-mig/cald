@@ -55,16 +55,6 @@ import { ProjectPanelButton } from '@/components/project/panel'
 import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
 import { StateBadge } from '@/components/state-badge'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -342,7 +332,6 @@ export function ChatPage({ id }: { id: string }) {
   // O tempo que você passa nesta conversa conta no WakaTime, como o do Claude (ver lib/wakatime.ts).
   useActivityPing(machine, cwd)
   const [summaryOpen, setSummaryOpen] = useState(false)
-  const [confirmTakeover, setConfirmTakeover] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   // O nome do claudinho: botão direito (ou o dedo segurado) no claudinho do cabeçalho.
   const [naming, setNaming] = useState(false)
@@ -693,8 +682,7 @@ export function ChatPage({ id }: { id: string }) {
           {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
           {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
           {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
-          {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: assumir a conversa no
-              botão que toma o lugar da caixa de mensagem, apagar no toque longo da lista. */}
+          {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: apagar, no toque longo da lista. */}
           {tabs && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -736,11 +724,6 @@ export function ChatPage({ id }: { id: string }) {
                 {owner === 'panel' && (
                   <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
                     <LogOut /> Liberar para o PC
-                  </DropdownMenuItem>
-                )}
-                {owner === 'pc' && (
-                  <DropdownMenuItem disabled={busy || state !== 'idle'} onSelect={() => setConfirmTakeover(true)}>
-                    <Smartphone /> Assumir sessão
                   </DropdownMenuItem>
                 )}
                 {owner !== 'panel' && (
@@ -925,23 +908,7 @@ export function ChatPage({ id }: { id: string }) {
             )}
             <SpeechPlayer sessionId={id} />
 
-            {owner === 'pc' ? (
-              <div
-                className={cn(
-                  'shrink-0 space-y-2 px-4 pt-3 pb-[max(0.75rem,var(--safe-bottom))]',
-                  glass && 'bg-background/70 backdrop-blur-md',
-                )}
-              >
-                <p className="text-xs text-muted-foreground">
-                  {state === 'idle'
-                    ? 'Aberta no PC e ociosa. Assumir encerra a sessão no PC e a continua aqui, com todo o contexto.'
-                    : 'Aberta no PC e ocupada. Dá para assumir quando ela ficar ociosa.'}
-                </p>
-                <Button className="h-11 w-full" disabled={busy || state !== 'idle'} onClick={() => setConfirmTakeover(true)}>
-                  <Smartphone /> Assumir sessão
-                </Button>
-              </div>
-            ) : owner === 'panel' ? (
+            {owner === 'panel' ? (
               <Composer
                 sessionId={id}
                 cwd={cwd}
@@ -985,7 +952,15 @@ export function ChatPage({ id }: { id: string }) {
                 cwd={cwd}
                 branch={git.status?.branch}
                 working={false}
-                hint="Enviar retoma esta conversa aqui pelo celular."
+                // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa e no terminal) e a
+                // continua aqui; cada mensagem mostra de onde saiu, então não há botão de assumir.
+                hint={
+                  owner !== 'pc'
+                    ? 'Enviar retoma esta conversa aqui pelo celular.'
+                    : state === 'idle'
+                      ? 'Aberta no PC. Enviar a encerra lá e a continua aqui, com todo o contexto.'
+                      : 'Trabalhando no PC. Dá para mandar daqui quando ela parar.'
+                }
                 settings={pending}
                 context={null}
                 onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
@@ -1044,22 +1019,6 @@ export function ChatPage({ id }: { id: string }) {
 
         <DeleteSessionDialog sessionId={id} open={confirmDelete} onOpenChange={setConfirmDelete} />
         <ClaudinhoNameDialog session={entry ?? { sessionId: id }} open={naming} onOpenChange={setNaming} />
-
-        <AlertDialog open={confirmTakeover} onOpenChange={setConfirmTakeover}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Assumir esta sessão?</AlertDialogTitle>
-              <AlertDialogDescription>
-                A sessão aberta no PC será encerrada e a conversa continua aqui, com todo o contexto. Para voltar ao PC depois, use
-                “Liberar para o PC”.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => run(() => api.takeover(id), 'Sessão assumida')}>Assumir</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </AgentsContext>
   )

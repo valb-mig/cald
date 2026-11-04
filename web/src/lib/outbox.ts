@@ -90,8 +90,8 @@ async function deliver(item: OutboxItem): Promise<void> {
     await send()
   } catch (err) {
     if (!(err instanceof ApiError && NOT_OPEN.has(err.code))) throw err
-    // Conversa parada: retoma aqui pelo celular e envia.
-    await api.open(item.sessionId, item.options)
+    // Conversa parada, ou aberta e ociosa no terminal do PC (que é encerrado): retoma aqui e envia.
+    await api.takeover(item.sessionId, item.options)
     await send()
   }
 }

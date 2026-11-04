@@ -169,7 +169,8 @@ export const api = {
   setTeam: (id: string, teamId: string | null) => post(`${sid(id)}/team`, { teamId }),
   /** `at`: entrada do log onde cortar, para bifurcar no meio da conversa em vez de no fim. */
   open: (id: string, body: RunOptions & { fork?: boolean; at?: string } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
-  takeover: (id: string) => post<{ sessionId: string }>(`${sid(id)}/takeover`),
+  /** Retoma aqui para mandar uma mensagem; aberta e ociosa no terminal do PC, ela é encerrada lá antes. */
+  takeover: (id: string, body: RunOptions = {}) => post<{ sessionId: string }>(`${sid(id)}/takeover`, body),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
 
   /** `clientId` identifica a mensagem da fila: reenviar a mesma não repete o turno. */
@@ -255,11 +256,11 @@ export function errorMessage(err: unknown): string {
     case 'busy_on_pc':
       return status === 'waiting'
         ? 'A sessão está esperando uma resposta no PC. Responda lá ou aguarde.'
-        : 'A sessão está trabalhando no PC. Aguarde ficar ociosa para assumir.'
+        : 'A sessão está trabalhando no PC. Mande de novo quando ela parar.'
     case 'live_on_pc':
-      return 'Esta sessão está aberta no PC. Use "Assumir" para trazê-la para cá.'
+      return 'Esta sessão está aberta no PC. Feche-a lá primeiro.'
     case 'unsupported_entrypoint':
-      return 'Sessões abertas no VSCode não podem ser assumidas. Feche-a no VSCode primeiro.'
+      return 'Esta sessão está aberta no VSCode. Feche-a lá para continuar daqui.'
     case 'session_busy':
       return err.details.agents
         ? 'Ainda há subagentes trabalhando. Aguarde terminarem para liberar.'

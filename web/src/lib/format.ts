@@ -34,6 +34,20 @@ export function shortTime(ms: number): string {
   return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
+/** Hora de uma mensagem: só a hora, se foi hoje; "ontem 14:32"; a data sem o ano, se foi este ano; com ele, se não. */
+export function messageTime(ms: number): string {
+  const d = new Date(ms)
+  const now = new Date()
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  // Arredondado: o dia da mudança de horário de verão tem 23 ou 25 horas.
+  const days = Math.round((day(now) - day(d)) / 86_400_000)
+  if (days === 0) return time
+  if (days === 1) return `ontem ${time}`
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...(sameYear ? {} : { year: '2-digit' }) })} ${time}`
+}
+
 export function duration(ms: number): string {
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s}s`
