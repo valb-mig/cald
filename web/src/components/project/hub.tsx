@@ -1,4 +1,4 @@
-import { ChevronRight, CircleDot, Ellipsis, FolderGit2, GitBranch, GitPullRequest, Layers, LayoutGrid, ListTodo, Loader2, PinOff, Plus, Server } from 'lucide-react'
+import { BookText, ChevronRight, CircleDot, Ellipsis, FolderGit2, GitBranch, GitPullRequest, Layers, LayoutGrid, ListTodo, Loader2, PinOff, Plus, Server } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { Composer } from '@/components/chat/composer'
@@ -35,7 +35,7 @@ import { saveTodos, useTodos } from '@/lib/todos'
 import type { Activity, CatalogEntry, GitStatus, RunOptions, Team, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useScrim, useSurface } from '@/lib/wallpaper'
-import { keyOf, openPanelTab, pinTab } from '@/lib/workbench'
+import { hubViewKey, keyOf, openPanelTab, pinTab, useHubViews, type HubView } from '@/lib/workbench'
 import {
   createProjectWorkspace,
   defaultWorkspace,
@@ -47,6 +47,7 @@ import {
   useWorkspaces,
   workspaceFailed,
 } from '@/lib/workspaces'
+import { DetalhesView } from './detalhes'
 import { MiniChat } from './mini-chat'
 
 const SPAN = 30
@@ -509,7 +510,8 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
   const composerId = `new:${cwd}`
   const [, navigate] = useLocation()
   const [everyone, setEveryone] = useState(false)
-  const [view, setView] = useState<'desk' | 'worktrees'>('desk')
+  const view = useHubViews((s) => s[hubViewKey(machine, cwd)] ?? 'desk')
+  const setView = (v: HubView) => useHubViews.setState({ [hubViewKey(machine, cwd)]: v })
   const git = useGitStatus(machine, cwd, null)
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const scrim = useScrim()
@@ -573,10 +575,11 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
             <Segmented
               value={view}
               onChange={setView}
-              className="ml-auto w-60 shrink-0"
+              className="ml-auto w-full shrink-0 sm:w-96"
               options={[
                 { key: 'desk', label: desk.length ? `Mesa · ${desk.length}` : 'Mesa', icon: <LayoutGrid /> },
                 { key: 'worktrees', label: 'Worktrees', icon: <GitBranch /> },
+                { key: 'detalhes', label: 'Detalhes', icon: <BookText />, title: 'Como o projeto funciona, para o Claude ler só o que precisa' },
               ]}
             />
           </header>
@@ -584,6 +587,10 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
           {view === 'worktrees' ? (
             <div className={cn('mt-4 rounded-xl p-2', surface)}>
               <WorktreesView machine={machine} project={cwd} onLeave={() => {}} />
+            </div>
+          ) : view === 'detalhes' ? (
+            <div className={cn('mt-4 rounded-xl p-2', surface)}>
+              <DetalhesView machine={machine} cwd={cwd} />
             </div>
           ) : (
             <>

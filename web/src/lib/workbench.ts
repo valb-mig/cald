@@ -180,8 +180,17 @@ export function openPanelTab(ref: Exclude<TabRef, { kind: 'chat' }>, opts: { pre
   if (!onWorkbench(location.pathname)) navigate(WORKBENCH_PATH)
 }
 
-/** Abre o hub do projeto numa aba de prévia (pelo nome dele na lista de sessões ou na de projetos). */
-export const openProjectHub = (machine: string, cwd: string) => openPanelTab({ kind: 'project', machine, cwd }, { preview: true })
+/** O que o hub de um projeto mostra embaixo do cabeçalho: a mesa, os worktrees ou os detalhes. */
+export type HubView = 'desk' | 'worktrees' | 'detalhes'
+/** A vista de cada hub, por projeto: quem abre o hub de fora (o menu do projeto) pode abrir já numa delas. */
+export const useHubViews = create<Record<string, HubView>>(() => ({}))
+export const hubViewKey = (machine: string, cwd: string) => `${machine}\n${cwd}`
+
+/** Abre o hub do projeto numa aba de prévia (pelo nome dele na lista de sessões ou na de projetos); com `view`, já nela. */
+export function openProjectHub(machine: string, cwd: string, view?: HubView): void {
+  if (view) useHubViews.setState({ [hubViewKey(machine, cwd)]: view })
+  openPanelTab({ kind: 'project', machine, cwd }, { preview: true })
+}
 export const openWorkspace = (machine: string, id: string) => openPanelTab({ kind: 'workspace', machine, id }, { preview: true })
 export const openInbox = () => openPanelTab({ kind: 'inbox' })
 

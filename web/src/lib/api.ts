@@ -12,6 +12,7 @@ import type {
   HabilidadeList,
   ClaudeSetup,
   ContextUsage,
+  Detalhe,
   DiffSide,
   FileView,
   FolderListing,
@@ -353,6 +354,10 @@ export const api = {
   /** Um anexo de um item do TODO; o item leva o que volta. */
   uploadTodoFile: (m: string, cwd: string, file: { name: string; mediaType: string; data: string }) =>
     post<TodoFile>(`${at(m)}/todos/files`, { cwd, ...file }),
+  /** Os detalhes do projeto, com o `rev` da lista no PC (como o TODO). */
+  detalhes: (m: string, cwd: string) => request<{ items: Detalhe[]; rev: number }>('GET', `${at(m)}/detalhes?${project(cwd)}`),
+  saveDetalhes: (m: string, cwd: string, items: Detalhe[], rev?: number) =>
+    post<{ items: Detalhe[]; rev: number }>(`${at(m)}/detalhes`, { cwd, items, rev }),
   update: (m: string) => request<UpdateStatus>('GET', `${at(m)}/update`),
   startUpdate: (m: string) => post<UpdateStatus>(`${at(m)}/update`),
   restartNow: (m: string) => post(`${at(m)}/update/restart`),
@@ -422,6 +427,12 @@ export function errorMessage(err: unknown): string {
       return 'O arquivo mudou no disco desde que foi aberto.'
     case 'todos_changed':
       return 'O TODO mudou no PC enquanto você mexia (o Claude ou outro aparelho). Veja como ficou e refaça.'
+    case 'detalhes_changed':
+      return 'Os detalhes mudaram no PC enquanto você mexia (outro aparelho). Veja como ficou e refaça.'
+    case 'detalhe_title_required':
+      return 'Dê um título ao detalhe.'
+    case 'too_many_detalhes':
+      return `O projeto já tem ${String(err.details.max ?? '')} detalhes, o máximo.`
     case 'rg_unavailable':
       return 'A busca usa o ripgrep: instale o `rg` no PC (pacote ripgrep).'
     case 'invalid_search':
