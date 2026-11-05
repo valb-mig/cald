@@ -310,7 +310,8 @@ export function Composer({
               big ? 'max-h-[60dvh] min-h-[45dvh]' : 'max-h-48 min-h-11',
             )}
           />
-          <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+          {/* Medida para os controles: numa caixa estreita (a mesa do projeto), o modo fica só no ícone. */}
+          <div className="@container flex items-center gap-0.5 px-1.5 pb-1.5">
             {/* Durante o ditado, as ondas da voz ocupam a linha no lugar dos controles. */}
             {dictation.listening ? (
               <VoiceWave activity={text} speaking={dictation.speaking} className="mx-2 h-6 min-w-0 flex-1 text-red-500" />

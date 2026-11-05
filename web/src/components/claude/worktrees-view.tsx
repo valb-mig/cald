@@ -35,8 +35,9 @@ const atRisk = (w: ListedWorktree) => w.changed > 0 || w.unmerged > 0
  * pasta. Cada um diz a branch, o que tem sem commit e o que a base ainda não tem, e quais conversas
  * estão nele. Dá para trazer o trabalho (o mesmo "Trazer" da faixa do worktree no chat), abrir uma
  * conversa nova ou um terminal nele e apagá-lo. `onLeave`: o painel fecha ao ir para outra tela.
+ * `project`: só os do repositório desse projeto (a aba Worktrees da mesa do projeto, ver project/hub.tsx).
  */
-export function WorktreesView({ machine, onLeave }: { machine: string; onLeave: () => void }) {
+export function WorktreesView({ machine, project, onLeave }: { machine: string; project?: string; onLeave: () => void }) {
   // `undefined`: carregando a primeira vez.
   const [groups, setGroups] = useState<{ root: string; worktrees: ListedWorktree[] }[]>()
   const [error, setError] = useState<string | null>(null)
@@ -63,24 +64,33 @@ export function WorktreesView({ machine, onLeave }: { machine: string; onLeave: 
     return error ? <p className="px-1 py-2 text-sm text-red-600 dark:text-red-400">{error}</p> : <Loader2 className="mx-auto my-6 size-4 animate-spin text-muted-foreground" />
   }
   const inside = (w: ListedWorktree) => catalog.filter((c) => c.cwd && (c.cwd === w.path || c.cwd.startsWith(`${w.path}/`)))
-  const total = groups.reduce((n, g) => n + g.worktrees.length, 0)
+  const shown = project ? groups.filter((g) => project === g.root || project.startsWith(`${g.root}/`)) : groups
+  const total = shown.reduce((n, g) => n + g.worktrees.length, 0)
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1">
-          {total ? `${plural(total, 'worktree', 'worktrees')} em ${plural(groups.length, 'projeto', 'projetos')}` : 'Nenhum projeto tem worktree, só o checkout principal.'}
+          {project
+            ? total
+              ? plural(total, 'worktree', 'worktrees')
+              : 'Nenhum worktree: só o checkout principal.'
+            : total
+              ? `${plural(total, 'worktree', 'worktrees')} em ${plural(shown.length, 'projeto', 'projetos')}`
+              : 'Nenhum projeto tem worktree, só o checkout principal.'}
         </span>
         <Button variant="ghost" size="xs" onClick={load} disabled={loading}>
           <RefreshCw className={loading ? 'animate-spin' : undefined} /> Atualizar
         </Button>
       </div>
       {error && <p className="px-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-      {groups.map((g) => (
+      {shown.map((g) => (
         <section key={g.root} className="space-y-0.5">
-          <h3 className="flex min-w-0 items-baseline gap-1.5 px-1 pb-0.5 text-xs font-medium" title={g.root}>
-            {placeName(g.root)}
-            <span className="truncate font-normal text-muted-foreground">{shortPath(g.root)}</span>
-          </h3>
+          {!project && (
+            <h3 className="flex min-w-0 items-baseline gap-1.5 px-1 pb-0.5 text-xs font-medium" title={g.root}>
+              {placeName(g.root)}
+              <span className="truncate font-normal text-muted-foreground">{shortPath(g.root)}</span>
+            </h3>
+          )}
           {g.worktrees.map((w) => (
             <WorktreeRow key={w.path} worktree={w} sessions={inside(w)} machine={machine} cwd={g.root} onChanged={load} onLeave={onLeave} />
           ))}
