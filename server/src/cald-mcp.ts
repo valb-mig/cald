@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { MAX_BYTES, type ArtefatoStore, type Artefato } from './artefatos.ts';
 import { HttpError } from './errors.ts';
 import { MAX_BODY, MAX_DESCRIPTION, type Habilidade, type HabilidadeStore } from './habilidades.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, type Team, type TeamStore } from './teams.ts';
@@ -32,6 +33,9 @@ export const CALD_MCP_ALLOWED = [
   'listar_workspaces',
   'criar_workspace',
   'listar_habilidades',
+  // Publicar um artefato só o põe na tailnet (o link público é ligado por você, no app).
+  'publicar_artefato',
+  'listar_artefatos',
 ].map((name) => `mcp__${CALD_MCP}__${name}`);
 
 export type CaldMcpDeps = {
@@ -39,6 +43,7 @@ export type CaldMcpDeps = {
   teams: TeamStore;
   workspaces: WorkspaceStore;
   habilidades: HabilidadeStore;
+  artefatos: ArtefatoStore;
   /** Só pasta que o painel já aceita vira projeto de workspace (ver Manager.knownCwd). */
   knownCwd: (cwd: string) => Promise<string>;
 };
@@ -48,6 +53,8 @@ export type CaldMcpContext = {
   cwd: string;
   /** Põe o time nesta conversa quando o turno acabar (ver Manager.useTeamLater). */
   useTeam: (teamId: string) => void;
+  /** O id desta conversa (o artefato guarda de qual conversa veio, para o claudinho dela). */
+  sessionId: () => string | undefined;
 };
 
 const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
@@ -55,7 +62,19 @@ const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e
 - Times: subagentes do usuário (nome, papel, modelo, esforço e instruções), que uma conversa recebe para delegar pela ferramenta Agent. Ao montar um time para um projeto, estude o projeto antes (CLAUDE.md, README, a stack, os comandos de build, teste e lint, as convenções) e escreva para cada membro instruções específicas dele: do que cuida, onde isso fica no código, que padrões seguir e como validar. Um time editado só vale nas conversas que começarem depois; \`usar_time\` põe um time nesta conversa quando a sua resposta terminar.
 - Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Cada projeto pode ter um workspace padrão, com que a conversa nova dele já vem. Mudanças valem da próxima vez que uma conversa do workspace abrir.
 - Habilidades: skills do cald (\`/cald:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
+- Artefatos: para mostrar uma página HTML (protótipo, relatório, painel, visualização) ao usuário, publique com \`publicar_artefato\`. O cald congela o HTML e os arquivos que ele usa (CSS, JS, imagens e fontes da mesma pasta, por caminho relativo) numa versão, e o chat mostra um cartão para abrir. Publicar o mesmo arquivo de novo cria a versão seguinte, com o mesmo link. O link fica na tailnet do usuário; deixá-lo público na internet é escolha dele, no app.
 Nada aqui apaga: para tirar algo, o usuário usa o app.`;
+
+const artefatoOut = (a: Artefato, link: string) => ({
+  id: a.id,
+  titulo: a.title,
+  descricao: a.description,
+  versoes: a.versions.length,
+  atual: a.versions.at(-1)!.n,
+  arquivo: a.source,
+  link,
+  publico: a.public !== null,
+});
 
 const ok = (data: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] });
 
@@ -126,7 +145,7 @@ const mapMembers = (list: z.infer<typeof member>[], old?: Team) =>
 const mapCommands = (list: z.infer<typeof command>[]) => list.map((c) => ({ label: c.rotulo, command: c.comando, cwd: c.pasta }));
 
 export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerConfigWithInstance {
-  const { todos, teams, workspaces, habilidades } = deps;
+  const { todos, teams, workspaces, habilidades, artefatos } = deps;
   const knownProjects = (list: string[]) => Promise.all(list.map((p) => deps.knownCwd(p)));
   const habilidade = (id: string) => {
     const { global, project } = habilidades.list(ctx.cwd);
@@ -312,6 +331,37 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
           );
         }),
         { annotations: { idempotentHint: true } },
+      ),
+
+      // ---- artefatos ----
+      tool(
+        'publicar_artefato',
+        `Publica uma página HTML como artefato do cald: congela o HTML e os arquivos da mesma pasta que ele usa por caminho relativo (até ${MAX_BYTES / 1024 / 1024} MB) numa versão, com um link fixo na tailnet. Publicar o mesmo arquivo de novo cria a versão seguinte do mesmo artefato; sem mudança, devolve a atual. O chat mostra um cartão para abrir.`,
+        {
+          arquivo: z.string().min(1).max(4096).describe('O .html (ou uma pasta com index.html); relativo vale a partir da pasta da conversa'),
+          titulo: z.string().min(1).max(120).optional().describe('Sem ele, vale o <title> da página'),
+          descricao: z.string().max(500).optional().describe('Uma frase dizendo o que a página é'),
+          rotulo: z.string().max(60).optional().describe('Um nome curto para esta versão, ex.: "Com o tema escuro"'),
+        },
+        guarded(async (a) => {
+          const r = await artefatos.publish({ path: a.arquivo, cwd: ctx.cwd, sessionId: ctx.sessionId(), title: a.titulo, description: a.descricao, label: a.rotulo });
+          return {
+            id: r.artefato.id,
+            titulo: r.artefato.title,
+            versao: r.version.n,
+            novo: r.novo,
+            arquivos: r.version.files,
+            tamanho: r.version.bytes,
+            link: artefatos.linkUrl(r.artefato.id),
+          };
+        }),
+      ),
+      tool(
+        'listar_artefatos',
+        'Lista os artefatos do cald: título, versões, arquivo de origem, link e se está público.',
+        {},
+        guarded(async () => artefatos.list().map((a) => artefatoOut(a, artefatos.linkUrl(a.id)))),
+        { annotations: { readOnlyHint: true } },
       ),
     ],
   });

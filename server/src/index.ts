@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import Fastify, { LogController, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
 import { AccessMonitor, keyOf, LOCAL } from './access.ts';
@@ -37,6 +37,7 @@ import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { attachTerminal, openTerminal } from './terminal.ts';
+import { ARTEFATO_VIEW_ROUTE, ArtefatoStore, SHELL_CSP, shellHtml, startPublicServer } from './artefatos.ts';
 import { caldMcp } from './cald-mcp.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } from './saved-commands.ts';
@@ -60,6 +61,9 @@ const todos = new TodoStore();
 await todos.load();
 const teams = new TeamStore();
 await teams.load();
+// O endereço da tailnet vem do `policy`, mais abaixo: só é lido quando o artefato precisa dele.
+const artefatos = new ArtefatoStore(() => policy.tailnetHost);
+await artefatos.load();
 const inboxState = new InboxState();
 await inboxState.load();
 const workspaces = new WorkspaceStore();
@@ -87,7 +91,7 @@ const manager = new Manager(live, meta, teams, workspaces, origins, habilidades)
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
 // O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
-manager.mcpFor = (ctx) => caldMcp({ todos, teams, workspaces, habilidades, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
+manager.mcpFor = (ctx) => caldMcp({ todos, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
@@ -800,6 +804,55 @@ app.get<{ Params: IdParams & { '*': string } }>(VIEW_ROUTE, async (req, reply) =
     .header('referrer-policy', 'no-referrer')
     .send(createReadStream(file.path));
 });
+
+// ---- artefatos (as páginas que o Claude publica pelo MCP do cald; ver artefatos.ts) ----
+
+app.get('/api/artefatos', async () => ({ artefatos: artefatos.list(), lixeira: artefatos.trashed() }));
+app.get<{ Params: IdParams }>('/api/artefatos/:id', async (req) => artefatos.get(req.params.id));
+app.post<{ Params: IdParams; Body: { on: boolean } }>(
+  '/api/artefatos/:id/public',
+  { schema: { body: { type: 'object', required: ['on'], properties: { on: { type: 'boolean' } } } } },
+  async (req) => artefatos.setPublic(req.params.id, req.body.on),
+);
+app.post<{ Params: IdParams }>('/api/artefatos/:id/delete', async (req) => {
+  await artefatos.toTrash(req.params.id);
+  return { ok: true };
+});
+app.post<{ Params: IdParams }>('/api/artefatos/:id/restore', async (req) => artefatos.restore(req.params.id));
+app.post<{ Params: IdParams }>('/api/artefatos/:id/purge', async (req) => {
+  await artefatos.purge(req.params.id);
+  return { ok: true };
+});
+
+// Sem o PIN (ver PIN_FREE em guard.ts): o id é a credencial. A versão nunca muda: guardada de vez.
+app.get<{ Params: IdParams & { n: string; '*': string } }>(ARTEFATO_VIEW_ROUTE, async (req, reply) => {
+  const file = await artefatos.file(req.params.id, Number(req.params.n), req.params['*']);
+  return reply
+    .header('content-type', file.mediaType)
+    .header('cache-control', 'private, max-age=31536000, immutable')
+    .header('content-security-policy', PROTOTYPE_CSP)
+    .header('x-content-type-options', 'nosniff')
+    .header('referrer-policy', 'no-referrer')
+    .send(createReadStream(file.path));
+});
+
+/** O link fixo na tailnet: a casca no jeito do cald, com a versão `n` (sem ela, a mais nova). */
+function artefatoShell(reply: FastifyReply, id: string, n?: number) {
+  const a = artefatos.get(id);
+  const v = n === undefined ? a.versions.at(-1)! : a.versions.find((x) => x.n === n);
+  if (!v) throw new HttpError(404, 'not_found');
+  const frame = `/api/artefato/view/${a.id}/${v.n}/${encodeURI(v.entry)}`;
+  const versions = a.versions.map((x) => ({ n: x.n, at: x.at, label: x.label, href: `/a/${a.id}/v/${x.n}/` }));
+  return reply
+    .header('content-type', 'text/html; charset=utf-8')
+    .header('cache-control', 'no-cache')
+    .header('content-security-policy', SHELL_CSP)
+    .header('referrer-policy', 'no-referrer')
+    .send(shellHtml(a, v.n, frame, versions));
+}
+app.get<{ Params: IdParams }>('/a/:id', async (req, reply) => reply.redirect(`/a/${req.params.id}/`, 301));
+app.get<{ Params: IdParams }>('/a/:id/', async (req, reply) => artefatoShell(reply, req.params.id));
+app.get<{ Params: IdParams & { n: string } }>('/a/:id/v/:n/', async (req, reply) => artefatoShell(reply, req.params.id, Number(req.params.n)));
 
 app.get<ProjectQuery>('/api/git', projectQuery, async (req) => gitStatus(await manager.knownCwd(req.query.cwd)));
 
@@ -1783,6 +1836,7 @@ monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
 todos.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'todos', cwd, rev: todos.rev(cwd) }));
 teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
 workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
+artefatos.on('change', () => broadcastAll({ type: 'changed', what: 'artefatos' }));
 habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidades' }));
 savedCommands.on('change', () => broadcastAll({ type: 'changed', what: 'saved-commands' }));
 access.on('change', () => broadcastAll({ type: 'changed', what: 'access' }));
@@ -1826,6 +1880,10 @@ await live.start();
 await app.listen({ host: HOST, port: PORT });
 app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'cald pronto');
 
+// O link público dos artefatos: um servidor à parte, que só serve os públicos (ver artefatos.ts).
+const publicServer = startPublicServer(artefatos, (msg, err) => app.log.warn({ err }, msg));
+artefatos.syncFunnel().catch((err) => app.log.warn({ err }, 'artefatos: não deu para ligar o Funnel'));
+
 // No boot o serviço pode subir antes do tailscaled; insiste até conseguir ler o nó.
 if (!policy.tailnetHost) {
   app.log.warn('Tailscale indisponível; só acesso local por enquanto');
@@ -1844,6 +1902,7 @@ async function stop(code: number): Promise<void> {
   app.log.info('encerrando sessões do painel…');
   await saveResume(manager.resumable()).catch((err) => app.log.warn({ err }, 'não deu para guardar as conversas abertas'));
   live.stop();
+  publicServer.close();
   await manager.shutdown();
   await app.close();
   process.exit(code);
