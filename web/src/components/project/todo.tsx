@@ -1,12 +1,13 @@
-import { AtSign, FileText, Loader2, MessageSquarePlus, Paperclip, Plus, Trash2, X } from 'lucide-react'
+import { AtSign, Eye, FileText, Hash, Loader2, MessageSquarePlus, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { footerButton } from '@/components/chat/composer-controls'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { PromptInput, type PromptInputHandle } from '@/components/chat/prompt-input'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { api, errorMessage, todoFileUrl } from '@/lib/api'
 import { formatSize, toAttachment } from '@/lib/attachments'
@@ -81,10 +82,11 @@ function AttachmentTile({ draft, machine, onRemove }: { draft: Draft; machine: s
   const type = draft.saved?.mediaType ?? draft.file?.type ?? ''
   const size = draft.saved?.size ?? draft.file?.size ?? 0
   const href = draft.saved ? todoFileUrl(machine, draft.saved) : draft.url
+  // Sem borda, como a bandeja da caixa do chat: a miniatura num tom acima do bloco, e o "tirar" no canto.
   return (
-    <div className="group relative">
+    <div className="group relative shrink-0">
       {isImage(type) && href ? (
-        <a href={href} target="_blank" rel="noreferrer" title={name} className="block size-20 overflow-hidden rounded-lg bg-foreground/[0.05] ring-1 ring-foreground/10">
+        <a href={href} target="_blank" rel="noreferrer" title={name} className="block size-16 overflow-hidden rounded-lg bg-foreground/[0.05]">
           <img src={href} alt={name} className="size-full object-cover" />
         </a>
       ) : (
@@ -94,7 +96,7 @@ function AttachmentTile({ draft, machine, onRemove }: { draft: Draft; machine: s
           rel="noreferrer"
           download={draft.saved ? name : undefined}
           title={name}
-          className="flex h-20 w-36 flex-col justify-between rounded-lg bg-foreground/[0.04] p-2 ring-1 ring-foreground/10 hover:bg-foreground/[0.07]"
+          className="flex h-16 w-36 flex-col justify-between rounded-lg bg-foreground/[0.05] p-2 transition-colors hover:bg-foreground/[0.08]"
         >
           <FileText className="size-4 text-muted-foreground" />
           <span className="min-w-0">
@@ -103,12 +105,13 @@ function AttachmentTile({ draft, machine, onRemove }: { draft: Draft; machine: s
           </span>
         </a>
       )}
-      {!draft.saved && <span className="absolute bottom-1 left-1 rounded bg-background/85 px-1 text-[10px] text-muted-foreground">novo</span>}
+      {!draft.saved && <span className="absolute right-1 bottom-1 rounded bg-background/85 px-1 text-[10px] text-muted-foreground">novo</span>}
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Tirar ${name}`}
-        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground opacity-0 shadow ring-1 ring-foreground/15 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 pointer-coarse:opacity-100"
+        title="Tirar"
+        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background opacity-0 shadow transition-opacity group-hover:opacity-100 after:absolute after:-inset-2 focus-visible:opacity-100 pointer-coarse:opacity-100"
       >
         <X className="size-3" />
       </button>
@@ -117,10 +120,12 @@ function AttachmentTile({ draft, machine, onRemove }: { draft: Draft; machine: s
 }
 
 /**
- * O editor de um item, numa janela central: o título, a descrição (Markdown, com `@` para arquivos e
- * `#` para issues e PRs, como no chat, e "Ver como fica"), os arquivos mencionados (clicar abre) e os
- * anexos (imagens e documentos: pelo botão, colando ou arrastando). Os anexos novos sobem só ao salvar.
- * "Mandar para o chat" põe o `TODO:n` na conversa do projeto: o Claude recebe o item inteiro.
+ * O editor de um item, numa ilha como a das habilidades: na casca, o número e as ações (mandar para o
+ * chat, apagar, salvar, fechar); na janela, o feito e o título grande, e um bloco com a descrição
+ * (Markdown, com `@` para arquivos e `#` para issues e PRs, como no chat, e o olho para ver como fica),
+ * os anexos (imagens e documentos: pelo clipe, colando ou arrastando) e, embaixo, os arquivos
+ * mencionados (clicar abre). Os anexos novos sobem só ao salvar. "Mandar para o chat" põe o `TODO:n`
+ * na conversa do projeto: o Claude recebe o item inteiro.
  */
 function TodoEditor({
   project,
@@ -150,10 +155,10 @@ function TodoEditor({
   ])
   const [showPreview, setShowPreview] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const field = useRef<PromptInputHandle>(null)
   const mentions = mentionsOf(body)
+  const numbered = item?.n !== undefined
 
   // As prévias locais dos anexos novos saem da memória quando o editor fecha.
   useEffect(() => () => files.forEach((d) => d.url && URL.revokeObjectURL(d.url)), [files])
@@ -163,6 +168,13 @@ function TodoEditor({
       ...current,
       ...list.map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, url: URL.createObjectURL(file) })),
     ])
+  const drop = useFileDrop(add)
+  // O diálogo fica dentro da lista na árvore do React (o portal só muda o DOM), e a lista também recebe
+  // arquivos soltos: sem parar aqui, soltar no editor de um item abria por trás um item novo no lugar dele.
+  const contain = (handler: (e: React.DragEvent) => void) => (e: React.DragEvent) => {
+    e.stopPropagation()
+    handler(e)
+  }
 
   const save = async () => {
     if (!title.trim() || saving) return
@@ -195,27 +207,21 @@ function TodoEditor({
     }
   }
 
-  const tab = (on: boolean) =>
-    cn('rounded-md px-2.5 py-1 text-xs transition-colors', on ? 'bg-background font-medium text-foreground shadow-xs dark:bg-sidebar-accent' : 'text-muted-foreground hover:text-foreground')
+  // Os botões da linha de baixo do bloco, como os da caixa do chat; o realce sobe a partir do bloco.
+  const tool = cn(footerButton, 'px-0 hover:bg-foreground/[0.07] active:bg-foreground/[0.07] aria-pressed:bg-foreground/[0.08] aria-pressed:text-foreground')
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        // Sem cortar o que passa da borda: a lista de sugestões do `@` e do `#` abre por cima da janela, como
-        // um menu. A janela não cresce além da tela porque a descrição e os anexos rolam por dentro.
-        className="gap-4 sm:max-w-2xl"
-        onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes('Files')) return
-          e.preventDefault()
-          setDragging(true)
-        }}
-        onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
-        onDrop={(e) => {
-          if (!e.dataTransfer.files.length) return
-          e.preventDefault()
-          setDragging(false)
-          add([...e.dataTransfer.files])
-        }}
+        showCloseButton={false}
+        // Uma ilha, como as do Computador e das habilidades: o cabeçalho na casca e o item numa janela. Sem
+        // cortar o que passa da borda: a lista de sugestões do `@` e do `#` abre por cima dela, como um menu.
+        // A ilha não cresce além da tela porque a descrição, os anexos e os mencionados rolam por dentro.
+        className="flex max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-1.5rem))] max-w-none flex-col gap-0 rounded-island bg-shell p-0 shadow-island ring-0 sm:max-w-none"
+        onDragEnter={contain(drop.bind.onDragEnter)}
+        onDragOver={contain(drop.bind.onDragOver)}
+        onDragLeave={contain(drop.bind.onDragLeave)}
+        onDrop={contain(drop.bind.onDrop)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault()
@@ -223,161 +229,172 @@ function TodoEditor({
           }
         }}
       >
-        <div className="flex items-center gap-2 pr-8">
-          <DialogTitle className="text-sm font-medium text-muted-foreground">
-            {item?.n !== undefined ? <span className="font-mono">TODO:{item.n}</span> : 'Novo item'}
-          </DialogTitle>
+        <DropOverlay show={drop.over} />
+        <header className="flex shrink-0 items-center gap-1 py-1.5 pr-1.5 pl-[calc(var(--gap)+1.25rem)] max-sm:pl-[calc(var(--gap)+1rem)]">
+          <DialogTitle className="min-w-0 flex-1 truncate text-sm">{numbered ? <span className="font-mono text-[13px]">TODO:{item.n}</span> : 'Novo item'}</DialogTitle>
           <DialogDescription className="sr-only">Título, descrição, arquivos e anexos do item do TODO.</DialogDescription>
-          <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground select-none">
-            <Checkbox checked={done} onCheckedChange={(on) => setDone(on === true)} />
-            Feito
-          </label>
-        </div>
+          {numbered && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Mandar para o chat"
+              title="Mandar para o chat"
+              onClick={() => {
+                if (insertInChat(`TODO:${item.n} `)) onClose()
+                else toast('Nenhuma conversa deste projeto com onde escrever agora', { description: 'Abra uma conversa nele e tente de novo.' })
+              }}
+            >
+              <MessageSquarePlus />
+            </Button>
+          )}
+          {onRemove && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Apagar"
+              title="Apagar"
+              className="hover:text-destructive"
+              onClick={() => {
+                onRemove()
+                onClose()
+              }}
+            >
+              <Trash2 />
+            </Button>
+          )}
+          <Button size="sm" onClick={() => void save()} disabled={!title.trim() || saving} title="Ctrl+Enter" className="mx-1">
+            {saving && <Loader2 className="animate-spin" />}
+            Salvar
+          </Button>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="Fechar" title="Fechar">
+              <X />
+            </Button>
+          </DialogClose>
+        </header>
 
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Título"
-          maxLength={300}
-          autoFocus={!item}
-          aria-label="Título"
-          className="h-auto border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 md:text-lg dark:bg-transparent"
-        />
+        <div className="mx-gap mb-gap flex min-h-0 flex-col gap-3 rounded-pane bg-background p-5 max-sm:p-4">
+          {/* O feito e o título, como a linha da lista, só que grandes: é o que se lê primeiro. */}
+          <div className="flex items-start gap-3">
+            <Checkbox checked={done} onCheckedChange={(on) => setDone(on === true)} aria-label="Feito" title="Feito" className="mt-0.5 size-5 wide:mt-1" />
+            <textarea
+              value={title}
+              // Uma linha só, que quebra na tela: colar um texto com quebras junta tudo.
+              onChange={(e) => setTitle(e.target.value.replace(/\s*\n\s*/g, ' '))}
+              onKeyDown={(e) => {
+                // Enter passa para a descrição; Ctrl+Enter sobe para a ilha e salva.
+                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  field.current?.focus()
+                }
+              }}
+              onPaste={(e) => {
+                const list = pastedFiles(e.clipboardData)
+                if (!list.length) return
+                e.preventDefault()
+                add(list)
+              }}
+              placeholder="Título"
+              maxLength={300}
+              rows={1}
+              autoFocus={!item}
+              aria-label="Título"
+              className="min-w-0 flex-1 resize-none bg-transparent text-lg leading-snug font-semibold outline-none [field-sizing:content] placeholder:text-muted-foreground/60 wide:text-xl"
+            />
+          </div>
 
-        <MachineContext value={project.machine}>
-          <div className={cn('rounded-xl ring-1 ring-foreground/10', dragging && 'ring-2 ring-sky-500/60')}>
-            <div className="flex items-center gap-1 rounded-t-xl bg-foreground/[0.03] px-2 py-1.5">
-              <button type="button" className={tab(!showPreview)} onClick={() => setShowPreview(false)}>
-                Escrever
-              </button>
-              <button type="button" className={tab(showPreview)} onClick={() => setShowPreview(true)}>
-                Ver como fica
-              </button>
-              {/* Os gatilhos à vista: clicar insere e já abre as sugestões, para quem não sabe que dá para digitar. */}
-              <span className="ml-auto flex items-center gap-0.5">
+          <MachineContext value={project.machine}>
+            <div className="rounded-xl bg-foreground/[0.04] transition-colors focus-within:bg-foreground/[0.06]">
+              {showPreview ? (
+                <div className="max-h-[40dvh] min-h-32 overflow-y-auto px-3.5 py-3">
+                  {body.trim() ? <Markdown text={body} /> : <p className="text-sm text-muted-foreground">Nada para ver ainda.</p>}
+                </div>
+              ) : (
+                <PromptInput
+                  handleRef={field}
+                  cwd={project.cwd}
+                  value={body}
+                  onChange={setBody}
+                  onPasteFiles={add}
+                  placement="bottom"
+                  placeholder="Descrição"
+                  aria-label="Descrição"
+                  className="max-h-[40dvh] min-h-32 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3.5 py-3 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+                />
+              )}
+              {files.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto px-2.5 pt-2.5 pb-1">
+                  {files.map((d) => (
+                    <AttachmentTile key={d.key} draft={d} machine={project.machine} onRemove={() => setFiles((list) => list.filter((x) => x.key !== d.key))} />
+                  ))}
+                </div>
+              )}
+              {/* Os gatilhos à vista: tocar insere e já abre as sugestões, para quem não sabe que dá para digitar. */}
+              <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
                 {(
                   [
-                    ['@', 'Arquivo', 'Mencionar um arquivo do projeto'],
-                    ['#', 'Issue ou PR', 'Mencionar uma issue ou um PR'],
+                    ['@', AtSign, 'Mencionar um arquivo'],
+                    ['#', Hash, 'Mencionar uma issue ou um PR'],
                   ] as const
-                ).map(([trigger, label, title]) => (
+                ).map(([trigger, Icon, label]) => (
                   <button
                     key={trigger}
                     type="button"
-                    title={title}
+                    aria-label={label}
+                    title={label}
                     disabled={showPreview}
                     // Sem tirar o foco da descrição: perder o foco fecha as sugestões logo depois de abrir.
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => field.current?.insert(trigger)}
-                    className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-40"
+                    className={tool}
                   >
-                    <span className="font-mono">{trigger}</span> {label}
+                    <Icon className="size-4" />
                   </button>
                 ))}
-                <span className="pr-1 pl-1 text-[11px] text-muted-foreground/70">Markdown</span>
-              </span>
-            </div>
-            {showPreview ? (
-              <div className="min-h-40 px-4 py-3">
-                {body.trim() ? <Markdown text={body} /> : <p className="text-sm text-muted-foreground">Nada para ver ainda.</p>}
+                <button type="button" aria-label="Anexar" title="Anexar imagem ou documento (ou cole e arraste)" onClick={() => picker.current?.click()} className={tool}>
+                  <Paperclip className="size-4" />
+                </button>
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    add([...(e.target.files ?? [])])
+                    e.target.value = ''
+                  }}
+                />
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  aria-label="Ver como fica"
+                  aria-pressed={showPreview}
+                  title={showPreview ? 'Voltar a escrever' : 'Ver como fica (Markdown)'}
+                  onClick={() => setShowPreview((on) => !on)}
+                  className={tool}
+                >
+                  <Eye className="size-4" />
+                </button>
               </div>
-            ) : (
-              <PromptInput
-                handleRef={field}
-                cwd={project.cwd}
-                value={body}
-                onChange={setBody}
-                onPasteFiles={add}
-                placement="bottom"
-                placeholder="Descrição: o que precisa ser feito, por quê, onde mexer. Use @ para arquivos e # para issues; cole ou arraste imagens e documentos."
-                className="max-h-72 min-h-40 overflow-y-auto rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
-              />
-            )}
-          </div>
-        </MachineContext>
+            </div>
+          </MachineContext>
 
-        {mentions.length > 0 && (
-          <div className="space-y-1.5">
-            <h3 className="text-xs font-medium text-muted-foreground">Arquivos mencionados</h3>
-            <div className="flex flex-wrap gap-1.5">
+          {mentions.length > 0 && (
+            <div className="flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">
               {mentions.map((path) => (
                 <button
                   key={path}
                   type="button"
                   onClick={() => openViewer({ machine: project.machine, cwd: project.cwd, path: path.replace(/\/$/, '') })}
                   title={`Abrir ${path}`}
-                  className="flex max-w-full items-center gap-1 rounded-md bg-foreground/[0.05] px-2 py-1 font-mono text-xs hover:bg-foreground/[0.09]"
+                  className="flex h-7 max-w-full items-center gap-1 rounded-md bg-foreground/[0.04] px-2 font-mono text-xs transition-colors hover:bg-foreground/[0.08] pointer-coarse:h-9"
                 >
                   <AtSign className="size-3 shrink-0 text-muted-foreground" />
                   <span className="truncate">{path}</span>
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs font-medium text-muted-foreground">Anexos</h3>
-            <Button variant="ghost" size="xs" onClick={() => picker.current?.click()}>
-              <Paperclip /> Anexar
-            </Button>
-            <input
-              ref={picker}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                add([...(e.target.files ?? [])])
-                e.target.value = ''
-              }}
-            />
-          </div>
-          {files.length ? (
-            <div className="flex max-h-48 flex-wrap gap-2.5 overflow-y-auto p-1.5">
-              {files.map((d) => (
-                <AttachmentTile key={d.key} draft={d} machine={project.machine} onRemove={() => setFiles((list) => list.filter((x) => x.key !== d.key))} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Imagens e documentos ficam guardados no PC, e o Claude abre quando o item for mencionado.</p>
           )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {item?.n !== undefined && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                if (insertInChat(`TODO:${item.n} `)) onClose()
-                else toast('Nenhuma conversa deste projeto com onde escrever agora', { description: 'Abra uma conversa nele e tente de novo.' })
-              }}
-            >
-              <MessageSquarePlus /> Mandar para o chat
-            </Button>
-          )}
-          {onRemove && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
-              onClick={() => {
-                onRemove()
-                onClose()
-              }}
-            >
-              <Trash2 /> Apagar
-            </Button>
-          )}
-          <span className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button size="sm" onClick={() => void save()} disabled={!title.trim() || saving} title="Ctrl+Enter">
-            {saving && <Loader2 className="animate-spin" />}
-            Salvar
-          </Button>
         </div>
       </DialogContent>
     </Dialog>
