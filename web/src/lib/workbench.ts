@@ -6,7 +6,7 @@ import { closeGuarded } from './unsaved'
 /**
  * Abas no PC, como os grupos de editores do VSCode: cada lado da tela (um grupo) tem a sua barra de
  * abas, e cada aba é uma conversa, um arquivo (ou o diff de um lado dele), uma issue ou PR do GitHub
- * (abertos pela barra do projeto), o hub de um projeto ou uma página do Claude. As regras são as do VSCode:
+ * (abertos pela barra do projeto), o hub de um projeto, uma página do Claude ou um artefato. As regras são as do VSCode:
  * - clicar abre numa aba de prévia (título em itálico); só há uma por grupo, e a próxima toma o lugar dela;
  * - a prévia vira fixa com dois cliques (na lista ou na aba), ao escrever ou mandar mensagem nela (como
  *   editar um arquivo), ao ser arrastada para outro grupo, e a conversa nova já nasce fixa;
@@ -40,6 +40,12 @@ export type TabRef =
    * `url` (o artifact no claude.ai) e `title` (a descrição) não fazem parte da chave.
    */
   | { kind: 'prototype'; machine: string; path: string; cwd?: string; url?: string; title?: string }
+  /**
+   * Um artefato publicado pelo Claude (ver lib/artefatos.ts), no mesmo mini-navegador. Uma aba por
+   * artefato: `n` (a versão à vista; sem ela, a atual) e `title` (o nome antes de a lista chegar) não
+   * fazem parte da chave, e abrir de novo com outra versão troca a da aba.
+   */
+  | { kind: 'artefato'; machine: string; id: string; n?: number; title?: string }
 
 export type Tab = TabRef & { key: string; preview?: boolean }
 
@@ -77,7 +83,9 @@ export const keyOf = (ref: TabRef) =>
               ? 'i:'
               : ref.kind === 'prototype'
                 ? `pt:${ref.machine}\n${ref.path}`
-                : `p:${ref.machine}\n${ref.cwd}`
+                : ref.kind === 'artefato'
+                  ? `ar:${ref.machine}\n${ref.id}`
+                  : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0

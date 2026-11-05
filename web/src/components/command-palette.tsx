@@ -10,6 +10,7 @@ import { ProjectPicker } from '@/components/project-picker'
 import { useQuickOpen } from '@/components/project/quick-open'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api, ApiError, errorMessage } from '@/lib/api'
+import { ArtefatoIcon, latestOf, loadArtefatos, openArtefatos, showArtefato, useArtefatos } from '@/lib/artefatos'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName, relativeTime } from '@/lib/format'
 import { useWide, WIDE_QUERY } from '@/lib/hooks'
@@ -26,7 +27,7 @@ import { projectOf } from '@/lib/worktree'
 
 /**
  * A paleta de comandos (Ctrl+K, ⌘K no Mac): achar e abrir qualquer coisa pelo nome, as conversas (as
- * que esperam você primeiro), os projetos e a inbox, ou começar uma conversa nova com o que foi
+ * que esperam você primeiro), os projetos, os artefatos e a inbox, ou começar uma conversa nova com o que foi
  * digitado. Sem nada digitado, mostra o que pede você e o que foi usado por último. O Ctrl+P segue
  * sendo o dos arquivos do projeto (ver project/quick-open.tsx).
  *
@@ -55,17 +56,24 @@ function loadProjects(): void {
   }
 }
 
-type Section = 'waiting' | 'chats' | 'projects' | 'inbox' | 'ask'
+/** Os artefatos de cada máquina que ainda não foram buscados; os já buscados seguem ao vivo (ver lib/artefatos.ts). */
+function loadAllArtefatos(): void {
+  const known = useArtefatos.getState().byMachine
+  for (const { id } of useMachines.getState().machines) if (!known[id]) loadArtefatos(id).catch(() => {})
+}
+
+type Section = 'waiting' | 'chats' | 'projects' | 'artefatos' | 'inbox' | 'ask'
 const SECTIONS: Record<Section, string> = {
   waiting: 'Esperando você',
   chats: 'Conversas',
   projects: 'Projetos',
+  artefatos: 'Artefatos',
   inbox: 'Inbox',
   ask: 'Perguntar',
 }
-const ORDER = ['waiting', 'chats', 'projects', 'inbox'] as const
+const ORDER = ['waiting', 'chats', 'projects', 'artefatos', 'inbox'] as const
 /** Quantos de cada parte, sem nada digitado e buscando. */
-const LIMIT: Record<(typeof ORDER)[number], [number, number]> = { waiting: [6, 6], chats: [5, 8], projects: [4, 5], inbox: [4, 5] }
+const LIMIT: Record<(typeof ORDER)[number], [number, number]> = { waiting: [6, 6], chats: [5, 8], projects: [4, 5], artefatos: [1, 5], inbox: [4, 5] }
 
 type Item = {
   key: string
@@ -171,10 +179,11 @@ function useSections(): Record<(typeof ORDER)[number], Item[]> {
   const several = useMachines((s) => s.machines.length > 1)
   const entries = useInboxEntries()
   const inboxState = useInbox((s) => s.state)
+  const artefatos = useArtefatos((s) => s.byMachine)
   const wide = useWide()
 
   return useMemo(() => {
-    const by: Record<(typeof ORDER)[number], Item[]> = { waiting: [], chats: [], projects: [], inbox: [] }
+    const by: Record<(typeof ORDER)[number], Item[]> = { waiting: [], chats: [], projects: [], artefatos: [], inbox: [] }
     for (const s of catalog) {
       const item = chatItem(s, several)
       by[item.section as 'waiting' | 'chats'].push(item)
@@ -209,6 +218,35 @@ function useSections(): Record<(typeof ORDER)[number], Item[]> {
         run: () => (wide ? openProjectHub(machine, cwd) : navigate(newChatUrl(cwd, machine))),
       })
     }
+
+    // Cada artefato só aparece buscando (abre a versão atual); sem nada digitado, fica a entrada da galeria.
+    for (const [m, list] of Object.entries(artefatos)) {
+      for (const a of list?.artefatos ?? []) {
+        const where = a.cwd ? projectName(projectOf(a.cwd)) : '~'
+        by.artefatos.push({
+          key: `artefato:${m}\n${a.id}`,
+          section: 'artefatos',
+          icon: <ArtefatoIcon className="size-4 text-muted-foreground" />,
+          title: a.title,
+          meta: several ? machineName(m) : where,
+          text: norm(`${a.title} ${a.description ?? ''} ${where} ${several ? machineName(m) : ''}`),
+          name: norm(a.title),
+          at: -1,
+          run: () => showArtefato({ machine: m, id: a.id, n: latestOf(a)?.n, title: a.title }),
+        })
+      }
+    }
+    by.artefatos.push({
+      key: 'artefatos',
+      section: 'artefatos',
+      icon: <ArtefatoIcon className="size-4 text-muted-foreground" />,
+      title: 'Artefatos',
+      text: 'artefatos paginas publicadas links',
+      name: 'artefatos',
+      // Sempre a primeira da parte dela.
+      at: Infinity,
+      run: () => openArtefatos(),
+    })
 
     // O número é o mesmo do botão da inbox: tudo que é novo, as conversas que esperam você inclusive.
     let unread = 0
@@ -246,7 +284,7 @@ function useSections(): Record<(typeof ORDER)[number], Item[]> {
 
     for (const list of Object.values(by)) list.sort((a, b) => b.at - a.at)
     return by
-  }, [catalog, lists, entries, inboxState, wide, several])
+  }, [catalog, lists, entries, inboxState, artefatos, wide, several])
 }
 
 /** O que aparece para o termo: as partes em ordem, as melhores de cada uma, e por fim o "Perguntar". */
@@ -404,7 +442,7 @@ function Palette({ onAskElsewhere }: { onAskElsewhere: (text: string, machine: s
             }
           }}
           placeholder="Buscar ou perguntar ao Claude"
-          aria-label="Buscar conversas, projetos e inbox, ou perguntar ao Claude"
+          aria-label="Buscar conversas, projetos, artefatos e inbox, ou perguntar ao Claude"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -450,7 +488,9 @@ export function CommandPalette() {
   }, [])
 
   useEffect(() => {
-    if (open) loadProjects()
+    if (!open) return
+    loadProjects()
+    loadAllArtefatos()
   }, [open])
 
   // Fechado o seletor, sai depois da animação.
@@ -477,7 +517,7 @@ export function CommandPalette() {
           className={cn('top-[12vh] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-xl', !matchMedia(WIDE_QUERY).matches && 'top-4')}
         >
           <DialogTitle className="sr-only">Paleta de comandos</DialogTitle>
-          <DialogDescription className="sr-only">Busque conversas, projetos e a inbox, ou pergunte algo ao Claude</DialogDescription>
+          <DialogDescription className="sr-only">Busque conversas, projetos, artefatos e a inbox, ou pergunte algo ao Claude</DialogDescription>
           {open && <Palette onAskElsewhere={askElsewhere} />}
         </DialogContent>
       </Dialog>

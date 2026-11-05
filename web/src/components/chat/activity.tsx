@@ -30,9 +30,11 @@ import { useNow } from '@/components/agents/status'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
 import { CopyButton, Markdown } from '@/components/markdown'
+import { ArtefatoCard } from '@/components/artefatos/artefato-card'
 import { PrototypeCard } from '@/components/prototype/prototype-card'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
+import { ArtefatoIcon, isPublishTool, publishedArtefato, type Publicacao } from '@/lib/artefatos'
 import { FILE_TOOLS, shortPath, toolSummary, took } from '@/lib/format'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { isMemoryHeld, isMemorySuggested, openMemorySuggestions, useMemorySuggestions } from '@/lib/memory-suggestions'
@@ -68,6 +70,8 @@ const ICONS: Record<string, LucideIcon> = {
 }
 
 export function toolIcon(name: string): LucideIcon {
+  // As do MCP do cald com artefatos (publicar e listar) levam o ícone deles.
+  if (isPublishTool(name) || (name.startsWith('mcp__') && name.endsWith('__listar_artefatos'))) return ArtefatoIcon
   return ICONS[name] ?? (name.startsWith('mcp__') ? Plug : Wrench)
 }
 
@@ -223,8 +227,8 @@ function ToolRow({
   at,
   started,
   finished,
-  page,
-}: Pick<ToolEntry, 'use' | 'result' | 'answer' | 'at' | 'started' | 'finished'> & { sessionId: string; page?: PublishedPage }) {
+  published,
+}: Pick<ToolEntry, 'use' | 'result' | 'answer' | 'at' | 'started' | 'finished'> & { sessionId: string; published?: Published }) {
   const pending = !result
   const time = useTook({ result, at, started, finished })
   // Pergunta que você recusou volta como erro, mas não é falha: a linha diz o que houve, sem o X.
@@ -268,10 +272,10 @@ function ToolRow({
           ))}
         </div>
       )}
-      {/* A página publicada pela Artifact também: o abrir fica à mão. */}
-      {page && (
+      {/* A página publicada pela Artifact (ou o artefato do cald) também: o abrir fica à mão. */}
+      {published && (
         <div className="px-2 pb-1.5">
-          <PrototypeCard sessionId={sessionId} page={page} />
+          <PublishedCard sessionId={sessionId} published={published} />
         </div>
       )}
       <CollapsibleContent className="space-y-1.5 px-2 pt-1 pb-2">
@@ -319,19 +323,32 @@ function ThinkingRow({ text }: { text: string }) {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
+/** O que uma ferramenta publicou: a página no claude.ai (a Artifact) ou um artefato do cald (`publicar_artefato`). */
+type Published = { kind: 'page'; page: PublishedPage } | { kind: 'artefato'; pub: Publicacao }
+
+const publishedKey = (p: Published) => (p.kind === 'page' ? `p:${p.page.path}` : `a:${p.pub.id}`)
+
+function PublishedCard({ sessionId, published: p }: { sessionId: string; published: Published }) {
+  return p.kind === 'page' ? <PrototypeCard sessionId={sessionId} page={p.page} /> : <ArtefatoCard sessionId={sessionId} pub={p.pub} />
+}
+
 /**
- * As páginas que a Artifact publicou no bloco, pela chave da entrada: uma por arquivo, a da última
- * publicação dele, que é a que está no claude.ai agora.
+ * O que foi publicado no bloco, pela chave da entrada: uma página por arquivo e um artefato por id, o da
+ * última publicação (a que está no claude.ai agora, ou a versão mais nova do artefato).
  */
-function publishedPages(entries: ActivityEntry[]): Map<string, PublishedPage> {
-  const byPath = new Map<string, { key: string; page: PublishedPage }>()
+function publishedIn(entries: ActivityEntry[]): Map<string, Published> {
+  const byWhat = new Map<string, { key: string; published: Published }>()
   for (const e of entries) {
-    const page = e.kind === 'tool' ? publishedPage(e.use.name, e.use.input, e.result) : null
-    if (!page) continue
-    byPath.delete(page.path)
-    byPath.set(page.path, { key: e.key, page })
+    if (e.kind !== 'tool') continue
+    const page = publishedPage(e.use.name, e.use.input, e.result)
+    const pub = page ? null : publishedArtefato(e.use.name, e.use.input, e.result)
+    const published: Published | null = page ? { kind: 'page', page } : pub ? { kind: 'artefato', pub } : null
+    if (!published) continue
+    const what = publishedKey(published)
+    byWhat.delete(what)
+    byWhat.set(what, { key: e.key, published })
   }
-  return new Map([...byPath.values()].map(({ key, page }) => [key, page]))
+  return new Map([...byWhat.values()].map(({ key, published }) => [key, published]))
 }
 
 /**
@@ -345,13 +362,13 @@ export function Activity({ sessionId, entries, summary = false }: { sessionId: s
   const isFresh = useArrivals(sessionId, entries.map((e) => e.key))
   const isAgent = (e: ActivityEntry) => e.kind === 'tool' && Boolean(e.inner && agents?.tree.byId.get(e.use.id))
   const steps = summary ? entries.filter((e) => !isAgent(e)) : entries
-  const pages = publishedPages(steps)
+  const pages = publishedIn(steps)
   // `cards`: as páginas vão na linha de quem as publicou; no bloco resumido, já estão debaixo do resumo.
   const list = (shown: ActivityEntry[], cards: boolean) => (
     <div className="rounded-lg border bg-muted/30 p-1">
       {shown.map((entry) => (
         <Arrival key={entry.key} fresh={isFresh(entry.key)}>
-          <EntryRow sessionId={sessionId} entry={entry} agents={agents} page={cards ? pages.get(entry.key) : undefined} />
+          <EntryRow sessionId={sessionId} entry={entry} agents={agents} published={cards ? pages.get(entry.key) : undefined} />
         </Arrival>
       ))}
     </div>
@@ -362,7 +379,7 @@ export function Activity({ sessionId, entries, summary = false }: { sessionId: s
     <div className="space-y-1">
       {/* Um passo só já é uma linha: o resumo dele não economizaria nada. */}
       {steps.length === 1 ? (
-        <EntryRow sessionId={sessionId} entry={steps[0]!} agents={agents} page={pages.get(steps[0]!.key)} />
+        <EntryRow sessionId={sessionId} entry={steps[0]!} agents={agents} published={pages.get(steps[0]!.key)} />
       ) : (
         steps.length > 1 && (
           <Collapsible>
@@ -385,7 +402,7 @@ export function Activity({ sessionId, entries, summary = false }: { sessionId: s
  * nos arquivos, quanto levou do primeiro ao último e, na ponta, o passo rodando agora ou o último.
  * As imagens devolvidas (prints, arquivos lidos) e as páginas publicadas continuam à vista, como na linha aberta.
  */
-function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: ActivityEntry[]; pages: PublishedPage[] }) {
+function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: ActivityEntry[]; pages: Published[] }) {
   const { claude } = useGallery()
   const tools = steps.filter((e): e is ToolEntry => e.kind === 'tool')
   const thoughts = steps.filter((e) => e.kind === 'thinking').length
@@ -447,8 +464,8 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
       )}
       {pages.length > 0 && (
         <div className="space-y-1 px-2 pb-1.5">
-          {pages.map((page) => (
-            <PrototypeCard key={page.path} sessionId={sessionId} page={page} />
+          {pages.map((p) => (
+            <PublishedCard key={publishedKey(p)} sessionId={sessionId} published={p} />
           ))}
         </div>
       )}
@@ -460,20 +477,20 @@ function EntryRow({
   sessionId,
   entry,
   agents,
-  page,
+  published,
 }: {
   sessionId: string
   entry: ActivityEntry
   agents: ReturnType<typeof useAgents>
-  /** A página que esta entrada publicou, com o cartão dela debaixo da linha. */
-  page?: PublishedPage
+  /** A página (ou o artefato) que esta entrada publicou, com o cartão dela debaixo da linha. */
+  published?: Published
 }) {
   // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
   const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
   if (agent) return <AgentRow node={agent} onOpen={() => agents!.open(agent.id)} />
   if (entry.kind === 'tool') {
     const { use, result, answer, at, started, finished } = entry
-    return <ToolRow sessionId={sessionId} use={use} result={result} answer={answer} at={at} started={started} finished={finished} page={page} />
+    return <ToolRow sessionId={sessionId} use={use} result={result} answer={answer} at={at} started={started} finished={finished} published={published} />
   }
   if (entry.kind === 'thinking') return <ThinkingRow text={entry.text} />
   return (

@@ -10,6 +10,8 @@ import { QuickOpen } from '@/components/project/quick-open'
 import { HabilidadesDialog } from '@/components/habilidades-dialog'
 import { ProjectViewer } from '@/components/project/viewer'
 import { PrototypeDialog } from '@/components/prototype/prototype-view'
+import { ArtefatoDialog } from '@/components/artefatos/artefato-view'
+import { ArtefatosDialog } from '@/components/artefatos/artefatos-dialog'
 import { ShellPaint } from '@/components/shell-paint'
 import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
 import { SlidePanel } from '@/components/ui/slide-panel'
@@ -230,12 +232,15 @@ function Panel() {
           <ProjectViewer />
           {/* A página do Claude no celular, por cima do arquivo, se ela foi aberta dele. */}
           <PrototypeDialog />
+          {/* O artefato no celular, em tela cheia: por cima da galeria, se foi aberto dela. */}
+          <ArtefatoDialog />
         </div>
         {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
         <ProjectBar hidden={zen} />
         <QuickOpen />
         <CommandPalette />
         <HabilidadesDialog />
+        <ArtefatosDialog />
       </div>
       <ComputerSheet />
     </div>

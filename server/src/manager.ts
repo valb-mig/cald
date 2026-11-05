@@ -621,7 +621,7 @@ export class Manager extends EventEmitter {
   /** O MCP de uma conversa que vai abrir em `cwd`, amarrado a ela para o `usar_time`. */
   private caldMcp(cwd: string): PanelSessionOptions['mcp'] {
     const build = this.mcpFor;
-    return build && ((session) => build({ cwd, useTeam: (teamId) => this.useTeamLater(session, teamId) }));
+    return build && ((session) => build({ cwd, useTeam: (teamId) => this.useTeamLater(session, teamId), sessionId: () => session.id }));
   }
 
   /**

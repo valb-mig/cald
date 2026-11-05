@@ -300,6 +300,37 @@ export type FileView =
 export type PrototypeOpen = { id: string; entry: string; name: string; mtime: number }
 
 /**
+ * Uma versão de um artefato (ver server/src/artefatos.ts): congelada ao publicar, nunca muda. `entry` é o
+ * HTML dentro dela, `files` e `bytes` o que foi junto, e `label` o rótulo que o Claude deu.
+ */
+export type ArtefatoVersao = { n: number; at: number; entry: string; files: number; bytes: number; label?: string }
+
+/**
+ * Uma página que o Claude publicou pelo MCP do cald (`publicar_artefato`): `versions` em ordem crescente (a
+ * última é a atual), `link` o caminho do link fixo na tailnet (`/a/<id>/`) e `public` o link na internet
+ * (o Funnel), com a versão `n` que está lá, que só muda quando você publica de novo.
+ */
+export type Artefato = {
+  id: string
+  title: string
+  description?: string
+  /** O projeto da conversa que publicou. */
+  cwd?: string
+  /** A conversa que publicou: o claudinho dela. */
+  sessionId?: string
+  /** O HTML de origem, caminho absoluto. */
+  source: string
+  createdAt: number
+  updatedAt: number
+  versions: ArtefatoVersao[]
+  link: string
+  public: { url: string; since: number; n: number } | null
+}
+export type ArtefatoLixo = Artefato & { deletedAt: number }
+/** Os artefatos da máquina (o mais recente primeiro) e a lixeira. */
+export type ArtefatoList = { artefatos: Artefato[]; lixeira: ArtefatoLixo[] }
+
+/**
  * O que a busca nos arquivos achou (ver server/src/search.ts): por arquivo, as linhas com o trecho de
  * cada achado (`ranges`, no `text` mostrado) e a coluna do primeiro na linha inteira, para o editor.
  */

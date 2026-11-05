@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AccessMonitor } from './access.ts';
 import { ALLOWED_LOGINS, EXTRA_ORIGINS, PORT } from './config.ts';
 import type { PinLock } from './pin.ts';
+import { ARTEFATO_VIEW_ROUTE } from './artefatos.ts';
 import { VIEW_ROUTE } from './prototypes.ts';
 
 const exec = promisify(execFile);
@@ -62,9 +63,10 @@ function knownOrigin(policy: AccessPolicy, origin: string): boolean {
 }
 
 // Abertas mesmo com o PIN ligado: a tela de bloqueio, a sondagem, os avisos entre as suas máquinas
-// (ver machines.ts e push.ts) e as páginas dos protótipos, cujo id aleatório é a credencial (ver
-// prototypes.ts). Continuam valendo o Host, a origem e o login do Tailscale.
-const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay', VIEW_ROUTE]);
+// (ver machines.ts e push.ts) e as páginas dos protótipos e dos artefatos, cujo id aleatório é a
+// credencial (ver prototypes.ts e artefatos.ts). Continuam valendo o Host, a origem e o login do Tailscale.
+const PAGE_ROUTES = new Set([VIEW_ROUTE, ARTEFATO_VIEW_ROUTE]);
+const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay', ...PAGE_ROUTES]);
 
 /** O token do PIN: no cabeçalho (fetch) ou em `?t=` (WebSocket, `<img>` e links, que não mandam cabeçalho). */
 export function pinToken(req: FastifyRequest): string | undefined {
@@ -111,9 +113,9 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock, access: AccessMo
     // Pela rota que casou, e não pela URL crua: `/%61pi/...` cai na mesma rota da API.
     const route = req.routeOptions.url ?? '';
     const origin = req.headers.origin;
-    // A página de um protótipo roda com origem opaca (ver prototypes.ts): o que ela busca da própria
-    // pasta com fetch ou como módulo chega com `Origin: null`. Só ali, e só para ler.
-    const sandboxed = origin === 'null' && route === VIEW_ROUTE && (req.method === 'GET' || req.method === 'HEAD');
+    // A página de um protótipo ou de um artefato roda com origem opaca (ver prototypes.ts): o que ela
+    // busca da própria pasta com fetch ou como módulo chega com `Origin: null`. Só ali, e só para ler.
+    const sandboxed = origin === 'null' && PAGE_ROUTES.has(route) && (req.method === 'GET' || req.method === 'HEAD');
     if (origin && !sandboxed && !knownOrigin(policy, origin)) {
       return reply.code(403).send({ error: 'origin_not_allowed' });
     }
