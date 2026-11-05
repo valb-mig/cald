@@ -31,6 +31,7 @@ import { Link } from 'wouter'
 import { AgentChat } from '@/components/agents/agent-chat'
 import { AgentRail } from '@/components/agents/agent-rail'
 import { TeamPill } from '@/components/teams/team-pill'
+import { WorkspaceMenu, WorkspacePill } from '@/components/workspaces/workspace-pill'
 import { AgentsContext, agentTree } from '@/components/agents/model'
 import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
@@ -72,8 +73,9 @@ import { api, errorMessage } from '@/lib/api'
 import { dropTools, publishTools } from '@/lib/chat-tools'
 import { claudinhoName } from '@/lib/claudinho'
 import { workspaceColor } from '@/lib/workspaces'
+import { projectOf } from '@/lib/worktree'
 import { projectName, stateInfo } from '@/lib/format'
-import { useGitStatus, useHome, usePressMenu, useWide, useWidth } from '@/lib/hooks'
+import { PHONE_QUERY, useGitStatus, useHome, useMediaQuery, usePressMenu, useWide, useWidth } from '@/lib/hooks'
 import { useBackToClose } from '@/lib/back-close'
 import { useShowProject } from '@/lib/project-panel'
 import { keyOf, pinTab } from '@/lib/workbench'
@@ -253,6 +255,25 @@ export function ChatPage({ id }: { id: string }) {
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
   const project = cwd && home && cwd !== home ? cwd : undefined
   const git = useGitStatus(machine, project, turns)
+  // Os workspaces que a conversa pode usar são os do projeto (o de origem, num worktree).
+  const wsProject = project ? (entry?.worktree?.project ?? projectOf(project)) : undefined
+  // No celular a caixa não tem lugar para o workspace: o trecho dele no topo é que abre o menu.
+  const phone = useMediaQuery(PHONE_QUERY)
+  const changeWorkspace = (workspaceId: string | undefined) => {
+    if ((workspaceId ?? null) === (entry?.workspace?.id ?? null)) return
+    toast.promise(api.setWorkspace(id, workspaceId ?? null), {
+      loading: workspaceId ? 'Trocando o workspace…' : 'Tirando o workspace…',
+      success: workspaceId ? 'Workspace trocado: vale a partir da próxima mensagem.' : 'Conversa sem workspace.',
+      error: (err) => errorMessage(err),
+    })
+  }
+  const workspaceLabel = entry?.workspace && (
+    <span className="flex min-w-0 shrink items-center gap-1">
+      <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(entry.workspace.color) }} />
+      <span className="truncate text-foreground/70">{entry.workspace.name}</span>
+      <span>·</span>
+    </span>
+  )
   // A barra do projeto, à direita, mostra o da conversa em foco (ver lib/project-panel.ts).
   useShowProject(machine, project, id, pane.focused)
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
@@ -452,19 +473,31 @@ export function ChatPage({ id }: { id: string }) {
                 )}
                 <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
               </div>
-              {/* Corta o que não couber em vez de vazar para baixo dos botões ao lado. */}
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
+              {/* Corta o que não couber em vez de vazar para baixo dos botões ao lado. Só na largura: na
+                  altura, o toque no workspace (no celular) vai além da linha. */}
+              <div className="flex min-w-0 items-center gap-1.5 overflow-x-clip text-xs text-muted-foreground">
                 <span className="shrink-0 font-medium text-foreground/70">{name}</span>
                 <span>·</span>
-                {/* Conversa de um workspace: a cor e o nome dele antes do projeto. */}
-                {entry?.workspace && (
-                  <span className="flex min-w-0 shrink items-center gap-1">
-                    <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(entry.workspace.color) }} />
-                    <span className="truncate text-foreground/70">{entry.workspace.name}</span>
-                    <span>·</span>
-                  </span>
+                {/* Conversa de um workspace: a cor e o nome dele antes do projeto. No celular, o trecho todo
+                    abre o menu do workspace (no PC ele fica na caixa, ao lado do time). */}
+                {phone && wsProject ? (
+                  <WorkspaceMenu machine={machine} project={wsProject} value={entry?.workspace} onChange={changeWorkspace} label="Trocar o workspace" side="bottom">
+                    <button
+                      type="button"
+                      aria-label={entry?.workspace ? `Workspace: ${entry.workspace.name}` : 'Escolher um workspace'}
+                      className="-my-1.5 flex min-w-0 shrink items-center gap-1 py-1.5"
+                    >
+                      {workspaceLabel}
+                      <span className="min-w-0 truncate">{projectName(cwd)}</span>
+                      <ChevronDown className="size-3 shrink-0" />
+                    </button>
+                  </WorkspaceMenu>
+                ) : (
+                  <>
+                    {workspaceLabel}
+                    <span className="min-w-0 truncate">{projectName(cwd)}</span>
+                  </>
                 )}
-                <span className="min-w-0 truncate">{projectName(cwd)}</span>
                 {machineLabel && (
                   <span className="flex shrink-0 items-center gap-0.5">
                     <Server className="size-3" />
@@ -787,20 +820,33 @@ export function ChatPage({ id }: { id: string }) {
                 // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
                 onEdit={pin}
                 extra={
-                  // No celular a barra não tem espaço; o que o time faz aparece no trilho de agentes, ao lado do chat.
-                  <TeamPill
-                    machine={machine}
-                    current={entry?.team}
-                    className="max-sm:hidden"
-                    onChange={(teamId) => {
-                      if ((teamId ?? null) === (entry?.team?.id ?? null)) return
-                      toast.promise(api.setTeam(id, teamId ?? null), {
-                        loading: teamId ? 'Trocando o time…' : 'Tirando o time…',
-                        success: teamId ? 'Time trocado: vale a partir da próxima mensagem.' : 'Conversa sem time.',
-                        error: (err) => errorMessage(err),
-                      })
-                    }}
-                  />
+                  // No celular a barra não tem espaço: o workspace se troca pelo topo, e o que o time faz
+                  // aparece no trilho de agentes, ao lado do chat.
+                  <>
+                    {wsProject && (
+                      <WorkspacePill
+                        machine={machine}
+                        project={wsProject}
+                        value={entry?.workspace}
+                        label="Trocar o workspace"
+                        className="max-sm:hidden"
+                        onChange={changeWorkspace}
+                      />
+                    )}
+                    <TeamPill
+                      machine={machine}
+                      current={entry?.team}
+                      className="max-sm:hidden"
+                      onChange={(teamId) => {
+                        if ((teamId ?? null) === (entry?.team?.id ?? null)) return
+                        toast.promise(api.setTeam(id, teamId ?? null), {
+                          loading: teamId ? 'Trocando o time…' : 'Tirando o time…',
+                          success: teamId ? 'Time trocado: vale a partir da próxima mensagem.' : 'Conversa sem time.',
+                          error: (err) => errorMessage(err),
+                        })
+                      }}
+                    />
+                  </>
                 }
                 onSend={(text, attachments) => {
                   pin()

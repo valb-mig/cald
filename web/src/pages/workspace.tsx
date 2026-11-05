@@ -52,9 +52,11 @@ function Section({ title, hint, children, action }: { title: string; hint?: stri
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
 
 /**
- * A página de um workspace (no PC, numa aba; no celular, uma tela): os projetos, o contexto, os
- * arquivos, as regras e os comandos que toda conversa dele recebe, o time padrão e as conversas dele.
- * O que se edita vale a partir da próxima vez que cada conversa for aberta (ver server/src/workspaces.ts).
+ * A página de um workspace (no PC, numa aba; no celular, uma tela), aberta pelo cartão no hub do projeto
+ * e pelo menu de workspace da conversa: os projetos que podem usá-lo (e de quais ele é o padrão), o
+ * contexto, os arquivos, as regras e os comandos que toda conversa dele recebe, o time padrão e as
+ * conversas dele. O que se edita vale a partir da próxima vez que cada conversa for aberta (ver
+ * server/src/workspaces.ts).
  */
 export function WorkspacePage({ machine, id }: { machine: string; id: string }) {
   const wide = useWide()
@@ -182,7 +184,7 @@ export function WorkspacePage({ machine, id }: { machine: string; id: string }) 
 
           <Section
             title="Projetos"
-            hint="A conversa abre no principal; os outros entram como pastas que o Claude também pode ler e editar."
+            hint="A conversa de qualquer um deles pode usar este workspace; os outros entram como pastas que o Claude também lê e edita."
             action={
               <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
                 <Plus /> Projeto
@@ -200,8 +202,14 @@ export function WorkspacePage({ machine, id }: { machine: string; id: string }) 
                       <div className="flex items-center gap-1.5">
                         <span className="truncate text-sm font-medium">{projectName(p)}</span>
                         {i === 0 && (
-                          <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                          <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-amber-600 dark:text-amber-400" title="A Nova conversa desta página abre nele">
                             <Star className="size-3 fill-current" /> principal
+                          </span>
+                        )}
+                        {/* A conversa nova deste projeto já vem com este workspace. */}
+                        {ws.defaultFor?.includes(p) && (
+                          <span className="shrink-0 text-[11px] text-muted-foreground" title={`A conversa nova de ${projectName(p)} já vem com este workspace`}>
+                            padrão
                           </span>
                         )}
                       </div>

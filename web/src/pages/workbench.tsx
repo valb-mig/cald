@@ -424,7 +424,7 @@ function NewTabContent({ tab, focused }: { tab: Extract<Tab, { kind: 'new' }>; f
       workspace={tab.workspace}
       showProject={focused}
       onCreated={(id) => replaceTab(tab.key, { kind: 'chat', id })}
-      onPick={(cwd, machine) => replaceTab(tab.key, { kind: 'new', machine, cwd, workspace: tab.workspace })}
+      onPick={(cwd, machine, workspace) => replaceTab(tab.key, { kind: 'new', machine, cwd, workspace })}
     />
   )
 }

@@ -1,4 +1,4 @@
-import { CircleDot, FolderGit2, GitBranch, GitPullRequest, LayoutGrid, ListTodo, Loader2, Server } from 'lucide-react'
+import { ChevronRight, CircleDot, Ellipsis, FolderGit2, GitBranch, GitPullRequest, Layers, LayoutGrid, ListTodo, Loader2, PinOff, Plus, Server } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { Composer } from '@/components/chat/composer'
@@ -10,12 +10,18 @@ import { PeerFaces } from '@/components/peer-faces'
 import { ProjectMark } from '@/components/project-mark'
 import { Segmented } from '@/components/settings-ui'
 import { StateBadge } from '@/components/state-badge'
+import { TeamFaces } from '@/components/teams/team-faces'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import { Veil } from '@/components/wallpaper/veil'
+import { NewWorkspaceDialog } from '@/components/workspaces/new-workspace-dialog'
+import { WorkspaceDot, WorkspacePill } from '@/components/workspaces/workspace-pill'
 import { useWorktreeChoice, type WorktreeChoice } from '@/lib/worktree'
 import { dayKey, noon, useToday } from '@/lib/activity'
 import { api, OUTDATED_SERVER } from '@/lib/api'
+import { useOnChanged } from '@/lib/changes'
 import { claudinhoName } from '@/lib/claudinho'
 import { insertInto } from '@/lib/compose'
 import { projectName, relativeTime, shortPath } from '@/lib/format'
@@ -26,10 +32,21 @@ import { isWorking } from '@/lib/peers'
 import { setPanelShown, setPanelTab } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
 import { saveTodos, useTodos } from '@/lib/todos'
-import type { Activity, CatalogEntry, GitStatus, RunOptions } from '@/lib/types'
+import type { Activity, CatalogEntry, GitStatus, RunOptions, Team, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { keyOf, openPanelTab, pinTab } from '@/lib/workbench'
+import {
+  createProjectWorkspace,
+  defaultWorkspace,
+  loadWorkspaces,
+  projectWorkspaces,
+  setProjectWorkspace,
+  useNewChatWorkspace,
+  useOpenWorkspace,
+  useWorkspaces,
+  workspaceFailed,
+} from '@/lib/workspaces'
 import { MiniChat } from './mini-chat'
 
 const SPAN = 30
@@ -169,6 +186,125 @@ function TodoCard({ machine, cwd }: { machine: string; cwd: string }) {
   )
 }
 
+/** O que o workspace leva, numa linha: o time, as regras, os comandos e os arquivos. */
+function workspaceSummary(ws: Workspace, team?: Team): string {
+  const parts = [
+    team?.name,
+    ws.rules.length ? plural(ws.rules.length, 'regra', 'regras') : '',
+    ws.commands.length ? plural(ws.commands.length, 'comando', 'comandos') : '',
+    ws.files.length ? plural(ws.files.length, 'arquivo', 'arquivos') : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : ws.instructions ? 'Só o contexto' : 'Vazio por enquanto'
+}
+
+/**
+ * O workspace do projeto: o padrão (com que a conversa nova daqui já vem), que abre a página dele, e os
+ * outros que têm o projeto, cada um a um toque de virar o padrão. Sem nenhum, o botão de criar o dele.
+ */
+function WorkspaceCard({ machine, cwd }: { machine: string; cwd: string }) {
+  const list = useWorkspaces((s) => s.byMachine[machine])
+  useEffect(() => {
+    if (!list) loadWorkspaces(machine).catch(() => {})
+  }, [list, machine])
+  const open = useOpenWorkspace(machine)
+  const [naming, setNaming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const main = defaultWorkspace(list, cwd)
+  const others = projectWorkspaces(list, cwd).filter((w) => w !== main)
+  // O time padrão do workspace, para os claudinhos e o nome dele.
+  const [teams, setTeams] = useState<Team[]>([])
+  const teamId = main?.teamId
+  const loadTeams = () => {
+    if (teamId) api.teams(machine).then(setTeams, () => {})
+  }
+  useEffect(loadTeams, [machine, teamId])
+  useOnChanged(machine, 'teams', loadTeams)
+  const team = teamId ? teams.find((t) => t.id === teamId) : undefined
+
+  const create = async () => {
+    setBusy(true)
+    try {
+      open((await createProjectWorkspace(machine, cwd)).id)
+    } catch (err) {
+      workspaceFailed(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const pin = (id: string | null) => void setProjectWorkspace(machine, cwd, id).catch(workspaceFailed)
+
+  return (
+    <Card
+      title="Workspace"
+      icon={Layers}
+      action={
+        (main || others.length > 0) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs" className="-my-1 text-muted-foreground" aria-label="Mais ações" title="Mais ações">
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto">
+              <DropdownMenuItem onSelect={() => setNaming(true)}>
+                <Plus /> Novo workspace
+              </DropdownMenuItem>
+              {main && (
+                <DropdownMenuItem onSelect={() => pin(null)}>
+                  <PinOff /> Deixar sem padrão
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      }
+    >
+      {!list ? (
+        <Loader2 className="my-2 size-4 animate-spin text-muted-foreground" />
+      ) : main ? (
+        <button type="button" onClick={() => open(main.id)} className={cn(ROW, 'w-full items-center')}>
+          <WorkspaceDot color={main.color} className="size-3" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{main.name}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              {team && <TeamFaces team={team} size={14} max={3} />}
+              <span className="truncate">{workspaceSummary(main, team)}</span>
+            </span>
+          </span>
+          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+        </button>
+      ) : others.length ? (
+        <p className={quiet}>Sem padrão: a conversa nova vem sem workspace.</p>
+      ) : (
+        <div className="flex flex-col items-start gap-2 py-1">
+          <p className="text-xs text-muted-foreground">Contexto, regras, comandos e um time para toda conversa daqui.</p>
+          {/* No hub do projeto, "do projeto" já está dito; o card é estreito na grade de quatro. */}
+          <Button variant="outline" size="sm" className="max-w-full" onClick={() => void create()} disabled={busy} title="Criar workspace do projeto">
+            {busy ? <Loader2 className="animate-spin" /> : <Plus />} Criar workspace
+          </Button>
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="mt-2 space-y-0.5">
+          <h3 className="px-1.5 text-xs text-muted-foreground">{main ? 'Outros' : 'Com o projeto'}</h3>
+          {others.map((w) => (
+            <div key={w.id} className={cn(ROW, 'items-center')}>
+              <button type="button" onClick={() => open(w.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                <WorkspaceDot color={w.color} />
+                <span className="truncate">{w.name}</span>
+              </button>
+              <button type="button" onClick={() => pin(w.id)} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">
+                Tornar padrão
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <NewWorkspaceDialog machine={machine} project={cwd} open={naming} onOpenChange={setNaming} onCreated={(ws) => open(ws.id)} />
+    </Card>
+  )
+}
+
 /** Mensagens suas por dia nos últimos 30 dias, com os totais do projeto. */
 function UsageCard({ activity, outdated }: { activity: Activity | null; outdated: boolean }) {
   const today = useToday()
@@ -302,6 +438,8 @@ function NewChat({
   const worktree = useWorktreeChoice(machine, cwd, git, true)
   const [creating, setCreating] = useState(false)
   const [pending, setPending] = useState<RunOptions>({})
+  // Vem com o workspace padrão do projeto e o time dele; a pílula na caixa troca.
+  const { workspace, choose, teamId } = useNewChatWorkspace(machine, cwd)
 
   const chips = shortcuts.length > 0 && (
     <div className={cn('flex flex-wrap justify-center gap-2', hero ? 'mt-1 px-4' : 'px-2')}>
@@ -336,12 +474,21 @@ function NewChat({
         settings={pending}
         context={null}
         onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+        extra={<WorkspacePill machine={machine} project={cwd} value={workspace} onChange={choose} />}
         // Escrever aqui deixa o hub aberto, como editar no VSCode.
         onEdit={onPin}
         onSend={async (text, attachments) => {
           setCreating(worktree.on)
           try {
-            const { sessionId } = await api.create(machine, { cwd, prompt: text, attachments, worktree: worktree.on || undefined, ...pending })
+            const { sessionId } = await api.create(machine, {
+              cwd,
+              prompt: text,
+              attachments,
+              workspaceId: workspace?.id,
+              teamId,
+              worktree: worktree.on || undefined,
+              ...pending,
+            })
             noteSession(sessionId, machine)
             // Fica na mesa: a conversa nova aparece ao lado, e a caixa já serve para a próxima.
             onPin()
@@ -475,9 +622,10 @@ export function ProjectHub({ machine, cwd, active }: { machine: string; cwd: str
                 </section>
               )}
 
-              <div className={cn('mb-6 grid gap-3 md:grid-cols-3', closed.length === 0 && 'mt-10')}>
+              <div className={cn('mb-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4', closed.length === 0 && 'mt-10')}>
                 <GithubCards machine={machine} cwd={cwd} active={active} />
                 <TodoCard machine={machine} cwd={cwd} />
+                <WorkspaceCard machine={machine} cwd={cwd} />
               </div>
 
               <UsageCard activity={activity} outdated={outdated} />
