@@ -25,8 +25,8 @@ import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
-import { turnsOf, type ToolEntry, type TurnInfo } from './turn'
-import { TurnSheet, type TurnSection } from './turn-sheet'
+import { linksOf, turnsOf, type ToolEntry, type TurnInfo } from './turn'
+import { TurnDialog, type TurnSection } from './turn-dialog'
 
 function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -196,16 +196,25 @@ function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
-/** O que o turno fez: arquivos alterados, comandos e links; cada atalho abre o painel na seção dele. */
-function TurnShortcuts({ turn, cwd }: { turn: TurnInfo; cwd?: string }) {
-  const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<TurnSection>('files')
-  const show = (s: TurnSection) => {
-    setSection(s)
-    setOpen(true)
+/** O que o turno fez: arquivos alterados, comandos e links; cada atalho abre o modal do seu assunto. */
+function TurnShortcuts({ turn, cwd, sessionId }: { turn: TurnInfo; cwd?: string; sessionId: string }) {
+  const [open, setOpen] = useState<TurnSection | null>(null)
+  // Os assuntos já abertos neste turno. O modal só monta na primeira vez que abre: a conversa ao vivo
+  // refaz todos os turnos a cada evento, e um Dialog fechado por atalho (até três por turno) pesava em
+  // todos eles. Depois de aberto fica montado, para fechar com a animação.
+  const [mounted, setMounted] = useState<TurnSection[]>([])
+  const show = (kind: TurnSection) => {
+    setOpen(kind)
+    if (!mounted.includes(kind)) setMounted([...mounted, kind])
   }
-  const links = turn.visited.length + turn.cited.length
+  // A mesma página aberta duas vezes conta uma, como no modal.
+  const links = useMemo(() => linksOf(turn).length, [turn])
   const chip = 'rounded-full text-muted-foreground'
+  // Um modal por assunto, cada um com o seu: fechando, o que sai continua o mesmo até sumir.
+  const dialog = (kind: TurnSection) =>
+    mounted.includes(kind) && (
+      <TurnDialog kind={kind} turn={turn} cwd={cwd} sessionId={sessionId} open={open === kind} onOpenChange={(o) => setOpen(o ? kind : null)} />
+    )
   return (
     <>
       {turn.files.length > 0 && (
@@ -224,7 +233,9 @@ function TurnShortcuts({ turn, cwd }: { turn: TurnInfo; cwd?: string }) {
           <Link2 /> {plural(links, 'link', 'links')}
         </Button>
       )}
-      <TurnSheet turn={turn} cwd={cwd} section={section} open={open} onOpenChange={setOpen} />
+      {turn.files.length > 0 && dialog('files')}
+      {turn.commands.length > 0 && dialog('commands')}
+      {links > 0 && dialog('links')}
     </>
   )
 }
@@ -267,6 +278,7 @@ function CopyMarkdown({ text }: { text: string }) {
  */
 function AssistantMessage({
   id,
+  sessionId,
   text,
   model,
   effort,
@@ -275,6 +287,7 @@ function AssistantMessage({
   fresh,
 }: {
   id: string
+  sessionId: string
   text: string
   model?: string
   effort?: string
@@ -291,7 +304,7 @@ function AssistantMessage({
       </ReadingLine>
       <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
         {model && <WrittenBy model={model} effort={effort} />}
-        {turn && <TurnShortcuts turn={turn} cwd={cwd} />}
+        {turn && <TurnShortcuts turn={turn} cwd={cwd} sessionId={sessionId} />}
         <span
           className={cn(
             'flex items-center gap-1.5 transition-opacity duration-150',
@@ -365,6 +378,7 @@ function ItemView({
       return (
         <AssistantMessage
           id={`${sessionId}:${item.key}`}
+          sessionId={sessionId}
           text={item.text}
           model={item.model}
           effort={item.effort}
