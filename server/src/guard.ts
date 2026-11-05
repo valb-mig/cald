@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AccessMonitor } from './access.ts';
 import { ALLOWED_LOGINS, EXTRA_ORIGINS, PORT } from './config.ts';
 import type { PinLock } from './pin.ts';
 import { VIEW_ROUTE } from './prototypes.ts';
@@ -77,8 +78,9 @@ export function pinToken(req: FastifyRequest): string | undefined {
  * A identidade vem do Tailscale. Barra DNS rebinding (Host), CSRF de outros sites no navegador do PC
  * (Origin + JSON) e acessos do tailnet que não sejam do dono. Com PIN (ver pin.ts), a API e o
  * WebSocket pedem também o token de quem acertou; os arquivos do app ficam abertos, para a tela de bloqueio carregar.
+ * Um aparelho desconectado pela seção Acesso (ver access.ts) fica sem API e WebSocket até ser liberado.
  */
-export function accessGuard(policy: AccessPolicy, pin: PinLock) {
+export function accessGuard(policy: AccessPolicy, pin: PinLock, access: AccessMonitor) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const host = req.headers.host ?? '';
     // Numa porta HTTPS extra do `tailscale serve` (ex.: uma instância de teste em :10000), o Host traz a porta.
@@ -100,7 +102,10 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock) {
     }
     if (viaTailnet) {
       const login = String(req.headers['tailscale-user-login'] ?? '');
-      if (!policy.logins.has(login)) return reply.code(403).send({ error: 'tailnet_identity_required' });
+      if (!policy.logins.has(login)) {
+        void access.deniedLogin(req);
+        return reply.code(403).send({ error: 'tailnet_identity_required' });
+      }
     }
 
     // Pela rota que casou, e não pela URL crua: `/%61pi/...` cai na mesma rota da API.
@@ -131,6 +136,7 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock) {
     }
 
     const guarded = route.startsWith('/api/') || route === '/ws' || route.startsWith('/ws/');
+    if (guarded && access.isBlocked(req)) return reply.code(403).send({ error: 'device_blocked' });
     if (pin.enabled && guarded && !PIN_FREE.has(route) && !pin.check(pinToken(req))) {
       return reply.code(401).send({ error: 'pin_required' });
     }
