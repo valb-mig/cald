@@ -906,9 +906,23 @@ export class Manager extends EventEmitter {
    */
   async changeTeam(sessionId: string, teamId: string | null): Promise<void> {
     const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
+    await this.restartWith(sessionId, () => this.meta.setTeam(sessionId, team));
+  }
+
+  /**
+   * Troca (ou tira, com `null`) o workspace de uma conversa que já começou. Como o time, o contexto dele
+   * entra quando o processo sobe: aberta no painel, ela precisa estar parada e é retomada com o novo.
+   */
+  async changeWorkspace(sessionId: string, workspaceId: string | null): Promise<void> {
+    if (workspaceId) this.workspaces.get(workspaceId);
+    await this.restartWith(sessionId, () => this.meta.setWorkspace(sessionId, workspaceId ?? undefined));
+  }
+
+  /** Grava a mudança com o processo da conversa (se aberta no painel) encerrado, e a retoma com os mesmos ajustes. */
+  private async restartWith(sessionId: string, change: () => Promise<void>): Promise<void> {
     const own = this.sessions.get(sessionId);
     if (own) await own.release();
-    await this.meta.setTeam(sessionId, team);
+    await change();
     if (own) {
       const { model, effort, permissionMode } = own.settings;
       await this.open(sessionId, {

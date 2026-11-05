@@ -53,7 +53,7 @@ export type CaldMcpContext = {
 const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
 - TODO: a lista de tarefas deste projeto no cald (não é a sua lista interna de tarefas). Cada item tem um número, que o usuário menciona no chat como \`TODO:n\`. Ao quebrar um trabalho em tarefas, crie todas de uma vez com \`criar_todos\`; ao terminar uma, marque-a como feita com \`editar_todo\` (\`feito: true\`).
 - Times: subagentes do usuário (nome, papel, modelo, esforço e instruções), que uma conversa recebe para delegar pela ferramenta Agent. Ao montar um time para um projeto, estude o projeto antes (CLAUDE.md, README, a stack, os comandos de build, teste e lint, as convenções) e escreva para cada membro instruções específicas dele: do que cuida, onde isso fica no código, que padrões seguir e como validar. Um time editado só vale nas conversas que começarem depois; \`usar_time\` põe um time nesta conversa quando a sua resposta terminar.
-- Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Mudanças valem da próxima vez que uma conversa do workspace abrir.
+- Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Cada projeto pode ter um workspace padrão, com que a conversa nova dele já vem. Mudanças valem da próxima vez que uma conversa do workspace abrir.
 - Habilidades: skills do cald (\`/cald:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
 Nada aqui apaga: para tirar algo, o usuário usa o app.`;
 
@@ -88,6 +88,7 @@ const workspaceOut = (w: Workspace) => ({
   comandos: w.commands.map((c) => ({ rotulo: c.label, comando: c.command, pasta: c.cwd })),
   timeId: w.teamId,
   arquivos: w.files.map((f) => f.name),
+  padraoDe: w.defaultFor,
 });
 const habilidadeOut = (h: Habilidade) => ({ id: h.id, nome: h.name, descricao: h.description, escopo: h.project ? 'projeto' : 'global', corpo: h.body });
 
@@ -221,7 +222,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
       ),
       tool(
         'criar_workspace',
-        'Cria um workspace no cald, um molde de conversa. O primeiro projeto é o principal, onde a conversa abre; sem projetos, fica só o desta conversa.',
+        'Cria um workspace no cald, um molde de conversa. O primeiro projeto é o principal, onde a conversa abre; sem projetos, fica só o desta conversa. Se o principal ainda não tem workspace padrão, este vira o padrão dele.',
         {
           nome: z.string().min(1).max(60),
           projetos: z.array(z.string().max(4096)).max(MAX_PROJECTS).optional().describe('Caminhos absolutos das pastas dos projetos'),

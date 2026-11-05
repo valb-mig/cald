@@ -404,6 +404,21 @@ app.post<{ Body: WorkspaceInput }>(
   },
 );
 
+// O workspace padrão de um projeto (`null` deixa sem): a conversa nova dele já vem com esse.
+app.post<{ Body: { cwd: string; workspaceId: string | null } }>(
+  '/api/workspaces/default',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'workspaceId'],
+        properties: { cwd: { type: 'string', minLength: 1, maxLength: 4096 }, workspaceId: { type: ['string', 'null'], maxLength: 64 } },
+      },
+    },
+  },
+  async (req) => workspaces.setDefault(req.body.cwd, req.body.workspaceId),
+);
+
 app.post<{ Params: IdParams }>('/api/workspaces/:id/delete', async (req) => {
   await workspaces.remove(req.params.id);
   return { ok: true };
@@ -445,6 +460,16 @@ app.post<{ Params: IdParams; Body: { teamId: string | null } }>(
   { schema: { body: { type: 'object', required: ['teamId'], properties: { teamId: { type: ['string', 'null'], maxLength: 64 } } } } },
   async (req) => {
     await manager.changeTeam(req.params.id, req.body.teamId);
+    return { ok: true };
+  },
+);
+
+// Trocar o workspace de uma conversa que já começou (`null` tira), como o time: o contexto dele entra quando o processo sobe.
+app.post<{ Params: IdParams; Body: { workspaceId: string | null } }>(
+  '/api/sessions/:id/workspace',
+  { schema: { body: { type: 'object', required: ['workspaceId'], properties: { workspaceId: { type: ['string', 'null'], maxLength: 64 } } } } },
+  async (req) => {
+    await manager.changeWorkspace(req.params.id, req.body.workspaceId);
     return { ok: true };
   },
 );
