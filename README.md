@@ -36,7 +36,7 @@ cd ~/Projects/cald
 O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `cald`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
 
 ```sh
-cald -link      # mostra o link de acesso remoto da tailnet
+cald -link      # mostra o link de acesso remoto da tailnet; `cald -link off` desliga, `cald -link on` liga de novo
 cald -pin       # define (ou troca) o PIN pedido ao abrir o painel; `cald -pin off` remove
 ```
 
@@ -93,6 +93,8 @@ A configuração do `--bg` sobrevive a reinícios. O servidor só escuta em `127
 
 ### 5. Instalar no celular
 
+Pelo PC, o jeito mais fácil é o painel **Computador → Acesso**: ele mostra o link num QR para o celular escanear, confere o que falta no caminho (Tailscale no PC e no celular, MagicDNS, HTTPS, o link publicado) e marca cada passo sozinho conforme o celular chega. À mão:
+
 1. Com o Tailscale ligado no celular, abra no Chrome o endereço do passo 4.
 2. No menu ⋮, toque em **Instalar app** (ou **Adicionar à tela inicial**). No iPhone, pelo Safari: **Compartilhar → Adicionar à Tela de Início**.
 3. Abra o app instalado e, no painel **Computador**, toque em **Ativar notificações** e permita. Toque em **Enviar teste** para conferir.
@@ -102,6 +104,15 @@ O painel passa a abrir como um app e avisa quando o Claude precisa de você.
 ### Quem pode acessar
 
 O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` informa no cabeçalho `Tailscale-User-Login`). Por padrão, só entra o dono do PC na tailnet. Para liberar outra conta, use `ALLOWED_LOGINS`: ela substitui o padrão, então inclua o seu login também.
+
+### Quem está usando
+
+Em **Computador → Acesso** ficam os aparelhos com o app aberto agora (com o nome do Tailscale, quantas janelas e desde quando), os acessos recentes e as tentativas barradas: uma conta do Tailscale que não é a sua e o PIN errado. Um aparelho que entra pela primeira vez, uma conta barrada ou o PIN errado demais avisam no celular, mesmo com o app fechado.
+
+- **Desconectar** um aparelho fecha as janelas dele, invalida o token do PIN e o deixa de fora (sem API nem WebSocket) até você tocar em **Liberar**. O próprio PC e o aparelho em que você está não têm o botão.
+- **Desligar o link** tira o painel da tailnet (`tailscale serve` desligado só nas portas que levam ao cald) e derruba quem estiver conectado por ela, inclusive o celular de onde você desligou. Para religar: no PC, pelo mesmo botão em `http://localhost:7337`, ou com `cald -link on`. O app religa nas mesmas portas que estavam publicadas.
+
+O histórico fica em `~/.local/state/cald/access.json` (os 100 acontecimentos mais recentes).
 
 ### PIN
 
@@ -140,6 +151,7 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `PIPER_BIN` | `~/.local/share/cald/piper/piper/piper` | Binário do Piper para a leitura em voz alta no PC (ver [Voz natural no PC](#voz-natural-no-pc-piper)) |
 | `PIPER_VOICE` | `~/.local/share/cald/piper/voices/pt_BR-faber-medium.onnx` | Voz do Piper, com o `.onnx.json` ao lado |
 | `ACTIVITY_FILE` | `~/.local/share/cald/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
+| `ACCESS_FILE` | `~/.local/state/cald/access.json` | Quem já usou o painel, os acessos recentes e os aparelhos desconectados (ver [Quem está usando](#quem-está-usando)) |
 | `ORIGINS_FILE` | `~/.local/share/cald/origins.jsonl` | De que aparelho saiu cada mensagem mandada pelo app (ver [Usar pelo celular](#usar-pelo-celular)) |
 | `MEMORY_TRASH_DIR` | `~/.local/share/cald/memory-trash` | Lixeira das memórias do Claude apagadas pelo app (ver **O que o Claude carrega**) |
 | `MEMORY_SUGGESTIONS_FILE` | `~/.local/share/cald/memory-suggestions.json` | As memórias que o Claude quis guardar e esperam você (ver **Sugestões de memória**) |
@@ -473,8 +485,8 @@ systemctl --user status cald
 systemctl --user restart cald       # após mudar o código do servidor
 journalctl --user -u cald -f        # logs
 cald -link                          # link de acesso remoto (atalho)
+cald -link off                      # desligar o acesso remoto (`cald -link on` liga de novo)
 tailscale serve status              # acesso remoto
-tailscale serve --https=443 off     # desligar o acesso remoto
 ```
 
 Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no painel aparecem como paradas e podem ser retomadas pelo ID.
