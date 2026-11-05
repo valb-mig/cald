@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, Plus, SquareTerminal, X, XCircle } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, PanelRight, Plus, SquareTerminal, X, XCircle } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ToolDetails } from '@/components/chat/activity'
 import type { ToolEntry } from '@/components/chat/turn'
+import { TerminalCommands } from '@/components/terminal-commands'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { SlidePanel } from '@/components/ui/slide-panel'
@@ -14,7 +15,7 @@ import { HOME, machineOf } from '@/lib/machines'
 import { setPanelShown, setPanelTab, useProjectPanel } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { closeTerminal, newTerminal, selectTerminal, useTermActivity, useTerminals, type TermActivity, type TermTab } from '@/lib/terminals'
+import { closeTerminal, newTerminal, selectTerminal, toggleCommandsBar, useCommandsBar, useTermActivity, useTerminals, type TermActivity, type TermTab } from '@/lib/terminals'
 import { activeTab, focusedChat, focusedGroup, useWorkbench } from '@/lib/workbench'
 
 // O xterm é o maior pedaço do app e só serve a quem abre o terminal: chega na primeira vez.
@@ -408,7 +409,8 @@ function TerminalTabs({ place }: { place: Place | null }) {
  * na divisória de cima. Na aba Comandos, o que o Claude rodou na conversa da barra de status; na aba
  * Terminal, os terminais abertos, cada um numa aba própria. Fica montado mesmo fechado, para os
  * terminais não morrerem ao fechar o painel; e eles não seguem a conversa em foco, então trocar de
- * aba nas conversas deixa o terminal como está.
+ * aba nas conversas deixa o terminal como está. À direita do terminal, a barra dos comandos salvos
+ * (ver terminal-commands.tsx), que liga e desliga no cabeçalho.
  */
 export function BottomPanel() {
   const open = useBottomPanel((s) => s.open)
@@ -419,6 +421,7 @@ export function BottomPanel() {
   const [all, setAll] = useState(false)
   const terms = useTerminals((s) => s.tabs)
   const activeTerm = useTerminals((s) => s.active)
+  const commandsBar = useCommandsBar((s) => s.open)
   const panelTabs = useRef<HTMLDivElement>(null)
   const panelPill = usePill(panelTabs, tab, '')
   // Para o terminal que entra vir do lado da aba dele: da direita, se ela fica depois da que saiu.
@@ -482,6 +485,19 @@ export function BottomPanel() {
               Todas as ferramentas
             </label>
           )}
+          {tab === 'terminal' && !none && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={toggleCommandsBar}
+              aria-pressed={commandsBar}
+              aria-label="Comandos salvos"
+              title="Comandos salvos"
+              className="text-muted-foreground aria-pressed:bg-foreground/[0.06] aria-pressed:text-foreground"
+            >
+              <PanelRight />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -501,19 +517,26 @@ export function BottomPanel() {
           </div>
         )}
         {tab === 'terminal' && none && !place && <p className="p-4 text-sm text-muted-foreground">Abra uma conversa ou um projeto para ter o terminal na pasta dele.</p>}
-        {terms.map((t) => {
-          const shown = tab === 'terminal' && t.id === activeTerm
-          return (
-            <div
-              key={t.id}
-              className={cn('flex min-h-0 flex-1 flex-col', shown ? (order.from === 'left' ? 'cr-term-in-left' : 'cr-term-in-right') : 'hidden')}
-            >
-              <Suspense>
-                <TerminalView id={t.id} machine={t.machine} cwd={t.cwd} active={open && shown} />
-              </Suspense>
-            </div>
-          )
-        })}
+        {/* Sempre montado, mesmo em outra aba do painel: os terminais vivem aqui dentro. */}
+        <div className={cn('flex min-h-0 flex-1 gap-1', (tab !== 'terminal' || none) && 'hidden')}>
+          {/* Recorta a entrada do terminal, que desliza de lado, para não passar por cima da barra. */}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {terms.map((t) => {
+              const shown = tab === 'terminal' && t.id === activeTerm
+              return (
+                <div
+                  key={t.id}
+                  className={cn('flex min-h-0 flex-1 flex-col', shown ? (order.from === 'left' ? 'cr-term-in-left' : 'cr-term-in-right') : 'hidden')}
+                >
+                  <Suspense>
+                    <TerminalView id={t.id} machine={t.machine} cwd={t.cwd} active={open && shown} />
+                  </Suspense>
+                </div>
+              )
+            })}
+          </div>
+          {tab === 'terminal' && !none && commandsBar && <TerminalCommands />}
+        </div>
       </SlidePanel>
     </div>
   )

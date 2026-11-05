@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react'
  * server/src/cald-mcp.ts): o TODO de um projeto, os times, os workspaces ou as habilidades. Chega pelo
  * WebSocket (ver store.ts), e quem tem isso na tela recarrega.
  */
-export type Changed = { what: 'todos' | 'teams' | 'workspaces' | 'habilidades'; cwd?: string; rev?: number }
+export type Changed = { what: 'todos' | 'teams' | 'workspaces' | 'habilidades' | 'saved-commands'; cwd?: string; rev?: number }
 
 type Listener = (machine: string, change: Changed) => void
 const listeners = new Set<Listener>()
