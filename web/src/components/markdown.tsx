@@ -12,14 +12,15 @@ import { cn } from '@/lib/utils'
 
 const COLLAPSE_AFTER_LINES = 14
 
-export function CopyButton({ text, className }: { text: string; className?: string }) {
+export function CopyButton({ text, className, label = 'Copiar' }: { text: string; className?: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className={className}
-      aria-label="Copiar"
+      title={label}
+      aria-label={label}
       onClick={async () => {
         await navigator.clipboard.writeText(text)
         setCopied(true)
