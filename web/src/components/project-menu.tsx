@@ -1,4 +1,4 @@
-import { ImageMinus, ImagePlus } from 'lucide-react'
+import { BookText, ImageMinus, ImagePlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -9,10 +9,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { DetalhesSheet } from '@/components/project/detalhes'
 import { api, errorMessage } from '@/lib/api'
 import { blobToBase64 } from '@/lib/attachments'
+import { WIDE_QUERY } from '@/lib/hooks'
 import { projectKey } from '@/lib/project-groups'
 import { bumpProjectIcon } from '@/lib/project-icons'
+import { openProjectHub } from '@/lib/workbench'
 
 /** Projeto e ponto da tela (o do clique ou do dedo) onde o menu abre. */
 export type ProjectMenuAt = { machine: string; cwd: string; name: string; x: number; y: number }
@@ -24,9 +27,10 @@ const MAX_BYTES = 20 * 1024 * 1024
 
 /**
  * Menu de um projeto, no ponto onde foi pedido (botão direito ou dedo segurado no cabeçalho dele na
- * lista, na aba dele no celular ou na linha dele em Projetos): escolher a logo dele, quando o cald não
- * acha uma no repositório ou a achada não serve, e tirar a escolhida. Ela fica no PC do projeto, fora
- * do repositório, e vale em todos os aparelhos.
+ * lista, na aba dele no celular ou na linha dele em Projetos): os detalhes dele (ver
+ * components/project/detalhes.tsx), escolher a logo dele, quando o cald não acha uma no repositório ou a
+ * achada não serve, e tirar a escolhida. A logo fica no PC do projeto, fora do repositório, e vale em
+ * todos os aparelhos.
  */
 export function ProjectMenu({ at, open, onOpenChange }: { at: ProjectMenuAt | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const input = useRef<HTMLInputElement>(null)
@@ -35,6 +39,8 @@ export function ProjectMenu({ at, open, onOpenChange }: { at: ProjectMenuAt | nu
   const key = at ? projectKey(at.machine, at.cwd) : ''
   const [info, setInfo] = useState<{ key: string; value: Info } | null>(null)
   const shown = info?.key === key ? info.value : null
+  // A folha dos detalhes (no celular) sobrevive ao menu, que fecha ao escolher.
+  const [detalhes, setDetalhes] = useState<ProjectMenuAt | null>(null)
 
   useEffect(() => {
     if (!open || !at) return
@@ -102,6 +108,9 @@ export function ProjectMenu({ at, open, onOpenChange }: { at: ProjectMenuAt | nu
             <>
               <DropdownMenuLabel className="truncate">{at.name}</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => (matchMedia(WIDE_QUERY).matches ? openProjectHub(at.machine, at.cwd, 'detalhes') : setDetalhes(at))}>
+                <BookText /> Detalhes
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => {
                   target.current = at
@@ -123,6 +132,7 @@ export function ProjectMenu({ at, open, onOpenChange }: { at: ProjectMenuAt | nu
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      <DetalhesSheet project={detalhes} onClose={() => setDetalhes(null)} />
     </>
   )
 }

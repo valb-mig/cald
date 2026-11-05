@@ -547,6 +547,19 @@ export type Todo = {
   files: TodoFile[]
 }
 
+/**
+ * Um detalhe do projeto: como uma parte dele funciona, em Markdown com `@caminho` (ver
+ * server/src/detalhes.ts). A `chave` vem do PC, tirada do título: é por ela que o Claude lê o detalhe.
+ */
+export type Detalhe = {
+  id: string
+  chave?: string
+  title: string
+  body: string
+  createdAt: number
+  updatedAt?: number
+}
+
 /** Quanto você já codou hoje pelo WakaTime (ver server/src/wakatime.ts). */
 export type WakaToday = { seconds: number; text: string; goalHours: number }
 
