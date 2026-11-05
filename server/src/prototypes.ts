@@ -23,7 +23,7 @@ export const VIEW_ROUTE = '/api/prototype/view/:id/*';
 export const PROTOTYPE_CSP = 'sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
 
 // O que o Claude escreve com a página: estilos, scripts, imagens, fontes, dados e mídia.
-const VIEW_TYPES: Record<string, string> = {
+export const VIEW_TYPES: Record<string, string> = {
   ...MEDIA_TYPES,
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',
@@ -49,12 +49,12 @@ const VIEW_TYPES: Record<string, string> = {
   '.webm': 'video/webm',
 };
 
-const isHtml = (path: string) => ['.html', '.htm'].includes(extname(path).toLowerCase());
+export const isHtml = (path: string) => ['.html', '.htm'].includes(extname(path).toLowerCase());
 
 /** Pastas e arquivos ocultos (.git, .env, .ssh) nunca saem por aqui. */
-const hidden = (rel: string) => rel.split(/[\\/]/).some((part) => part.startsWith('.') && part !== '.');
+export const hidden = (rel: string) => rel.split(/[\\/]/).some((part) => part.startsWith('.') && part !== '.');
 
-type Prototype = {
+export type Prototype = {
   /** A pasta servida. */
   root: string;
   /** O HTML, relativo a `root`. */
@@ -90,11 +90,11 @@ function get(id: string): Prototype {
 }
 
 /**
- * Prepara `path` (um .html, ou uma pasta com index.html; relativo, vale a partir de `cwd`) para abrir.
- * Só o que está dentro da pasta pessoal, das pastas de projetos ou do /tmp: o protótipo é coisa do
- * Claude, não do sistema.
+ * Onde está a página `path` (um .html, ou uma pasta com index.html; relativo, vale a partir de `cwd`): a
+ * pasta dela, o HTML e se ela sai sozinha. Só o que está dentro da pasta pessoal, das pastas de projetos
+ * ou do /tmp: a página é coisa do Claude, não do sistema. Vale também para os artefatos (ver artefatos.ts).
  */
-export async function openPrototype(path: string, cwd?: string): Promise<{ id: string; entry: string; name: string; mtime: number }> {
+export async function locatePage(path: string, cwd?: string): Promise<Prototype> {
   if (!isAbsolute(path) && !cwd) throw new HttpError(400, 'path_not_absolute');
   let full = await realpath(resolve(cwd ?? '/', path)).catch(() => {
     throw new HttpError(404, 'prototype_not_found');
@@ -121,7 +121,12 @@ export async function openPrototype(path: string, cwd?: string): Promise<{ id: s
   const parts = relative(base, root).split(sep);
   const inHidden = parts.some((part, i) => part.startsWith('.') && !(part === '.claude' && parts[i + 1] === 'worktrees'));
   const loose = [home, ...roots, ...temps].includes(root);
-  const proto: Prototype = { root, entry: basename(full), single: loose || inHidden };
+  return { root, entry: basename(full), single: loose || inHidden };
+}
+
+/** Prepara `path` para abrir numa aba (ver `locatePage`). */
+export async function openPrototype(path: string, cwd?: string): Promise<{ id: string; entry: string; name: string; mtime: number }> {
+  const proto = await locatePage(path, cwd);
   return { id: remember(proto), entry: proto.entry, name: proto.entry, mtime: await version(proto) };
 }
 

@@ -1,61 +1,32 @@
-import { AppWindow, ArrowLeft, ExternalLink, FileX, RotateCw, TriangleAlert } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppWindow, ExternalLink, FileX, TriangleAlert } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { ClaudeMark } from '@/components/claude-mark'
 import { splitPath } from '@/components/project/status'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { api, ApiError, errorMessage, isOutdatedServer, OUTDATED_SERVER, prototypeViewUrl } from '@/lib/api'
 import { shortPath } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
 import { closePrototypeDialog, usePrototypeDialog, type PrototypeRef } from '@/lib/prototype'
 import type { PrototypeOpen } from '@/lib/types'
-import { cn } from '@/lib/utils'
-import { useGlass } from '@/lib/wallpaper'
+import { PageFrame, PageProblem } from './page-frame'
 
-/**
- * O que a página pode no iframe. Nunca `allow-same-origin`: escrita pelo Claude, ela roda com origem
- * opaca e não alcança a API do cald nem o que o app guarda. O PC manda a mesma CSP (ver server/src/prototypes.ts).
- */
-const SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads'
 /** De quanto em quanto tempo a aba à vista pergunta se o Claude mexeu na página. */
 const POLL_MS = 2000
-
-/**
- * Arrastando uma aba do app: o iframe sai do caminho do mouse, senão engole o arrasto, e soltar sobre a
- * página não levaria a aba para o grupo dela.
- */
-function useDragging(): boolean {
-  const [on, setOn] = useState(false)
-  useEffect(() => {
-    const start = () => setOn(true)
-    const end = () => setOn(false)
-    window.addEventListener('dragstart', start)
-    window.addEventListener('dragend', end)
-    window.addEventListener('drop', end)
-    return () => {
-      window.removeEventListener('dragstart', start)
-      window.removeEventListener('dragend', end)
-      window.removeEventListener('drop', end)
-    }
-  }, [])
-  return on
-}
 
 /** No lugar da página: o arquivo que sumiu, ou o que o PC recusou, e o tentar de novo. */
 function Problem({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   // O `not_found` puro é o do servidor que ainda não tem a rota; a página que sumiu tem código próprio.
   const gone = error instanceof ApiError && error.code === 'prototype_not_found'
   return (
-    <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-      {gone ? <FileX className="size-8 text-muted-foreground/60" /> : <TriangleAlert className="size-8 text-muted-foreground/60" />}
-      <p className="max-w-xs text-sm text-muted-foreground">
-        {gone ? 'A página não está mais no PC.' : isOutdatedServer(error) ? OUTDATED_SERVER : errorMessage(error)}
-      </p>
+    <PageProblem
+      icon={gone ? FileX : TriangleAlert}
+      text={gone ? 'A página não está mais no PC.' : isOutdatedServer(error) ? OUTDATED_SERVER : errorMessage(error)}
+    >
       <Button size="sm" variant="outline" onClick={onRetry}>
         Tentar de novo
       </Button>
-    </div>
+    </PageProblem>
   )
 }
 
@@ -79,10 +50,6 @@ export function PrototypeView({ machine, path, cwd, url, title, active, dialog =
   const [busy, setBusy] = useState(false)
   // Recarregar à mão: entra na URL, para o iframe pedir a página de novo mesmo sem ela ter mudado.
   const [reloads, setReloads] = useState(0)
-  const [loaded, setLoaded] = useState<string | null>(null)
-  const frame = useRef<HTMLIFrameElement>(null)
-  const dragging = useDragging()
-  const glass = useGlass() && !dialog
 
   const open = useCallback(() => api.openPrototype(machine, path, cwd), [machine, path, cwd])
 
@@ -139,17 +106,6 @@ export function PrototypeView({ machine, path, cwd, url, title, active, dialog =
     }
   }, [active, page, machine, open])
 
-  // O clique na página leva o foco para o iframe, e a janela do app perde o dela: é o sinal de que se mexe nela.
-  useEffect(() => {
-    if (!onInteract) return
-    const onBlur = () =>
-      setTimeout(() => {
-        if (frame.current && document.activeElement === frame.current) onInteract()
-      })
-    window.addEventListener('blur', onBlur)
-    return () => window.removeEventListener('blur', onBlur)
-  }, [onInteract])
-
   // Pede o id de novo (pode ter expirado) e recarrega a página, mesmo sem ela ter mudado.
   const reload = () => {
     setBusy(true)
@@ -169,72 +125,49 @@ export function PrototypeView({ machine, path, cwd, url, title, active, dialog =
   }
 
   const view = page && prototypeViewUrl(machine, page.id, page.entry)
-  // A versão vai na URL: o iframe novo (ver o `key`) não reaproveita a página velha do cache.
-  const src = page && view && `${view}?v=${Math.round(page.mtime)}${reloads ? `.${reloads}` : ''}`
-  const spinning = busy || Boolean(src && loaded !== src)
+  // A versão vai na URL: o iframe novo (ver PageFrame) não reaproveita a página velha do cache.
+  const src = page && view ? `${view}?v=${Math.round(page.mtime)}${reloads ? `.${reloads}` : ''}` : null
   const { name, dir } = splitPath(shortPath(path))
-  const Title = dialog ? DialogTitle : 'h2'
 
   return (
-    <>
-      <header
-        className={cn(
-          'flex shrink-0 items-center gap-1 border-b px-2 pb-1.5',
-          dialog ? 'pt-[max(0.375rem,env(safe-area-inset-top))]' : 'pt-1.5',
-          glass && 'relative z-10 bg-background/70 backdrop-blur-md',
-        )}
-      >
-        {dialog && (
-          <Button variant="ghost" size="icon" onClick={closePrototypeDialog} aria-label="Voltar">
-            <ArrowLeft />
-          </Button>
-        )}
-        <Button variant="ghost" size="icon" onClick={reload} disabled={busy} aria-label="Recarregar" title="Recarregar">
-          <RotateCw className={cn(spinning && 'animate-spin')} />
-        </Button>
-        {/* O endereço, só para ler: a pasta apagada e o arquivo, como a barra de um navegador. */}
-        <div title={title ? `${title}\n${shortPath(path)}` : shortPath(path)} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full bg-foreground/[0.05] px-3">
-          <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
-          <Title className="min-w-0 truncate font-mono text-xs font-normal">
-            {dir && <span className="text-muted-foreground max-sm:hidden">{dir}/</span>}
-            {name}
-          </Title>
-        </div>
-        {url && (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={url} target="_blank" rel="noreferrer" aria-label="Abrir no claude.ai" title="Abrir no claude.ai">
-              <ClaudeMark className="size-3.5" />
-              <span className="max-sm:hidden">claude.ai</span>
-            </a>
-          </Button>
-        )}
-        {view && (
-          <Button variant="ghost" size="icon" asChild>
-            <a href={view} target="_blank" rel="noreferrer" aria-label="Abrir numa janela" title="Abrir numa janela">
-              <ExternalLink />
-            </a>
-          </Button>
-        )}
-      </header>
-      <div className={cn('relative flex min-h-0 flex-1 flex-col', src ? 'bg-white' : 'bg-background')}>
-        {src ? (
-          // Um iframe novo a cada versão, em vez de trocar o `src`: trocar empilharia a página no histórico, e o voltar a desfaria.
-          <iframe
-            key={src}
-            ref={frame}
-            src={src}
-            title={title || name}
-            sandbox={SANDBOX}
-            onLoad={() => setLoaded(src)}
-            className={cn('absolute inset-0 size-full border-0 bg-white', dragging && 'pointer-events-none')}
-          />
-        ) : error ? (
-          <Problem error={error} onRetry={reload} />
-        ) : (
-          <Skeleton className="absolute inset-3 rounded-xl" />
-        )}
-      </div>
-    </>
+    <PageFrame
+      src={src}
+      title={title || name}
+      dialog={dialog}
+      onBack={closePrototypeDialog}
+      onReload={reload}
+      busy={busy}
+      onInteract={onInteract}
+      problem={error ? <Problem error={error} onRetry={reload} /> : undefined}
+      icon={AppWindow}
+      // A pasta apagada e o arquivo, como a barra de um navegador.
+      address={
+        <span className="font-mono">
+          {dir && <span className="text-muted-foreground max-sm:hidden">{dir}/</span>}
+          {name}
+        </span>
+      }
+      hint={title ? `${title}\n${shortPath(path)}` : shortPath(path)}
+      actions={
+        <>
+          {url && (
+            <Button variant="ghost" size="sm" asChild>
+              <a href={url} target="_blank" rel="noreferrer" aria-label="Abrir no claude.ai" title="Abrir no claude.ai">
+                <ClaudeMark className="size-3.5" />
+                <span className="max-sm:hidden">claude.ai</span>
+              </a>
+            </Button>
+          )}
+          {view && (
+            <Button variant="ghost" size="icon" asChild>
+              <a href={view} target="_blank" rel="noreferrer" aria-label="Abrir numa janela" title="Abrir numa janela">
+                <ExternalLink />
+              </a>
+            </Button>
+          )}
+        </>
+      }
+    />
   )
 }
 

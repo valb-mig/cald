@@ -4,6 +4,8 @@ import { authHeader, withToken } from './pin-tokens'
 import type {
   AccessInfo,
   Activity,
+  Artefato,
+  ArtefatoList,
   AttachmentPayload,
   CommandInfo,
   Habilidade,
@@ -118,6 +120,12 @@ export const todoFileUrl = (m: string, file: { id: string; mediaType: string }) 
  */
 export const prototypeViewUrl = (m: string, id: string, entry: string) =>
   `${at(m)}/prototype/view/${encodeURIComponent(id)}/${entry.split('/').map(encodeURIComponent).join('/')}`
+/**
+ * A versão `n` de um artefato, para o iframe: sem o token do PIN, como a página do Claude (ver acima), e
+ * com a mesma CSP isolada. A versão é congelada: o mesmo endereço é sempre a mesma página.
+ */
+export const artefatoViewUrl = (m: string, id: string, n: number, entry: string) =>
+  `${at(m)}/artefato/view/${encodeURIComponent(id)}/${n}/${entry.split('/').map(encodeURIComponent).join('/')}`
 
 export const api = {
   health: (m: string) =>
@@ -249,6 +257,15 @@ export const api = {
   teamTrash: (m: string) => request<TrashedTeam[]>('GET', `${at(m)}/teams/trash`),
   restoreTeam: (m: string, id: string) => post<Team>(`${at(m)}/teams/${encodeURIComponent(id)}/restore`),
   purgeTeam: (m: string, id: string) => post(`${at(m)}/teams/${encodeURIComponent(id)}/purge`),
+  /** Artefatos, as páginas que o Claude publica (ver server/src/artefatos.ts): o mais recente primeiro, e a lixeira. */
+  artefatos: (m: string) => request<ArtefatoList>('GET', `${at(m)}/artefatos`),
+  artefato: (m: string, id: string) => request<Artefato>('GET', `${at(m)}/artefatos/${encodeURIComponent(id)}`),
+  /** Liga (ou publica de novo, com a versão atual) e desliga o link público; sem o Funnel, `funnel_unavailable`. */
+  setArtefatoPublic: (m: string, id: string, on: boolean) => post<Artefato>(`${at(m)}/artefatos/${encodeURIComponent(id)}/public`, { on }),
+  /** Vai para a lixeira, de onde volta por 30 dias. */
+  deleteArtefato: (m: string, id: string) => post(`${at(m)}/artefatos/${encodeURIComponent(id)}/delete`),
+  restoreArtefato: (m: string, id: string) => post<Artefato>(`${at(m)}/artefatos/${encodeURIComponent(id)}/restore`),
+  purgeArtefato: (m: string, id: string) => post(`${at(m)}/artefatos/${encodeURIComponent(id)}/purge`),
   /** A inbox da máquina (ver server/src/inbox.ts); `refresh` busca de novo no GitHub e no remoto. */
   inbox: (m: string, refresh = false) => request<InboxPayload>('GET', `${at(m)}/inbox${refresh ? '?refresh=1' : ''}`),
   inboxState: (m: string) => request<Record<string, InboxItemState>>('GET', `${at(m)}/inbox/state`),
@@ -425,6 +442,10 @@ export function errorMessage(err: unknown): string {
       return 'Só abre páginas da pasta pessoal ou do /tmp.'
     case 'path_not_absolute':
       return 'O caminho da página é relativo, e não se sabe a pasta de onde ele parte.'
+    case 'artefato_not_found':
+      return 'Esse artefato não existe mais.'
+    case 'funnel_unavailable':
+      return `O link público não ligou: ${err.details.detail ? String(err.details.detail) : 'o Funnel do Tailscale não está disponível no PC.'}`
     case 'not_utf8':
       return 'O arquivo não está em UTF-8: salvar pelo painel trocaria os acentos.'
     case 'file_too_large':
