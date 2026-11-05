@@ -1,7 +1,8 @@
-import { ChevronDown, GitBranch, Maximize2 } from 'lucide-react'
+import { ChevronDown, GitBranch, Maximize2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'wouter'
 import { Composer } from '@/components/chat/composer'
+import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { useAutoScroll, useConversation } from '@/components/chat/feed'
 import { MessageList } from '@/components/chat/message-list'
 import { Claudinho } from '@/components/claudinho'
@@ -32,6 +33,8 @@ export function MiniChat({ id, machine, onEdit, className }: { id: string; machi
   const { scrollRef, contentRef, onScroll, atBottom, jumpToBottom } = useAutoScroll([items.length, queued.length, history.events === null])
   // Parada: modelo/esforço/modo escolhidos aqui valem quando ela for retomada, como na aba.
   const [pending, setPending] = useState<RunOptions>({})
+  // Apagar a conversa pela lixeira do card (ver DeleteSessionDialog); o PC recusa a que está aberta nele.
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const name = claudinhoName(id, entry?.claudinhoName)
   // Turno encerrado com algo em segundo plano: ainda trabalha, como na lista de conversas.
   const inBackground = state === 'idle' && background.length > 0
@@ -46,28 +49,44 @@ export function MiniChat({ id, machine, onEdit, className }: { id: string; machi
 
   return (
     <section className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl', className)}>
-      <button
-        type="button"
-        onClick={expand}
-        title="Abrir como aba"
-        className="group/top flex min-h-11 shrink-0 items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
-      >
-        <Claudinho seed={id} name={name} state={shown} size={28} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{entry?.title ?? 'Conversa'}</span>
-          <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <span className="shrink-0 font-medium text-foreground/70">{name}</span>
-            {branch && (
-              <>
-                <GitBranch className="ml-1 size-3 shrink-0" />
-                <span className="truncate font-mono text-[11px]">{branch}</span>
-              </>
-            )}
+      <div className="group/top flex min-h-11 shrink-0 items-center">
+        <button
+          type="button"
+          onClick={expand}
+          title="Abrir como aba"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+        >
+          <Claudinho seed={id} name={name} state={shown} size={28} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{entry?.title ?? 'Conversa'}</span>
+            <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+              <span className="shrink-0 font-medium text-foreground/70">{name}</span>
+              {branch && (
+                <>
+                  <GitBranch className="ml-1 size-3 shrink-0" />
+                  <span className="truncate font-mono text-[11px]">{branch}</span>
+                </>
+              )}
+            </span>
           </span>
-        </span>
-        {live && <StateBadge state={shown} waitingFor={inBackground ? 'background' : waitingFor} className="h-4 shrink-0 px-1 text-[10px]" />}
-        <Maximize2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/top:opacity-100" />
-      </button>
+          {live && <StateBadge state={shown} waitingFor={inBackground ? 'background' : waitingFor} className="h-4 shrink-0 px-1 text-[10px]" />}
+          <Maximize2 aria-hidden className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/top:opacity-100" />
+        </button>
+        {/* Apagar a conversa: só no hover (ou no toque/foco), e no PC recusa a que está aberta nele. */}
+        <button
+          type="button"
+          onClick={() => setConfirmDelete(true)}
+          disabled={owner === 'pc'}
+          aria-label={owner === 'pc' ? 'Apagar a conversa (feche no PC antes)' : 'Apagar a conversa'}
+          title={owner === 'pc' ? 'Apagar a conversa (feche no PC antes)' : 'Apagar a conversa'}
+          className={cn(
+            'mr-1 flex size-7 shrink-0 items-center justify-center rounded-lg opacity-0 transition focus-visible:opacity-100 group-hover/top:opacity-100 pointer-coarse:opacity-100',
+            owner === 'pc' ? 'cursor-not-allowed text-muted-foreground/40' : 'text-muted-foreground hover:bg-destructive/15 hover:text-destructive',
+          )}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
 
       <div className="relative min-h-0 flex-1">
         <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
@@ -145,6 +164,8 @@ export function MiniChat({ id, machine, onEdit, className }: { id: string; machi
           />
         )}
       </div>
+
+      <DeleteSessionDialog sessionId={id} title={entry?.title} open={confirmDelete} onOpenChange={setConfirmDelete} />
     </section>
   )
 }
