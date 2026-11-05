@@ -1,7 +1,6 @@
-import { Bot, ChevronRight, CircleStop, Hourglass, Radar, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react'
+import { ChevronRight, CircleStop, Hourglass, Radar, SquareTerminal, Workflow, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useAgents } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import {
   AlertDialog,
@@ -20,10 +19,12 @@ import type { BackgroundTask, PanelEvent } from '@/lib/types'
 
 type ToolUse = Extract<PanelEvent, { kind: 'tool_use' }>
 
+/** Subagente em segundo plano: aparece no trilho de agentes, ao lado do chat, e não aqui. */
+const isAgent = (task: BackgroundTask, use?: ToolUse) => use?.name === 'Agent' || use?.name === 'Task' || task.type === 'local_agent'
+
 /** Tipo da tarefa como a pessoa reconhece, pela ferramenta que a criou. */
 function kindOf(task: BackgroundTask, use?: ToolUse): { label: string; icon: LucideIcon } {
   if (use?.name === 'Monitor') return { label: 'Monitor', icon: Radar }
-  if (use?.name === 'Agent' || use?.name === 'Task' || task.type === 'local_agent') return { label: 'Subagente', icon: Bot }
   if (task.type === 'local_workflow') return { label: 'Workflow', icon: Workflow }
   if (task.type === 'local_bash') return { label: 'Comando', icon: SquareTerminal }
   return { label: task.type, icon: Hourglass }
@@ -83,11 +84,9 @@ function TaskRow({
   onStop: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const agents = useAgents()
   const { label, icon: Icon } = kindOf(task, use)
   const command = typeof use?.input.command === 'string' ? use.input.command : ''
-  const agent = task.toolUseId ? agents?.tree.byId.get(task.toolUseId) : undefined
-  // Saída só de comandos e monitores (o Claude Code não guarda a de subagentes e workflows assim).
+  // Saída só de comandos e monitores (o Claude Code não guarda a de workflows assim).
   const hasOutput = task.type === 'local_bash'
   return (
     <li className="space-y-1.5 py-2 first:pt-0 last:pb-0">
@@ -115,11 +114,6 @@ function TaskRow({
             {open ? 'Esconder saída' : 'Ver saída'}
           </Button>
         )}
-        {agent && agents && (
-          <Button variant="outline" size="xs" onClick={() => agents.open(agent.id)}>
-            <Bot /> Ver o subagente
-          </Button>
-        )}
         {actionable && (
           <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onStop}>
             <CircleStop /> Parar
@@ -136,8 +130,50 @@ function TaskRow({
 }
 
 /**
- * O que o Claude deixou rodando em segundo plano: monitores, comandos, subagentes, workflows. O turno
- * acabou, mas ele não terminou: volta sozinho quando cada um termina (num monitor, a cada novidade).
+ * A confirmação de parar uma tarefa em segundo plano: encerrada no PC, o Claude recebe o aviso. Serve
+ * ao cartão daqui e à conversa de um subagente em segundo plano (ver agents/agent-chat.tsx).
+ */
+export function StopTaskDialog({
+  sessionId,
+  task,
+  open,
+  onOpenChange,
+}: {
+  sessionId: string
+  task: BackgroundTask | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  async function stop(task: BackgroundTask) {
+    try {
+      await api.stopTask(sessionId, task.taskId)
+      toast.success('Tarefa parada', { description: 'O Claude recebe o aviso e pode continuar a partir daí.' })
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
+  }
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="line-clamp-3 break-words">Parar “{task?.description}”?</AlertDialogTitle>
+          <AlertDialogDescription>A tarefa é encerrada no PC, e o Claude recebe o aviso de que ela foi parada.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Deixar rodando</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => task && void stop(task)}>
+            Parar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * O que o Claude deixou rodando em segundo plano: monitores, comandos, workflows. O turno acabou, mas
+ * ele não terminou: volta sozinho quando cada um termina (num monitor, a cada novidade). Os
+ * subagentes ficam de fora: eles têm o trilho de agentes, ao lado do chat.
  */
 export function BackgroundTasks({
   sessionId,
@@ -152,20 +188,13 @@ export function BackgroundTasks({
   /** Parar só com a conversa aberta no painel. */
   actionable: boolean
 }) {
-  const now = useNow(tasks.length > 0)
+  const callOf = (task: BackgroundTask) => (task.toolUseId ? uses.get(task.toolUseId) : undefined)
+  const shown = tasks.filter((t) => !isAgent(t, callOf(t)))
+  const now = useNow(shown.length > 0)
   const [stopping, setStopping] = useState<BackgroundTask | null>(null)
   const [confirm, setConfirm] = useState(false)
-  if (!tasks.length) return null
-  const monitors = tasks.some((t) => t.toolUseId && uses.get(t.toolUseId)?.name === 'Monitor')
-
-  async function stop(task: BackgroundTask) {
-    try {
-      await api.stopTask(sessionId, task.taskId)
-      toast.success('Tarefa parada', { description: 'O Claude recebe o aviso e pode continuar a partir daí.' })
-    } catch (err) {
-      toast.error(errorMessage(err))
-    }
-  }
+  if (!shown.length) return null
+  const monitors = shown.some((t) => callOf(t)?.name === 'Monitor')
 
   return (
     <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5" aria-label="Em segundo plano">
@@ -175,18 +204,18 @@ export function BackgroundTasks({
           Em segundo plano
         </h3>
         <p className="text-xs text-muted-foreground">
-          O Claude deixou {tasks.length === 1 ? 'isto rodando' : `${tasks.length} coisas rodando`}. Ele
-          volta sozinho quando {tasks.length === 1 ? 'terminar' : 'cada uma terminar'}
+          O Claude deixou {shown.length === 1 ? 'isto rodando' : `${shown.length} coisas rodando`}. Ele
+          volta sozinho quando {shown.length === 1 ? 'terminar' : 'cada uma terminar'}
           {monitors ? ' e, num monitor, a cada novidade que aparecer' : ''}; você pode mandar mensagem enquanto isso.
         </p>
       </div>
       <ul className="divide-y divide-sky-500/15">
-        {tasks.map((task) => (
+        {shown.map((task) => (
           <TaskRow
             key={task.taskId}
             sessionId={sessionId}
             task={task}
-            use={task.toolUseId ? uses.get(task.toolUseId) : undefined}
+            use={callOf(task)}
             now={now}
             actionable={actionable}
             onStop={() => {
@@ -197,20 +226,7 @@ export function BackgroundTasks({
         ))}
       </ul>
 
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="line-clamp-3 break-words">Parar “{stopping?.description}”?</AlertDialogTitle>
-            <AlertDialogDescription>A tarefa é encerrada no PC, e o Claude recebe o aviso de que ela foi parada.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Deixar rodando</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => stopping && void stop(stopping)}>
-              Parar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <StopTaskDialog sessionId={sessionId} task={stopping} open={confirm} onOpenChange={setConfirm} />
     </section>
   )
 }
