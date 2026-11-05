@@ -1,10 +1,11 @@
 import { Check, Copy, ImageIcon } from 'lucide-react'
-import { memo, useContext, useEffect, useRef, useState, type ComponentProps, type RefObject } from 'react'
+import { memo, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ImageThumb } from '@/components/image-viewer'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
+import { findColors } from '@/lib/colors'
 import { cn } from '@/lib/utils'
 
 const COLLAPSE_AFTER_LINES = 14
@@ -28,6 +29,37 @@ export function CopyButton({ text, className }: { text: string; className?: stri
   )
 }
 
+/** O quadradinho com a cor, antes do valor, como no VSCode. A borda fina o separa do fundo (branco no claro, preto no escuro). */
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      className="mr-[0.3em] inline-block size-[0.8em] rounded-[3px] align-[-0.05em] inset-ring inset-ring-foreground/25"
+      style={{ background: color }}
+    />
+  )
+}
+
+/** O texto com o quadradinho antes de cada cor escrita nele (ver lib/colors.ts). */
+function withSwatches(text: string): ReactNode {
+  const colors = findColors(text)
+  if (!colors.length) return text
+  const out: ReactNode[] = []
+  let at = 0
+  for (const c of colors) {
+    out.push(
+      text.slice(at, c.start),
+      <span key={c.start} className="whitespace-nowrap">
+        <Swatch color={c.value} />
+        {text.slice(c.start, c.end)}
+      </span>,
+    )
+    at = c.end
+  }
+  out.push(text.slice(at))
+  return out
+}
+
 export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const lines = code.split('\n').length
   const long = lines > COLLAPSE_AFTER_LINES
@@ -48,7 +80,7 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
         </div>
       </div>
       <pre className={cn('overflow-x-auto p-3 font-mono text-xs leading-relaxed', !expanded && 'max-h-48 overflow-y-hidden')}>
-        <code>{code}</code>
+        <code>{withSwatches(code)}</code>
       </pre>
     </div>
   )
@@ -57,6 +89,7 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 // ---- leitura em voz alta (ver lib/speech.ts): como a letra no Spotify ----
 
 type HastElement = NonNullable<ExtraProps['node']>
+type HastChild = HastElement['children'][number]
 type Reading = { reading: boolean; current: boolean }
 
 const BLOCKS = new Set(['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'table', 'blockquote'])
@@ -138,13 +171,51 @@ function Table({ node, children }: ComponentProps<'table'> & ExtraProps) {
   )
 }
 
+/**
+ * Plugin do rehype: no texto corrido (fora de código e de link), cada cor vira um `span` com ela, que o
+ * componente `span` desenha com o quadradinho. O código põe os dele sozinho (ver `withSwatches`).
+ */
+function rehypeColors() {
+  const walk = (node: { children: HastChild[] }) => {
+    node.children = node.children.flatMap((child): HastChild[] => {
+      if (child.type === 'element') {
+        if (!['code', 'pre', 'a'].includes(child.tagName)) walk(child)
+        return [child]
+      }
+      const colors = child.type === 'text' ? findColors(child.value, true) : []
+      if (child.type !== 'text' || !colors.length) return [child]
+      const { value } = child
+      const out: HastChild[] = []
+      let at = 0
+      for (const c of colors) {
+        if (c.start > at) out.push({ type: 'text', value: value.slice(at, c.start) })
+        out.push({ type: 'element', tagName: 'span', properties: { dataColor: c.value }, children: [{ type: 'text', value: value.slice(c.start, c.end) }] })
+        at = c.end
+      }
+      if (at < value.length) out.push({ type: 'text', value: value.slice(at) })
+      return out
+    })
+  }
+  return walk
+}
+
 const components: Components = {
   pre: Pre,
   code: ({ className, children }) => {
     const text = String(children).replace(/\n$/, '')
     const lang = /language-([\w+-]+)/.exec(className ?? '')?.[1]
     if (lang || text.includes('\n')) return <CodeBlock code={text} lang={lang} />
-    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{children}</code>
+    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{withSwatches(text)}</code>
+  },
+  span: ({ node, children }) => {
+    const color = node?.properties.dataColor
+    if (typeof color !== 'string') return <span>{children}</span>
+    return (
+      <span className="whitespace-nowrap">
+        <Swatch color={color} />
+        {children}
+      </span>
+    )
   },
   p: Paragraph,
   li: ListItem,
@@ -176,10 +247,13 @@ const components: Components = {
   td: ({ children }) => <td className="border-b px-2 py-1.5 align-top">{children}</td>,
 }
 
+const remarkPlugins = [remarkGfm]
+const rehypePlugins = [rehypeColors]
+
 export const Markdown = memo(function Markdown({ text, className }: { text: string } & ComponentProps<'div'>) {
   return (
     <div className={cn('text-sm break-words', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
         {text}
       </ReactMarkdown>
     </div>
