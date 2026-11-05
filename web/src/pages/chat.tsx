@@ -44,7 +44,7 @@ import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
-import { SummarySheet } from '@/components/chat/summary-sheet'
+import { SummaryDialog } from '@/components/chat/summary-dialog'
 import { toolsIn } from '@/components/chat/turn'
 import { WorktreeBar } from '@/components/chat/worktree-bar'
 import { Claudinho } from '@/components/claudinho'
@@ -882,7 +882,7 @@ export function ChatPage({ id }: { id: string }) {
           </div>
         </div>
 
-        <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <SummaryDialog sessionId={id} items={items} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
         <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
