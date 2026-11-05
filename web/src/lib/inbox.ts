@@ -1,9 +1,11 @@
 import { useMemo } from 'react'
+import { navigate } from 'wouter/use-browser-location'
 import { create } from 'zustand'
 import { api } from './api'
-import { HOME, useMachines } from './machines'
+import { HOME, newChatUrl, useMachines } from './machines'
 import { useStore } from './store'
 import type { CatalogEntry, InboxAction, InboxItem, InboxItemState, InboxPayload } from './types'
+import { openPanelTab, openProjectHub } from './workbench'
 
 /**
  * A inbox do app: o que cada máquina manda (PRs e issues do GitHub, projetos com mudanças, TODOs) e as
@@ -104,6 +106,19 @@ export function tomorrowMorning(): number {
   d.setDate(d.getDate() + 1)
   d.setHours(8, 0, 0, 0)
   return d.getTime()
+}
+
+/** Abre o item: a conversa, o PR ou a issue, ou o projeto (no PC o hub dele; no celular, uma conversa nova nele). */
+export function openInboxEntry(e: InboxEntry, wide: boolean): void {
+  const it = e.item
+  if (it.type === 'waiting') return navigate(`/s/${it.session.sessionId}`)
+  if (it.type === 'github') {
+    // No PC, com o projeto clonado aqui, o PR ou a issue abre numa aba; senão, no GitHub.
+    if (wide && it.cwd) return openPanelTab({ kind: 'github', machine: e.machine, cwd: it.cwd, item: it.kind, number: it.number, title: it.title }, { preview: true })
+    return void window.open(it.url, '_blank', 'noreferrer')
+  }
+  if (wide) return openProjectHub(e.machine, it.cwd)
+  navigate(newChatUrl(it.cwd, e.machine))
 }
 
 const groupOf = (i: InboxItem): InboxGroup =>

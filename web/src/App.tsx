@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Redirect, Route, Switch, useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
+import { CommandPalette } from '@/components/command-palette'
 import { ComputerSheet } from '@/components/computer-sheet'
 import { LockScreen } from '@/components/lock-screen'
 import { BottomNav, ConnectionBanner } from '@/components/layout'
@@ -229,6 +230,7 @@ function Panel() {
         {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
         <ProjectBar hidden={zen} />
         <QuickOpen />
+        <CommandPalette />
         <HabilidadesDialog />
       </div>
       <ComputerSheet />
