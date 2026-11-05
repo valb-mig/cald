@@ -445,8 +445,15 @@ app.post<{ Params: IdParams; Body: { teamId: string | null } }>(
   },
 );
 
+// Apagar manda para a lixeira, de onde volta por 30 dias.
 app.post<{ Params: IdParams }>('/api/teams/:id/delete', async (req) => {
-  await teams.remove(req.params.id);
+  await teams.toTrash(req.params.id);
+  return { ok: true };
+});
+app.get('/api/teams/trash', async () => teams.trashed());
+app.post<{ Params: IdParams }>('/api/teams/:id/restore', async (req) => teams.restore(req.params.id));
+app.post<{ Params: IdParams }>('/api/teams/:id/purge', async (req) => {
+  await teams.purge(req.params.id);
   return { ok: true };
 });
 
