@@ -1,13 +1,9 @@
 import {
   Check,
   ChevronRight,
-  CircleDot,
   Clock,
   ExternalLink,
-  FileDiff,
-  GitPullRequest,
   ListFilter,
-  ListTodo,
   Loader2,
   MessageCircleQuestion,
   MoreHorizontal,
@@ -19,7 +15,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'wouter'
-import { Claudinho } from '@/components/claudinho'
+import { describe } from '@/components/inbox/describe'
 import { PageHeader } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,64 +34,11 @@ import { insertInto } from '@/lib/compose'
 import { putDraft } from '@/lib/drafts'
 import { projectName, relativeTime } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
-import { actOnInbox, GROUPS, refreshInbox, statusOf, tomorrowMorning, useInbox, useInboxEntries, type InboxEntry, type InboxGroup } from '@/lib/inbox'
+import { actOnInbox, GROUPS, openInboxEntry, refreshInbox, statusOf, tomorrowMorning, useInbox, useInboxEntries, type InboxEntry, type InboxGroup } from '@/lib/inbox'
 import { newChatUrl } from '@/lib/machines'
 import type { InboxReason } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useGlass, useScrim } from '@/lib/wallpaper'
-import { openPanelTab, openProjectHub } from '@/lib/workbench'
-
-const REASON: Record<InboxReason, { label: string; tone: string }> = {
-  review: { label: 'Pedem sua revisão', tone: 'text-sky-600 dark:text-sky-400' },
-  checks: { label: 'Check falhando', tone: 'text-red-600 dark:text-red-400' },
-  changes: { label: 'Mudanças pedidas', tone: 'text-amber-600 dark:text-amber-400' },
-  conflict: { label: 'Conflito com a base', tone: 'text-amber-600 dark:text-amber-400' },
-  ready: { label: 'Aprovado, pronto para o merge', tone: 'text-emerald-600 dark:text-emerald-400' },
-  assigned: { label: 'Atribuída a você', tone: 'text-violet-600 dark:text-violet-400' },
-  mentioned: { label: 'Mencionaram você', tone: 'text-violet-600 dark:text-violet-400' },
-}
-
-/** O que a linha mostra: ícone, título, o porquê (colorido) e de onde vem. */
-function describe(e: InboxEntry): { icon: React.ReactNode; title: string; why: string; tone: string; where: string } {
-  const it = e.item
-  if (it.type === 'waiting') {
-    const asking = it.session.pending?.some((p) => p.kind === 'approval')
-    return {
-      icon: <Claudinho seed={it.session.sessionId} size={22} state="waiting" />,
-      title: it.session.title,
-      why: asking ? 'Pede aprovação' : 'Pergunta para você',
-      tone: 'text-amber-600 dark:text-amber-400',
-      where: it.session.cwd ? projectName(it.session.cwd) : '~',
-    }
-  }
-  if (it.type === 'github') {
-    const r = REASON[it.reason]
-    return {
-      icon: it.kind === 'pr' ? <GitPullRequest className={cn('size-4', r.tone)} /> : <CircleDot className={cn('size-4', r.tone)} />,
-      title: `${it.title}`,
-      why: r.label,
-      tone: r.tone,
-      where: `${it.repo} #${it.number}`,
-    }
-  }
-  if (it.type === 'git') {
-    const parts = [it.changed && `${it.changed} ${it.changed === 1 ? 'alterado' : 'alterados'}`, it.ahead && `↑ ${it.ahead} para enviar`, it.behind && `↓ ${it.behind} para receber`]
-    return {
-      icon: <FileDiff className="size-4 text-sky-600 dark:text-sky-400" />,
-      title: projectName(it.cwd),
-      why: parts.filter(Boolean).join(' · '),
-      tone: 'text-sky-600 dark:text-sky-400',
-      where: it.branch ?? '',
-    }
-  }
-  return {
-    icon: <ListTodo className="size-4 text-muted-foreground" />,
-    title: it.title,
-    why: `TODO:${it.n}`,
-    tone: 'text-muted-foreground',
-    where: projectName(it.cwd),
-  }
-}
 
 /** O projeto (ou o repositório, sem clone aqui) do item: o filtro por projeto. */
 function projectOf(e: InboxEntry): string {
@@ -172,17 +115,7 @@ function askOf(e: InboxEntry): { cwd: string; text: string } | null {
 function useActions() {
   const wide = useWide()
   const [, navigate] = useLocation()
-  const open = (e: InboxEntry) => {
-    const it = e.item
-    if (it.type === 'waiting') return navigate(`/s/${it.session.sessionId}`)
-    if (it.type === 'github') {
-      // No PC, com o projeto clonado aqui, o PR ou a issue abre numa aba; senão, no GitHub.
-      if (wide && it.cwd) return openPanelTab({ kind: 'github', machine: e.machine, cwd: it.cwd, item: it.kind, number: it.number, title: it.title }, { preview: true })
-      return void window.open(it.url, '_blank', 'noreferrer')
-    }
-    if (wide) return openProjectHub(e.machine, it.cwd)
-    navigate(newChatUrl(it.cwd, e.machine))
-  }
+  const open = (e: InboxEntry) => openInboxEntry(e, wide)
   const ask = async (e: InboxEntry) => {
     const a = askOf(e)
     if (!a) return
