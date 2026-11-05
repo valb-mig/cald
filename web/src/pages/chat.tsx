@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  Bot,
   ChevronDown,
   Columns2,
   Copy,
@@ -26,11 +25,11 @@ import {
   VolumeOff,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
-import { AgentSheet } from '@/components/agents/agent-sheet'
-import { AgentsSheet } from '@/components/agents/agents-sheet'
+import { AgentChat } from '@/components/agents/agent-chat'
+import { AgentRail } from '@/components/agents/agent-rail'
 import { TeamPill } from '@/components/teams/team-pill'
 import { AgentsContext, agentTree } from '@/components/agents/model'
 import { ApprovalCard } from '@/components/chat/approval-card'
@@ -125,6 +124,9 @@ function ForkBanner({ from }: { from: { sessionId: string; title?: string } }) {
   )
 }
 
+/** Diálogos, folhas e menus abertos: o Esc deles não sai do agente em foco nem do zen. */
+const OVERLAYS = '[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="dropdown-menu-content"]'
+
 // Os /clear cuja animação já rodou: a conversa remontada (a aba troca para o id novo) não repete.
 const fallen = new Set<string>()
 
@@ -192,8 +194,9 @@ export function ChatPage({ id }: { id: string }) {
   const nameMenu = usePressMenu(() => setNaming(true))
   const name = claudinhoName(id, entry?.claudinhoName)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [agentsOpen, setAgentsOpen] = useState(false)
-  const [agentId, setAgentId] = useState<string | null>(null)
+  // O agente em foco: a conversa dele fica no lugar do chat (ver AgentChat). Guarda de qual conversa é,
+  // para trocar de conversa sair do foco.
+  const [agentFocus, setAgentFocus] = useState<{ session: string; agent: string } | null>(null)
   const home = useHome(machine)
   const [busy, setBusy] = useState(false)
 
@@ -237,8 +240,10 @@ export function ChatPage({ id }: { id: string }) {
   useEffect(() => () => dropTools(id), [id])
   // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
-  const agentsContext = useMemo(() => ({ tree: agents, open: setAgentId, team: entry?.team }), [agents, entry?.team])
   const agentsWorking = agents.count.running + agents.count.waiting
+  // Sumiu da árvore (um /clear), sai do foco junto.
+  const focused = agentFocus?.session === id ? agents.byId.get(agentFocus.agent) : undefined
+  const leaveAgent = useCallback(() => setAgentFocus(null), [])
   // Turno encerrado com algo em segundo plano: a conversa ainda trabalha (como na lista de conversas).
   const inBackground = state === 'idle' && background.length > 0
   const shownState = state === 'idle' && (agentsWorking || inBackground) ? 'running' : state
@@ -257,14 +262,21 @@ export function ChatPage({ id }: { id: string }) {
   const glass = useGlass()
   const scrim = useScrim()
   const zen = useZen((s) => s.id === id)
-  // Esc no PC e o voltar do celular saem do zen antes de sair da conversa.
+  // Esc no PC e o voltar do celular saem do agente em foco e do zen antes de sair da conversa (o Esc, do agente primeiro).
   useBackToClose(zen, () => setZen(null))
+  useBackToClose(Boolean(focused), leaveAgent)
+  const agentOpen = Boolean(focused)
   useEffect(() => {
-    if (!zen) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZen(null)
+    if (!zen && !agentOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      // O Esc de um diálogo ou menu aberto por cima é só dele.
+      if (e.key !== 'Escape' || document.querySelector(OVERLAYS)) return
+      if (agentOpen) leaveAgent()
+      else setZen(null)
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [zen])
+  }, [zen, agentOpen, leaveAgent])
   // O texto do streaming crescendo não entra aqui: o ResizeObserver do conteúdo já acompanha.
   const { scrollRef, contentRef, onScroll, atBottom, follow, setFollow, jumpToBottom } = useAutoScroll([
     items.length,
@@ -291,8 +303,15 @@ export function ChatPage({ id }: { id: string }) {
   }
   const shown = display === 'both' && !roomy ? 'map' : display
   const { label: stateLabel, tone: stateTone } = stateInfo(shownState, shownWaiting)
-  // No topo enxuto, os subagentes só quando trabalham (o número deles é um estado); parados, no menu.
-  const agentsOnTop = (agents.all.length > 0 || Boolean(entry?.team)) && (!slim || agentsWorking > 0)
+  // Pôr um agente em foco (pelo trilho, pela linha dele no chat, pelo mapa): com só o mapa na tela, volta ao chat.
+  const openAgent = useCallback(
+    (agent: string) => {
+      setAgentFocus({ session: id, agent })
+      if (shown === 'map') setDisplay('chat')
+    },
+    [id, shown, setDisplay],
+  )
+  const agentsContext = useMemo(() => ({ tree: agents, open: openAgent, team: entry?.team }), [agents, openAgent, entry?.team])
   // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
   // refaria a árvore e o layout a cada delta.
   const streamHead = useStore((s) => {
@@ -318,6 +337,7 @@ export function ChatPage({ id }: { id: string }) {
   // Do mapa para o ponto do chat: o chat continua montado por baixo, então o item já está lá.
   const jumpTo = (key: string) => {
     if (shown === 'map') setDisplay('chat')
+    leaveAgent()
     requestAnimationFrame(() => {
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`)
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
@@ -325,6 +345,13 @@ export function ChatPage({ id }: { id: string }) {
     })
   }
   const openRequest = (key: string) => (shown === 'map' ? flash(dockRef.current) : jumpTo(key))
+  // O agente em foco pede aprovação: o cartão de responder fica no chat, e "Responder" leva até ele.
+  const answerAgent = () => {
+    const own = new Set(focused?.entries.flatMap((e) => (e.kind === 'tool' ? [e.use.id] : [])))
+    const request = requests.find((r) => r.type === 'approval' && r.req.toolUseId && own.has(r.req.toolUseId))
+    if (request) jumpTo(request.key)
+    else leaveAgent()
+  }
 
   /** A aba desta conversa deixa de ser prévia (no celular não há abas, e não faz nada). */
   const pin = () => pinTab(keyOf({ kind: 'chat', id }))
@@ -484,27 +511,6 @@ export function ChatPage({ id }: { id: string }) {
                 {shown === 'chat' ? <Network /> : <MessagesSquare />}
               </Button>
             )}
-            {agentsOnTop && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative"
-                onClick={() => setAgentsOpen(true)}
-                aria-label={`Agentes: ${agentsWorking} trabalhando de ${agents.all.length}`}
-              >
-                <Bot />
-                {agentsWorking > 0 && (
-                  <span
-                    className={cn(
-                      'absolute top-0.5 right-0 min-w-4 rounded-full px-1 text-center text-[9px] leading-4 font-semibold text-white',
-                      agents.count.waiting ? 'bg-amber-600' : 'bg-sky-600',
-                    )}
-                  >
-                    {agentsWorking}
-                  </span>
-                )}
-              </Button>
-            )}
             {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
             {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
             {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
@@ -536,12 +542,6 @@ export function ChatPage({ id }: { id: string }) {
                           <a href={git.status.remote} target="_blank" rel="noreferrer">
                             <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
                           </a>
-                        </DropdownMenuItem>
-                      )}
-                      {(agents.all.length > 0 || entry?.team) && !agentsOnTop && (
-                        <DropdownMenuItem onSelect={() => setAgentsOpen(true)}>
-                          <Bot /> Agentes
-                          <span className="ml-auto text-xs text-muted-foreground tabular-nums">{agents.all.length}</span>
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuSeparator />
@@ -611,46 +611,108 @@ export function ChatPage({ id }: { id: string }) {
         >
           <DropOverlay show={drop.over} />
           {trash && <TrashFall items={trash} sessionId={id} cwd={cwd} />}
+          {/* Os agentes da conversa: uma aba que sai da borda esquerda (a linha do tempo fica à direita),
+              por cima do chat, que fica com a largura toda. Sem nenhum agente, não aparece. */}
+          {agents.all.length > 0 && (
+            <AgentRail
+              sessionId={id}
+              name={name}
+              state={shownState}
+              tree={agents}
+              focused={focused?.id ?? null}
+              onFocus={(agent) => (agent ? openAgent(agent) : leaveAgent())}
+              // No PC a casca em volta da janela é sempre opaca, e a aba é ela; no celular, com a cena, vidro.
+              glass={glass && !tabs}
+              inert={shown === 'map'}
+              className={cn(
+                // Logo abaixo do cabeçalho; no zen, abaixo do entalhe. O máximo deixa espaço para a curva de baixo.
+                zen ? 'top-[calc(var(--safe-top)+0.5rem)] max-h-[calc(100%-var(--safe-top)-2rem)]' : 'top-2 max-h-[calc(100%-2rem)]',
+                shown === 'map' && 'invisible',
+              )}
+            />
+          )}
           {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
               vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
           <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
             {/* O escurecido embaixo das mensagens, de lado a lado. Fica fora do scroller para não rolar
                 junto com o texto. */}
             {scrim !== null && <Veil dim={scrim} />}
-            <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-              <div ref={contentRef} className="mx-auto w-full max-w-3xl">
-                {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
-                {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da queda. */}
-                {history.events === null && !history.error && cut < 0 ? (
-                  <div className="space-y-4 p-4">
-                    <Skeleton className="ml-auto h-10 w-2/3" />
-                    <Skeleton className="h-24 w-full" />
-                    <Skeleton className="h-16 w-full" />
-                  </div>
-                ) : (
-                  <>
-                    {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-                    {items.length === 0 && queued.length === 0 && !working && !history.error && (
-                      <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
-                    )}
-                    <MessageList
-                      items={items}
-                      queued={queued}
-                      sessionId={id}
-                      actionable={panelOpen}
-                      working={working}
-                      background={background}
-                      uses={uses}
-                      cwd={cwd}
-                      onBranch={branch}
-                    />
-                  </>
+            {/* Com um agente em foco, o chat principal também segue montado por baixo, sem perder a rolagem. */}
+            <div className={cn('absolute inset-0', focused && 'invisible')} inert={agentOpen}>
+              <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
+                <div ref={contentRef} className="mx-auto w-full max-w-3xl">
+                  {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
+                  {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da queda. */}
+                  {history.events === null && !history.error && cut < 0 ? (
+                    <div className="space-y-4 p-4">
+                      <Skeleton className="ml-auto h-10 w-2/3" />
+                      <Skeleton className="h-24 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                    </div>
+                  ) : (
+                    <>
+                      {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
+                      {items.length === 0 && queued.length === 0 && !working && !history.error && (
+                        <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+                      )}
+                      <MessageList
+                        items={items}
+                        queued={queued}
+                        sessionId={id}
+                        actionable={panelOpen}
+                        working={working}
+                        background={background}
+                        uses={uses}
+                        cwd={cwd}
+                        onBranch={branch}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Fora do zen: no canto dela fica o botão de sair dele. */}
+              {!zen && <ChatTimeline scrollRef={scrollRef} items={items} />}
+              <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
+                {!atBottom && (
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={jumpToBottom}
+                    aria-label="Ir para a última mensagem"
+                    className="pointer-events-auto size-10 rounded-full border shadow-lg"
+                  >
+                    <ChevronDown />
+                  </Button>
                 )}
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => setFollow(!follow)}
+                  aria-pressed={follow}
+                  aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+                  className={cn(
+                    'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
+                    follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+                  )}
+                >
+                  {follow ? <Lock /> : <LockOpen />}
+                </Button>
               </div>
             </div>
-
-            {/* Fora do zen: no canto dela fica o botão de sair dele. */}
-            {!zen && <ChatTimeline scrollRef={scrollRef} items={items} />}
+            {focused && (
+              <AgentChat
+                key={focused.id}
+                sessionId={id}
+                node={focused}
+                task={panelOpen ? background.find((t) => t.toolUseId === focused.id) : undefined}
+                onOpen={openAgent}
+                onClose={leaveAgent}
+                onAnswer={answerAgent}
+                // No zen, o botão de sair dele fica no canto de cima.
+                headerClassName={zen ? 'pr-14' : undefined}
+              />
+            )}
             {zen && (
               // Onde o cabeçalho estava. Fica sempre na tela, só apagado: um botão que some de vez
               // deixaria sem saída quem não sabe do Esc nem do voltar.
@@ -665,32 +727,6 @@ export function ChatPage({ id }: { id: string }) {
                 <Maximize2 />
               </Button>
             )}
-            <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
-              {!atBottom && (
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  onClick={jumpToBottom}
-                  aria-label="Ir para a última mensagem"
-                  className="pointer-events-auto size-10 rounded-full border shadow-lg"
-                >
-                  <ChevronDown />
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                size="icon"
-                onClick={() => setFollow(!follow)}
-                aria-pressed={follow}
-                aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
-                className={cn(
-                  'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
-                  follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
-                )}
-              >
-                {follow ? <Lock /> : <LockOpen />}
-              </Button>
-            </div>
           </div>
           {mapRoot && (
             <MapPane beside={shown === 'both'}>
@@ -700,7 +736,7 @@ export function ChatPage({ id }: { id: string }) {
                   root={mapRoot}
                   title={entry?.title ?? 'Conversa'}
                   onJump={jumpTo}
-                  onAgent={setAgentId}
+                  onAgent={openAgent}
                   onRequest={openRequest}
                   side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
                 />
@@ -751,12 +787,11 @@ export function ChatPage({ id }: { id: string }) {
                 // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
                 onEdit={pin}
                 extra={
-                  // No celular a barra não tem espaço: o time fica no botão de agentes do topo.
+                  // No celular a barra não tem espaço; o que o time faz aparece no trilho de agentes, ao lado do chat.
                   <TeamPill
                     machine={machine}
                     current={entry?.team}
                     className="max-sm:hidden"
-                    onShow={() => setAgentsOpen(true)}
                     onChange={(teamId) => {
                       if ((teamId ?? null) === (entry?.team?.id ?? null)) return
                       toast.promise(api.setTeam(id, teamId ?? null), {
@@ -802,20 +837,6 @@ export function ChatPage({ id }: { id: string }) {
         </div>
 
         <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
-        <AgentsSheet
-          tree={agents}
-          rootLabel={stateInfo(shownState, shownWaiting).label}
-          open={agentsOpen}
-          onOpenChange={setAgentsOpen}
-          onOpenAgent={setAgentId}
-          team={entry?.team}
-        />
-        <AgentSheet
-          sessionId={id}
-          node={agentId ? agents.byId.get(agentId) : undefined}
-          onOpenChange={(o) => !o && setAgentId(null)}
-          onOpen={setAgentId}
-        />
         <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
         <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>

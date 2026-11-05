@@ -1,8 +1,9 @@
 import { createContext, use } from 'react'
 import type { ActivityEntry, Item } from '@/components/chat/items'
 import type { ToolEntry } from '@/components/chat/turn'
+import { memberSeed } from '@/components/teams/model'
 import { toolSummary } from '@/lib/format'
-import type { AgentUsage, TeamSnapshot } from '@/lib/types'
+import type { AgentUsage, TeamMember, TeamSnapshot } from '@/lib/types'
 
 export type AgentStatus = 'running' | 'waiting' | 'done' | 'failed' | 'stopped'
 
@@ -24,7 +25,7 @@ export type AgentNode = {
   summary?: string
   /** Ferramenta em uso, ou a última usada. */
   current?: ToolEntry
-  /** O que ele fez, na ordem; vazio quando só o transcript salvo tem (ver agent-sheet.tsx). */
+  /** O que ele fez, na ordem; vazio quando só o transcript salvo tem (ver agent-chat.tsx). */
   entries: ActivityEntry[]
   tools: number
   tokens?: number
@@ -184,3 +185,19 @@ export const EMPTY_TREE: AgentTree = agentTree([], false)
 /** `team`: o time da conversa, para os subagentes dele aparecerem com o claudinho e o nome do membro. */
 export const AgentsContext = createContext<{ tree: AgentTree; open: (id: string) => void; team?: TeamSnapshot } | null>(null)
 export const useAgents = () => use(AgentsContext)
+
+/** O membro do time da conversa que este subagente é (pelo `subagent_type`), se for de um. */
+export function useMember(node: Pick<AgentNode, 'type'>): TeamMember | undefined {
+  return useAgents()?.team?.members.find((m) => m.key === node.type)
+}
+
+/** Como chamar o tipo do subagente: o nome (e o papel) do membro do time, ou o tipo de sempre. */
+export const typeLabel = (node: Pick<AgentNode, 'type'>, member?: TeamMember) =>
+  member ? (member.role ? `${member.name} · ${member.role}` : member.name) : node.type
+
+/** De quem é o claudinho do subagente: o do membro do time, ou um próprio de cada chamada. */
+export const agentSeed = (node: Pick<AgentNode, 'id'>, member?: TeamMember) => (member ? memberSeed(member) : node.id)
+
+/** O estado de conversa que o claudinho do subagente imita: piscando enquanto trabalha, olhando para cima esperando você. */
+export const agentState = (node: Pick<AgentNode, 'status'>) =>
+  node.status === 'running' ? 'running' : node.status === 'waiting' ? 'waiting' : undefined

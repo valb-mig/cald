@@ -216,6 +216,41 @@
   display: none;
 }
 
+/*
+ * O trilho de agentes (components/agents/agent-rail.tsx) é uma aba que sai da borda esquerda da
+ * conversa, na cor da casca: no PC, a moldura em volta da janela crescendo para dentro dela; no
+ * celular, a borda da tela. Duas curvas côncavas, uma acima e outra abaixo, ligam a aba à borda, como
+ * as do pé da aba aberta (.tab-merge). Com a cena animada no celular, onde a conversa vai até a borda,
+ * a aba é vidro, como o cabeçalho; no PC a casca é sempre opaca, e a aba também.
+ */
+.rail-tab {
+  --curve: 0.875rem;
+  --tab-fill: var(--shell);
+  background: var(--tab-fill);
+}
+.rail-tab.rail-glass {
+  --tab-fill: color-mix(in oklab, var(--shell) 70%, transparent);
+}
+.rail-tab::before,
+.rail-tab::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: var(--curve);
+  height: var(--curve);
+  pointer-events: none;
+}
+/* Acima: o círculo vazado no canto de cima à direita deixa cheio só o canto rente à borda e à aba. */
+.rail-tab::before {
+  bottom: 100%;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
+}
+/* Abaixo: o mesmo, espelhado, com o círculo no canto de baixo à direita. */
+.rail-tab::after {
+  top: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
+}
+
 /* O terminal do painel (components/terminal.tsx) mostra a janela por trás: o xterm.css pinta de preto. */
 .cr-terminal .xterm-viewport,
 .cr-terminal .xterm-screen {
@@ -554,7 +589,7 @@
   }
 }
 
-/* Grafo de agentes (components/agents/agent-graph.tsx): o tracejado da ligação corre enquanto o agente trabalha. */
+/* Mapa mental (components/mindmap): o tracejado da ligação corre enquanto o agente trabalha. */
 @keyframes agent-flow {
   to {
     stroke-dashoffset: -11;

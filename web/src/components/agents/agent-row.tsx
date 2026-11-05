@@ -1,12 +1,12 @@
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { AgentFace, typeLabel, useMember } from './agent-face'
-import type { AgentNode } from './model'
+import { AgentFace } from './agent-face'
+import { typeLabel, useMember, type AgentNode } from './model'
 import { AgentStatusIcon } from './status-icon'
 
 /**
  * Subagente no bloco de atividade do chat: tarefa, tipo e, embaixo, o que está fazendo agora
- * (ou como terminou). Tocar abre o painel dele, com tudo o que fez.
+ * (ou como terminou). Tocar põe a conversa dele em foco, com tudo o que fez.
  */
 export function AgentRow({ node, onOpen }: { node: AgentNode; onOpen: () => void }) {
   const working = node.status === 'running' || node.status === 'waiting'
@@ -18,7 +18,7 @@ export function AgentRow({ node, onOpen }: { node: AgentNode; onOpen: () => void
       onClick={onOpen}
       className="group flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60"
     >
-      <AgentFace node={node} member={member} size={member ? 20 : 16} className={member ? 'mt-px' : 'mt-0.5'} />
+      <AgentFace node={node} member={member} size={20} className="mt-px" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="min-w-0 truncate font-medium">{node.name}</span>
