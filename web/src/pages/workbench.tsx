@@ -1,11 +1,10 @@
-import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, Trash2, X } from 'lucide-react'
+import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
 import { createElement, Fragment, useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
 import { create } from 'zustand'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
-import { DeleteSessionDialog } from '@/components/delete-session-dialog'
 import { Crash, ErrorBoundary } from '@/components/error-boundary'
 import { GithubItemView } from '@/components/project/github-item'
 import { ProjectHub } from '@/components/project/hub'
@@ -182,10 +181,6 @@ function TabItem({
   onMenu: (at: TabMenuAt) => void
 }) {
   const title = useStore((s) => (tab.kind === 'chat' ? s.catalog.find((c) => c.sessionId === tab.id)?.title : undefined))
-  // Aba de conversa pode ser apagada (não só fechada) pela lixeira que aparece ao passar o mouse.
-  const chatId = tab.kind === 'chat' ? tab.id : null
-  const onPc = useStore((s) => (chatId ? s.catalog.find((c) => c.sessionId === chatId)?.owner === 'pc' : false))
-  const [confirmDelete, setConfirmDelete] = useState(false)
   const close = () => closeTab(group.id, tab.key)
   // Alteração não salva no editor: um ponto no lugar do X, que volta ao passar o mouse, como no VSCode.
   const dirty = useUnsaved((s) => Boolean(s.dirty[tab.key]))
@@ -267,24 +262,6 @@ function TabItem({
           </>
         )}
       </span>
-      {chatId && (
-        <button
-          type="button"
-          tabIndex={-1}
-          disabled={onPc}
-          onClick={(e) => {
-            e.stopPropagation()
-            setConfirmDelete(true)
-          }}
-          aria-label={onPc ? 'Apagar a conversa (feche no PC antes)' : 'Apagar a conversa'}
-          className={cn(
-            'flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover/tab:opacity-100',
-            onPc ? 'cursor-not-allowed text-muted-foreground/50' : 'text-muted-foreground hover:bg-destructive/15 hover:text-destructive',
-          )}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
-      )}
       <button
         type="button"
         tabIndex={-1}
@@ -307,7 +284,6 @@ function TabItem({
           <X className="size-3.5" />
         )}
       </button>
-      {chatId && <DeleteSessionDialog sessionId={chatId} title={title} open={confirmDelete} onOpenChange={setConfirmDelete} />}
     </div>
   )
 }
