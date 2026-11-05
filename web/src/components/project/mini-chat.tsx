@@ -49,12 +49,13 @@ export function MiniChat({ id, machine, onEdit, className }: { id: string; machi
 
   return (
     <section className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl', className)}>
-      <div className="group/top flex min-h-11 shrink-0 items-center">
+      {/* O realce do hover vale para a linha toda, lixeira inclusive, e não só para o botão de abrir. */}
+      <div className="group/top flex min-h-11 shrink-0 items-center transition-colors hover:bg-foreground/[0.04]">
         <button
           type="button"
           onClick={expand}
           title="Abrir como aba"
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch px-2.5 py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch px-2.5 py-1.5 text-left"
         >
           <Claudinho seed={id} name={name} state={shown} size={28} />
           <span className="min-w-0 flex-1">
@@ -80,8 +81,8 @@ export function MiniChat({ id, machine, onEdit, className }: { id: string; machi
           aria-label={owner === 'pc' ? 'Apagar a conversa (feche no PC antes)' : 'Apagar a conversa'}
           title={owner === 'pc' ? 'Apagar a conversa (feche no PC antes)' : 'Apagar a conversa'}
           className={cn(
-            'mr-1 flex size-7 shrink-0 items-center justify-center rounded-lg opacity-0 transition focus-visible:opacity-100 group-hover/top:opacity-100 pointer-coarse:opacity-100',
-            owner === 'pc' ? 'cursor-not-allowed text-muted-foreground/40' : 'text-muted-foreground hover:bg-destructive/15 hover:text-destructive',
+            'mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition focus-visible:opacity-100 group-hover/top:opacity-100 pointer-coarse:opacity-100',
+            owner === 'pc' ? 'cursor-not-allowed text-muted-foreground/40' : 'text-muted-foreground hover:text-destructive',
           )}
         >
           <Trash2 className="size-4" />
