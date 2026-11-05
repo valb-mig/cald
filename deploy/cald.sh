@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cald — utilitário de linha de comando do cald.
-# Instalado como alias pelo deploy/install.sh. Uso: cald -link
+# Instalado como alias pelo deploy/install.sh. Uso: cald -link [on|off]
 set -euo pipefail
 
 PORT="${PORT:-7337}"
@@ -11,6 +11,21 @@ cald_link() {
     echo "tailscale não encontrado. Instale-o e rode 'tailscale serve --bg ${PORT}'." >&2
     return 1
   fi
+
+  # Ligar e desligar o link remoto, como o botão da seção Acesso do app (ver server/src/link.ts).
+  case "${1:-}" in
+    off)
+      tailscale serve --https=443 off >/dev/null 2>&1 || true
+      tailscale serve --http=80 off >/dev/null 2>&1 || true
+      echo "Link remoto desligado: o painel só abre no próprio PC (http://localhost:${PORT})."
+      return 0
+      ;;
+    on)
+      tailscale serve --bg "$PORT" >/dev/null
+      # O atalho em http (digitar só o nome da máquina); falhar aqui não atrapalha o link.
+      tailscale serve --bg --http=80 "$PORT" >/dev/null 2>&1 || true
+      ;;
+  esac
 
   # O endereço remoto é o primeiro https:// que o tailscale serve está publicando.
   local url
@@ -48,6 +63,8 @@ cald — painel mobile do Claude Code
 
 Uso:
   cald -link      mostra o link de acesso remoto (o endereço da tailnet que o celular abre)
+  cald -link off  desliga o link remoto (o painel só abre no próprio PC)
+  cald -link on   liga de novo
   cald -pin       define (ou troca) o PIN pedido para abrir o painel
   cald -pin off   remove o PIN
   cald -help      esta ajuda
@@ -55,7 +72,7 @@ EOF
 }
 
 case "${1:-}" in
-  -link|--link|link) cald_link ;;
+  -link|--link|link) cald_link "${2:-}" ;;
   -pin|--pin|pin) cald_pin "${2:-}" ;;
   -help|--help|help|"") cald_help ;;
   *)
