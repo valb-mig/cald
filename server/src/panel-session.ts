@@ -234,9 +234,12 @@ export class PanelSession extends EventEmitter {
         canUseTool: this.canUseTool,
         // A pasta de memória do projeto é liberada para escrita sem passar pelo `canUseTool`: só um hook a vê.
         hooks: opts.memory ? { PreToolUse: [{ matcher: 'Write|Edit', hooks: [this.memoryHook(opts.memory)] }] } : undefined,
-        // Sem isto o SDK engole os `session_state_changed`, e um turno que o Claude começa sozinho
+        // Sem o EMIT o SDK engole os `session_state_changed`, e um turno que o Claude começa sozinho
         // (tarefa em segundo plano terminou) não tira a sessão de "Concluída".
-        env: { ...childEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+        // O Claude Code deixa a ferramenta Artifact desligada quando sobe pelo SDK (`sdk_default_off`), e
+        // o cald mostra os protótipos que ela publica: liga aqui, antes do ambiente, para que
+        // `CLAUDE_CODE_ARTIFACT=0` no serviço ainda desligue. Conta, plano e `enableArtifact` seguem valendo.
+        env: { CLAUDE_CODE_ARTIFACT: '1', ...childEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         stderr: (data) => {
           this.stderrTail = (this.stderrTail + data).slice(-4_000);
         },
