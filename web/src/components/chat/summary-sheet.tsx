@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError, api, imageUrl, thumbUrl } from '@/lib/api'
 import { FILE_TOOLS, TEST_COMMAND, shortPath } from '@/lib/format'
 import { useMachine } from '@/lib/machines'
+import { isMemoryHeld } from '@/lib/memory-suggestions'
 import { useStore } from '@/lib/store'
 import type { ContextUsage, SessionCost } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,8 @@ function summarize(events: Keyed[]): Summary {
   for (const e of events) {
     if (e.kind !== 'tool_use') continue
     const error = failed.get(e.id)
-    if (error) errors.push({ tool: e.name, text: error.split('\n')[0] ?? '' })
+    // A memória que virou sugestão foi negada de propósito: não é erro.
+    if (error && !isMemoryHeld({ isError: true, text: error })) errors.push({ tool: e.name, text: error.split('\n')[0] ?? '' })
     const path = e.input.file_path ?? e.input.notebook_path
     if (FILE_TOOLS.has(e.name) && typeof path === 'string' && !error) files.set(path, (files.get(path) ?? 0) + 1)
     if (e.name === 'Bash' && typeof e.input.command === 'string') {

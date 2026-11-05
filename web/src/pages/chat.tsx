@@ -44,6 +44,7 @@ import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
+import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
 import { SummarySheet } from '@/components/chat/summary-sheet'
 import { toolsIn } from '@/components/chat/turn'
 import { WorktreeMenu } from '@/components/chat/worktree-menu'
@@ -513,6 +514,8 @@ export function ChatPage({ id }: { id: string }) {
                 <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
               </div>
             </div>
+            {/* Memórias que o Claude quis guardar e esperam você: só aparece com alguma. */}
+            <MemorySuggestionsButton sessionId={id} />
             {speechSupported && !slim && (
               <Button
                 variant={autoSpeech ? 'default' : 'ghost'}
@@ -881,6 +884,7 @@ export function ChatPage({ id }: { id: string }) {
           </div>
         </div>
 
+        <MemorySuggestionsSheet sessionId={id} />
         <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
