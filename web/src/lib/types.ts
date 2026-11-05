@@ -156,16 +156,18 @@ export type Workspace = {
   id: string
   name: string
   color: number
-  /** O primeiro é o principal, onde a conversa nova abre. */
+  /** O primeiro é o principal, onde a conversa nova aberta pela página do workspace começa. */
   projects: string[]
   instructions: string
   rules: string[]
   commands: WorkspaceCommand[]
   teamId?: string
   files: WorkspaceFile[]
+  /** Os projetos de que este é o workspace padrão (um projeto tem no máximo um); servidor antigo não manda. */
+  defaultFor?: string[]
   updatedAt: number
 }
-export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'updatedAt'> & { id?: string }
+export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'defaultFor' | 'updatedAt'> & { id?: string }
 export type WorkspaceTag = Pick<Workspace, 'id' | 'name' | 'color'>
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'

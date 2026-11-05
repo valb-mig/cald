@@ -39,6 +39,9 @@ export function useMediaQuery(query: string): boolean {
 export const WIDE_QUERY = '(min-width: 64rem), (min-width: 48rem) and (pointer: fine)'
 export const useWide = () => useMediaQuery(WIDE_QUERY)
 
+/** A tela do `max-sm:` do Tailwind (abaixo de 640 px): para quando o que some no CSS precisa ir para outro lugar. */
+export const PHONE_QUERY = '(max-width: 39.99rem)'
+
 /** Se o app está no tema escuro agora: a classe que o next-themes põe no `<html>` é a fonte da verdade. */
 export function useDarkMode(): boolean {
   return useSyncExternalStore(subscribeTheme, isDark)

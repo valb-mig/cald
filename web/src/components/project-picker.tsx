@@ -19,7 +19,6 @@ export function ProjectPicker({
   onOpenChange,
   onPick,
   machine: initial,
-  only,
   exclude,
   title = 'Nova conversa',
   description = 'Onde o Claude vai trabalhar?',
@@ -29,8 +28,6 @@ export function ProjectPicker({
   /** `undefined` = sem projeto. */
   onPick: (cwd: string | undefined, machine: string) => void
   machine?: string
-  /** Só estes projetos (os de um workspace), sem "Sem projeto" nem a troca de máquina. */
-  only?: string[]
   /** Estes ficam de fora, e também "Sem projeto" (ao escolher um projeto para o workspace). */
   exclude?: string[]
   title?: string
@@ -41,17 +38,17 @@ export function ProjectPicker({
   const [machine, setMachine] = useState(initial ?? filter ?? HOME)
   // Projetos de cada máquina, buscados quando ela é escolhida.
   const [byMachine, setByMachine] = useState<Record<string, string[]>>({})
-  const projects = only ?? byMachine[machine] ?? null
-  const homeless = Boolean(only || exclude)
+  const projects = byMachine[machine] ?? null
+  const homeless = Boolean(exclude)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    if (!open || projects || only) return
+    if (!open || projects) return
     api.projects(machine).then(
       (list) => setByMachine((all) => ({ ...all, [machine]: list })),
       (err) => toast.error(errorMessage(err)),
     )
-  }, [open, projects, machine, only])
+  }, [open, projects, machine])
 
   const list = useMemo(() => {
     const last = new Map<string, number>()

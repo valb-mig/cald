@@ -12,6 +12,9 @@ import { worktreeOf } from './worktrees.ts';
  * arquivos de contexto e um time padrão. A conversa guarda só de qual workspace ela é (ver meta.ts): o
  * contexto é montado do workspace atual sempre que o processo dela sobe, então editar vale a partir da
  * próxima vez que ela for aberta.
+ *
+ * Cada projeto pode ter um workspace padrão (`defaultFor`), com que a conversa nova dele já vem; na
+ * conversa dá para trocar por qualquer outro que tenha o projeto, ou ficar sem.
  */
 
 export type WorkspaceFile = { id: string; name: string; mediaType: string; size: number };
@@ -29,10 +32,12 @@ export type Workspace = {
   commands: WorkspaceCommand[];
   teamId?: string;
   files: WorkspaceFile[];
+  /** Os projetos de que este é o workspace padrão (um projeto tem no máximo um). */
+  defaultFor: string[];
   updatedAt: number;
 };
 
-export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'updatedAt'> & { id?: string };
+export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'defaultFor' | 'updatedAt'> & { id?: string };
 /** O que a lista de conversas e a salinha mostram do workspace de uma conversa. */
 export type WorkspaceTag = Pick<Workspace, 'id' | 'name' | 'color'>;
 
@@ -70,7 +75,18 @@ export class WorkspaceStore extends EventEmitter {
   async load(): Promise<void> {
     try {
       const data = JSON.parse(await readFile(FILE, 'utf8')) as { workspaces?: Workspace[] };
-      this.workspaces = Array.isArray(data.workspaces) ? data.workspaces.filter((w) => w && typeof w.id === 'string') : [];
+      const list = Array.isArray(data.workspaces) ? data.workspaces.filter((w) => w && typeof w.id === 'string') : [];
+      // Arquivo de antes do workspace padrão: cada projeto fica com o workspace de que ele é o principal
+      // (o editado por último, se for de mais de um).
+      const before = list.length > 0 && list.every((w) => !Array.isArray(w.defaultFor));
+      this.workspaces = list.map((w) => ({ ...w, defaultFor: Array.isArray(w.defaultFor) ? w.defaultFor.filter((p) => w.projects.includes(p)) : [] }));
+      if (before) {
+        for (const ws of [...this.workspaces].sort((a, b) => b.updatedAt - a.updatedAt)) {
+          const main = ws.projects[0];
+          if (main && !this.defaultOf(main)) ws.defaultFor = [main];
+        }
+        await this.persist();
+      }
     } catch {
       // Primeiro uso ou arquivo ilegível: começa vazio.
     }
@@ -90,16 +106,36 @@ export class WorkspaceStore extends EventEmitter {
     return ws;
   }
 
+  /** O workspace padrão do projeto, se ele tem um. */
+  defaultOf(project: string): Workspace | undefined {
+    return this.workspaces.find((w) => w.defaultFor.includes(project));
+  }
+
+  /** Faz de um workspace (que tenha o projeto) o padrão do projeto; `null` deixa o projeto sem padrão. */
+  async setDefault(project: string, id: string | null): Promise<Workspace[]> {
+    if (id && !this.get(id).projects.includes(project)) throw new HttpError(400, 'workspace_missing_project');
+    this.workspaces = this.workspaces.map((w) => {
+      const defaultFor = w.defaultFor.filter((p) => p !== project);
+      return { ...w, defaultFor: w.id === id ? [...defaultFor, project] : defaultFor };
+    });
+    await this.persist();
+    return this.workspaces;
+  }
+
   /** Cria (sem `id`) ou substitui; os arquivos ficam como estão (eles têm rotas próprias). */
   async save(input: WorkspaceInput): Promise<Workspace> {
     const old = input.id ? this.get(input.id) : undefined;
     const name = input.name.trim();
     if (!name) throw new HttpError(400, 'workspace_name_required');
+    const projects = unique(input.projects).slice(0, MAX_PROJECTS);
+    // O novo vira o padrão do projeto principal dele, se esse projeto ainda não tem um.
+    const main = projects[0];
+    const defaultFor = old ? old.defaultFor.filter((p) => projects.includes(p)) : main && !this.defaultOf(main) ? [main] : [];
     const ws: Workspace = {
       id: old?.id ?? randomUUID(),
       name,
       color: Math.max(0, Math.floor(input.color || 0)),
-      projects: unique(input.projects).slice(0, MAX_PROJECTS),
+      projects,
       instructions: input.instructions.trim().slice(0, MAX_INSTRUCTIONS),
       rules: unique(input.rules).slice(0, MAX_RULES),
       commands: input.commands
@@ -108,6 +144,7 @@ export class WorkspaceStore extends EventEmitter {
         .slice(0, MAX_COMMANDS),
       teamId: input.teamId || undefined,
       files: old?.files ?? [],
+      defaultFor,
       updatedAt: Date.now(),
     };
     this.workspaces = [...this.workspaces.filter((w) => w.id !== ws.id), ws].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));

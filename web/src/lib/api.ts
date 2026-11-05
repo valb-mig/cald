@@ -244,8 +244,12 @@ export const api = {
     post<Workspace>(`${at(m)}/workspaces/${encodeURIComponent(id)}/files`, file),
   removeWorkspaceFile: (m: string, id: string, fileId: string) =>
     post<Workspace>(`${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/delete`),
+  /** O workspace padrão do projeto (`null`: sem padrão); devolve a lista inteira, com o `defaultFor` de cada um. */
+  setProjectWorkspace: (m: string, cwd: string, workspaceId: string | null) => post<Workspace[]>(`${at(m)}/workspaces/default`, { cwd, workspaceId }),
   /** Troca o time de uma conversa que já começou (`null` tira); aberta no painel, ela é retomada com ele. */
   setTeam: (id: string, teamId: string | null) => post(`${sid(id)}/team`, { teamId }),
+  /** Troca o workspace de uma conversa que já começou (`null` tira), como o time: aberta no painel, ela é retomada com o contexto dele. */
+  setWorkspace: (id: string, workspaceId: string | null) => post(`${sid(id)}/workspace`, { workspaceId }),
   /** `at`: entrada do log onde cortar, para bifurcar no meio da conversa em vez de no fim. */
   open: (id: string, body: RunOptions & { fork?: boolean; at?: string } = {}) => post<{ sessionId: string }>(`${sid(id)}/open`, body),
   /** Retoma aqui para mandar uma mensagem; aberta e ociosa no terminal do PC, ela é encerrada lá antes. */
@@ -410,6 +414,8 @@ export function errorMessage(err: unknown): string {
       return 'Esse workspace não existe mais.'
     case 'workspace_name_required':
       return 'Dê um nome ao workspace.'
+    case 'workspace_missing_project':
+      return 'Esse workspace não tem o projeto. Adicione o projeto a ele primeiro.'
     case 'workspace_too_many_files':
       return `Um workspace vai até ${String(err.details.max ?? 30)} arquivos.`
     case 'unknown_project':
