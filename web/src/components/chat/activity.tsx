@@ -8,6 +8,7 @@ import {
   FilePlus,
   FileText,
   FolderSearch,
+  Lightbulb,
   Globe,
   ListTodo,
   Loader2,
@@ -28,11 +29,13 @@ import { useAgents } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
-import { Markdown } from '@/components/markdown'
+import { CopyButton, Markdown } from '@/components/markdown'
 import { PrototypeCard } from '@/components/prototype/prototype-card'
+import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
-import { duration, FILE_TOOLS, shortPath, toolSummary } from '@/lib/format'
+import { FILE_TOOLS, shortPath, toolSummary, took } from '@/lib/format'
 import { tokenStyle, useTokens } from '@/lib/highlight'
+import { isMemoryHeld, isMemorySuggested, openMemorySuggestions, useMemorySuggestions } from '@/lib/memory-suggestions'
 import { publishedPage, type PublishedPage } from '@/lib/prototype'
 import { cn } from '@/lib/utils'
 import { Arrival, useArrivals } from './arrival'
@@ -87,26 +90,29 @@ function Pre({ children, tone }: { children: string; tone?: 'add' | 'del' | 'err
 
 /**
  * Um comando do terminal com as cores de sintaxe do shell (as do VSCode, ver lib/highlight.ts);
- * enquanto elas carregam, ou sem rede, o texto puro.
+ * enquanto elas carregam, ou sem rede, o texto puro. O copiar no canto leva o comando sem o `$ `.
  */
 export function ShellCommand({ command, className }: { command: string; className?: string }) {
   const lines = useTokens(command, 'comando.sh')
   return (
-    <pre className={cn(PRE, className)}>
-      <span className="text-muted-foreground select-none">$ </span>
-      {lines
-        ? lines.map((line, i) => (
-            <Fragment key={i}>
-              {i > 0 && '\n'}
-              {line.map((t, j) => (
-                <span key={j} style={tokenStyle(t)}>
-                  {t.content}
-                </span>
-              ))}
-            </Fragment>
-          ))
-        : command}
-    </pre>
+    <div className="relative">
+      <pre className={cn(PRE, 'pr-8', className)}>
+        <span className="text-muted-foreground select-none">$ </span>
+        {lines
+          ? lines.map((line, i) => (
+              <Fragment key={i}>
+                {i > 0 && '\n'}
+                {line.map((t, j) => (
+                  <span key={j} style={tokenStyle(t)}>
+                    {t.content}
+                  </span>
+                ))}
+              </Fragment>
+            ))
+          : command}
+      </pre>
+      <CopyButton text={command} label="Copiar o comando" className="absolute top-1 right-1 text-muted-foreground" />
+    </div>
   )
 }
 
@@ -201,12 +207,6 @@ function AskSummary({ questions, answers }: Ask) {
     ))
 }
 
-/** Quanto uma ferramenta levou: com décimo abaixo de 10 s, que é onde quase todas terminam. */
-function took(ms: number): string {
-  if (ms >= 10_000) return duration(ms)
-  return `${(Math.max(0, ms) / 1000).toFixed(1).replace('.', ',')}s`
-}
-
 /** Quanto levou ou, rodando agora, há quanto tempo roda; vazio se não se sabe. */
 function useTook({ result, at, started, finished }: Pick<ToolEntry, 'result' | 'at' | 'started' | 'finished'>): string {
   // Só o que chegou ao vivo conta o tempo correndo: sem resultado no histórico, ela foi interrompida.
@@ -229,20 +229,27 @@ function ToolRow({
   const time = useTook({ result, at, started, finished })
   // Pergunta que você recusou volta como erro, mas não é falha: a linha diz o que houve, sem o X.
   const ask = use.name === 'AskUserQuestion' ? askOf(use.input, result, answer) : undefined
-  const failed = result?.isError && !ask?.note
+  // Memória que virou sugestão, ou a linha dela no índice (ver lib/memory-suggestions.ts): negada de propósito, não falhou.
+  const suggested = isMemorySuggested(result)
+  const held = isMemoryHeld(result)
+  const failed = result?.isError && !ask?.note && !held
   const name = use.name.startsWith('mcp__') ? use.name.split('__').slice(1).join(' · ') : use.name
   const { claude } = useGallery()
   // Edição que deu certo: quantas linhas entraram e saíram, como no diff.
-  const counts = FILE_TOOLS.has(use.name) && result && !failed ? lineCounts(use) : null
+  const counts = FILE_TOOLS.has(use.name) && result && !failed && !held ? lineCounts(use) : null
+  // A sugestão ainda espera você? Já salva ou recusada, a lista não tem mais o que mostrar dela.
+  const waiting = useMemorySuggestions((st) => suggested && (st.bySession[sessionId]?.some((x) => x.file === memoryFile(use.input)) ?? true))
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60">
-        {createElement(toolIcon(use.name), {
+        {createElement(suggested ? Lightbulb : toolIcon(use.name), {
           className: cn('size-4 shrink-0 text-muted-foreground', failed && 'text-red-600 dark:text-red-400'),
         })}
-        <span className="shrink-0 font-medium">{name}</span>
+        <span className="shrink-0 font-medium">{suggested ? 'Sugeriu uma memória' : name}</span>
         {/* Pergunta respondida (ou recusada): no lugar das perguntas, o que houve com elas. */}
-        {ask?.answers || ask?.note ? (
+        {suggested ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{memoryName(use.input)}</span>
+        ) : ask?.answers || ask?.note ? (
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{ask.answers ? <AskSummary {...ask} /> : ask.note}</span>
         ) : (
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{toolSummary(use.name, use.input)}</span>
@@ -268,11 +275,32 @@ function ToolRow({
         </div>
       )}
       <CollapsibleContent className="space-y-1.5 px-2 pt-1 pb-2">
-        <ToolDetails use={use} result={result} answer={answer} />
+        {suggested ? (
+          <>
+            {/* O que ela ia gravar, sem o recado ao Claude, e o caminho para decidir. */}
+            <ToolDetails use={use} />
+            {waiting && (
+              <Button variant="ghost" size="xs" onClick={() => openMemorySuggestions(sessionId)}>
+                <Lightbulb /> Ver sugestões
+              </Button>
+            )}
+          </>
+        ) : held ? (
+          <>
+            <ToolDetails use={use} />
+            <p className="text-xs text-muted-foreground">A linha entra no índice quando a sugestão for salva.</p>
+          </>
+        ) : (
+          <ToolDetails use={use} result={result} answer={answer} />
+        )}
       </CollapsibleContent>
     </Collapsible>
   )
 }
+
+// O arquivo da memória, e ele sem o .md, que é o nome dela.
+const memoryFile = (input: Record<string, unknown>) => s(input.file_path).split('/').pop() ?? ''
+const memoryName = (input: Record<string, unknown>) => memoryFile(input).replace(/\.md$/, '')
 
 function ThinkingRow({ text }: { text: string }) {
   return (
@@ -362,8 +390,11 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
   const tools = steps.filter((e): e is ToolEntry => e.kind === 'tool')
   const thoughts = steps.filter((e) => e.kind === 'thinking').length
   const running = tools.find((t) => !t.result)
-  const failed = tools.filter((t) => t.result?.isError).length
-  const shown = running ?? tools.at(-1)
+  const failed = tools.filter((t) => t.result?.isError && !isMemoryHeld(t.result)).length
+  // A linha do índice segurada vem logo depois da memória sugerida: na ponta, a sugestão, que é o que importa.
+  const end = tools.at(-1)
+  const shown = running ?? (end && isMemoryHeld(end.result) ? (tools.findLast((t) => isMemorySuggested(t.result)) ?? end) : end)
+  const suggested = isMemorySuggested(shown?.result)
   const edits = tools
     .filter((t) => FILE_TOOLS.has(t.use.name) && t.result && !t.result.isError)
     .reduce((n, t) => {
@@ -384,7 +415,7 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
         {running ? (
           <Loader2 className="size-4 shrink-0 animate-spin" />
         ) : (
-          shown && createElement(toolIcon(shown.use.name), { className: 'size-4 shrink-0' })
+          shown && createElement(suggested ? Lightbulb : toolIcon(shown.use.name), { className: 'size-4 shrink-0' })
         )}
         <span className="shrink-0">
           {[tools.length > 0 && plural(tools.length, 'ferramenta', 'ferramentas'), thoughts > 0 && plural(thoughts, 'raciocínio', 'raciocínios')]
@@ -402,8 +433,8 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
         {shown && (
           // O que está rodando (ou foi o último): some quando o bloco abre, porque a lista já mostra.
           <span className="min-w-0 flex-1 truncate text-xs group-data-[state=open]:invisible">
-            <span className="font-medium text-foreground/80">{name}</span>{' '}
-            <span className="font-mono">{toolSummary(shown.use.name, shown.use.input)}</span>
+            <span className="font-medium text-foreground/80">{suggested ? 'Sugeriu uma memória' : name}</span>{' '}
+            <span className="font-mono">{suggested ? memoryName(shown.use.input) : toolSummary(shown.use.name, shown.use.input)}</span>
           </span>
         )}
       </CollapsibleTrigger>

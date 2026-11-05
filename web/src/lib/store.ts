@@ -359,7 +359,7 @@ function handle(machine: string, m: ServerMsg): void {
     case 'usage':
       return useStore.setState((s) => ({ usages: { ...s.usages, [machine]: m.usage } }))
     case 'changed':
-      return emitChanged(machine, { what: m.what, cwd: m.cwd, rev: m.rev })
+      return emitChanged(machine, { what: m.what, cwd: m.cwd, rev: m.rev, session: m.session })
     case 'snapshot':
       if (m.state !== 'running') clearStream(m.sessionId)
       return patchView(m.sessionId, (v) => {

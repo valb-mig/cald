@@ -41,6 +41,7 @@ import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } fro
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
 import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
+import { MemorySuggestionStore } from './memory-suggestions.ts';
 import { claudeItemText } from './claude-config.ts';
 import { emptyClaudeTrash, restoreClaude, setPlugin, setSkill, trashItem, trashMcp, type McpScope } from './claude-manage.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
@@ -71,10 +72,14 @@ const devices = new DeviceDirectory();
 // As habilidades do cald (ver habilidades.ts); os plugins de conversas de antes de subir saem.
 const habilidades = new HabilidadeStore();
 await habilidades.load();
+// As memórias que o Claude quis guardar e viraram sugestão (ver memory-suggestions.ts).
+const memorySuggestions = new MemorySuggestionStore();
+await memorySuggestions.load();
 await clearPlugins();
 const manager = new Manager(live, meta, teams, workspaces, origins, habilidades);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
+manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
 // O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
 manager.mcpFor = (ctx) => caldMcp({ todos, teams, workspaces, habilidades, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
@@ -1224,6 +1229,40 @@ app.post<{ Body: { ids?: string[] } }>(
   },
 );
 
+// As memórias que o Claude quis guardar nesta conversa e esperam você: salvar (talvez editada), recusar ou desfazer a recusa.
+type SuggestionParams = IdParams & { suggestion: string };
+app.get<{ Params: IdParams }>('/api/sessions/:id/memory-suggestions', async (req) => memorySuggestions.list(req.params.id));
+
+app.post<{ Params: SuggestionParams; Body: { description?: string; body?: string } }>(
+  '/api/sessions/:id/memory-suggestions/:suggestion/save',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          description: { type: 'string', maxLength: MAX_MEMORY_DESCRIPTION },
+          body: { type: 'string', minLength: 1, maxLength: MAX_MEMORY_TEXT },
+        },
+      },
+    },
+  },
+  async (req) => {
+    await memorySuggestions.accept(req.params.id, req.params.suggestion, req.body);
+    return { ok: true };
+  },
+);
+
+app.post<{ Params: SuggestionParams }>('/api/sessions/:id/memory-suggestions/:suggestion/dismiss', async (req) => {
+  await memorySuggestions.dismiss(req.params.id, req.params.suggestion);
+  return { ok: true };
+});
+
+app.post<{ Params: SuggestionParams }>('/api/sessions/:id/memory-suggestions/:suggestion/restore', async (req) => {
+  await memorySuggestions.restore(req.params.id, req.params.suggestion);
+  return { ok: true };
+});
+
 // Skills, agentes e servidores MCP de uma pasta (sem `cwd`, os que valem em todas). Pode subir uma sonda.
 app.get<{ Querystring: { cwd?: string; refresh?: string } }>(
   '/api/claude/setup',
@@ -1654,6 +1693,7 @@ manager.on('event', (sessionId: string, event: LoggedEvent, runId: string) =>
 );
 manager.on('delta', (sessionId: string, text: string) => broadcast(sessionId, { type: 'delta', sessionId, text }));
 manager.on('rekey', (from: string, to: string) => {
+  memorySuggestions.rekey(from, to);
   for (const [socket, subs] of clients) {
     if (subs.delete(from)) {
       subs.add(to);
@@ -1675,6 +1715,7 @@ teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
 workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
 habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidades' }));
 savedCommands.on('change', () => broadcastAll({ type: 'changed', what: 'saved-commands' }));
+memorySuggestions.on('change', (session: string) => broadcastAll({ type: 'changed', what: 'memory-suggestions', session }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
 manager.on('catalog', () => {

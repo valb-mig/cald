@@ -510,6 +510,7 @@ export class Manager extends EventEmitter {
         worktree: this.worktreeContext(cwd),
         habilidades: await this.habilidadesPlugin(cwd),
         mcp: this.caldMcp(cwd),
+        memory: this.memoryHook,
         label: opts.title || prompt.slice(0, 80),
       }),
     );
@@ -609,6 +610,10 @@ export class Manager extends EventEmitter {
    * menciona (ver todos.ts). Posto pelo index.ts, que tem a lista.
    */
   todoContext?: (cwd: string, text: string) => Promise<string | null>;
+
+  /** A memória que o Claude ia gravar vira sugestão (ver memory-suggestions.ts). Posto pelo index.ts, que tem a lista. */
+  suggestMemory?: (sessionId: string, tool: string, input: unknown) => Promise<string | null>;
+  private readonly memoryHook = (sessionId: string, tool: string, input: unknown) => this.suggestMemory?.(sessionId, tool, input) ?? Promise.resolve(null);
 
   /** O MCP do cald para uma conversa do painel (ver cald-mcp.ts). Posto pelo index.ts, que tem o TODO. */
   mcpFor?: (ctx: CaldMcpContext) => McpSdkServerConfigWithInstance;
@@ -888,6 +893,7 @@ export class Manager extends EventEmitter {
         // Retomada (ou bifurcada), com as habilidades que estavam desligadas nela.
         habilidades: await this.habilidadesPlugin(cwd, sessionId),
         mcp: this.caldMcp(cwd),
+        memory: this.memoryHook,
       }),
     );
     // A bifurcação já nasce com ID próprio, então a origem é gravada aqui mesmo.

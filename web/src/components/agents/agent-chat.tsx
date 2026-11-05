@@ -33,7 +33,7 @@ function Steps({ sessionId, entries, result }: { sessionId: string; entries: Act
   }
   return (
     <>
-      {blocks.map((b) => ('text' in b ? <Markdown key={b.key} text={b.text} /> : <Activity key={b.key} sessionId={sessionId} entries={b.entries} />))}
+      {blocks.map((b) => ('text' in b ? <Markdown key={b.key} text={b.text} chat /> : <Activity key={b.key} sessionId={sessionId} entries={b.entries} />))}
     </>
   )
 }
@@ -69,7 +69,7 @@ function Transcript({ sessionId, node }: { sessionId: string; node: AgentNode })
   return (
     <>
       {steps.map((i) =>
-        i.type === 'activity' ? <Activity key={i.key} sessionId={sessionId} entries={i.entries} /> : i.type === 'assistant' && <Markdown key={i.key} text={i.text} />,
+        i.type === 'activity' ? <Activity key={i.key} sessionId={sessionId} entries={i.entries} /> : i.type === 'assistant' && <Markdown key={i.key} text={i.text} chat />,
       )}
     </>
   )
@@ -88,7 +88,7 @@ function Prompt({ sessionId, node }: { sessionId: string; node: AgentNode }) {
   return (
     <div className="flex items-end justify-end gap-2">
       <div className="min-w-0 max-w-[85%] rounded-2xl rounded-br-md bg-foreground/[0.06] px-3.5 py-2 text-sm">
-        {full || !long ? <Markdown text={text} /> : <p className="line-clamp-4 whitespace-pre-wrap break-words">{text}</p>}
+        {full || !long ? <Markdown text={text} chat /> : <p className="line-clamp-4 whitespace-pre-wrap break-words">{text}</p>}
         {long && (
           <button
             type="button"

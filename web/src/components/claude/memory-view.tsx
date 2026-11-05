@@ -18,7 +18,7 @@ import { insertInto } from '@/lib/compose'
 import { putDraft } from '@/lib/drafts'
 import { placeName, relativeTime } from '@/lib/format'
 import { newChatUrl, noteSession } from '@/lib/machines'
-import { emptyMemoryTrash, restoreMemories, trashMemories, useMemory } from '@/lib/memory'
+import { emptyMemoryTrash, MEMORY_TYPES, restoreMemories, trashMemories, useMemory } from '@/lib/memory'
 import type { Memory, MemoryFolder, MemorySignal, TrashedMemory } from '@/lib/types'
 import { useUndo } from '@/lib/undo'
 import { cn } from '@/lib/utils'
@@ -36,9 +36,6 @@ const SIGNALS: { key: MemorySignal; label: string; title: string; tone: 'muted' 
   { key: 'orphan', label: 'Órfã', title: 'O projeto dela não existe mais no PC.', tone: 'bad' },
   { key: 'stale', label: 'Velha', title: 'Sem mudar há mais de 60 dias.', tone: 'muted' },
 ]
-
-/** Os tipos com que o Claude Code grava cada memória. */
-const TYPES: Record<string, string> = { feedback: 'Jeito de trabalhar', project: 'Projeto', reference: 'Referência', user: 'Sobre você' }
 
 /** O Claude Code só lê as primeiras 200 linhas do índice: perto disso já vale enxugar. */
 const INDEX_WARN = 150
@@ -92,7 +89,7 @@ export function MemoryView({ machine, cwd, onLeave }: { machine: string; cwd?: s
   const picked = [...selected].filter((k) => visible.has(k))
   const all = list?.folders.flatMap((f) => f.memories) ?? []
   const counts = Object.fromEntries(SIGNALS.map((s) => [s.key, all.filter((m) => m.signals.includes(s.key)).length]))
-  const types = Object.keys(TYPES).filter((t) => all.some((m) => m.type === t))
+  const types = Object.keys(MEMORY_TYPES).filter((t) => all.some((m) => m.type === t))
   const filtering = Boolean(query.trim() || signal || type)
 
   const toggle = (keys: string[], on: boolean) =>
@@ -151,7 +148,7 @@ export function MemoryView({ machine, cwd, onLeave }: { machine: string; cwd?: s
             <Chip key={s.key} on={signal === s.key} onClick={() => setSignal(signal === s.key ? null : s.key)} label={s.label} count={counts[s.key]} title={s.title} />
           ))}
           {types.length > 1 &&
-            types.map((t) => <Chip key={t} on={type === t} onClick={() => setType(type === t ? null : t)} label={TYPES[t]} />)}
+            types.map((t) => <Chip key={t} on={type === t} onClick={() => setType(type === t ? null : t)} label={MEMORY_TYPES[t]} />)}
         </Chips>
       </div>
 
@@ -334,7 +331,7 @@ function MemoryRow({
           <span className="block text-[13px] leading-snug font-medium break-words">{m.name}</span>
           {m.description && <span className={cn('mt-0.5 block text-xs text-muted-foreground', !open && 'line-clamp-2')}>{m.description}</span>}
           <span className="mt-1 flex flex-wrap items-center gap-1">
-            {m.type && <Tag>{TYPES[m.type] ?? m.type}</Tag>}
+            {m.type && <Tag>{MEMORY_TYPES[m.type] ?? m.type}</Tag>}
             {SIGNALS.filter((s) => m.signals.includes(s.key)).map((s) => (
               <Tag key={s.key} tone={s.tone} title={s.title}>
                 {s.label}

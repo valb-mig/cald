@@ -44,9 +44,10 @@ import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
-import { SummarySheet } from '@/components/chat/summary-sheet'
+import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
+import { SummaryDialog } from '@/components/chat/summary-dialog'
 import { toolsIn } from '@/components/chat/turn'
-import { WorktreeBar } from '@/components/chat/worktree-bar'
+import { WorktreeMenu } from '@/components/chat/worktree-menu'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
@@ -431,8 +432,7 @@ export function ChatPage({ id }: { id: string }) {
   return (
     <AgentsContext value={agentsContext}>
       <div className="flex min-h-0 flex-1 flex-col">
-        {/* O cabeçalho e a faixa do worktree num vidro só: soltos, a cena aparecia crua em volta da faixa,
-            entre o vidro do cabeçalho e o véu da conversa. */}
+        {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. */}
         <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background', zen && 'hidden')}>
           <header
             // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
@@ -514,6 +514,8 @@ export function ChatPage({ id }: { id: string }) {
                 <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
               </div>
             </div>
+            {/* Memórias que o Claude quis guardar e esperam você: só aparece com alguma. */}
+            <MemorySuggestionsButton sessionId={id} />
             {speechSupported && !slim && (
               <Button
                 variant={autoSpeech ? 'default' : 'ghost'}
@@ -544,6 +546,8 @@ export function ChatPage({ id }: { id: string }) {
                 {shown === 'chat' ? <Network /> : <MessagesSquare />}
               </Button>
             )}
+            {/* Num worktree: o que falta trazer para a de origem, e o "Trazer" e o "Remover" no menu. */}
+            {entry?.worktree && cwd && <WorktreeMenu machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
             {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
             {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
             {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
@@ -628,8 +632,6 @@ export function ChatPage({ id }: { id: string }) {
               </Button>
             )}
           </header>
-          {/* Num worktree: a branch dela, o que falta trazer para a de origem, e o "Trazer" e o "Remover". */}
-          {entry?.worktree && cwd && <WorktreeBar machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
         </div>
 
         <div
@@ -882,7 +884,8 @@ export function ChatPage({ id }: { id: string }) {
           </div>
         </div>
 
-        <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <MemorySuggestionsSheet sessionId={id} />
+        <SummaryDialog sessionId={id} items={items} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
         <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, link, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { CLAUDE_HOME, DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 import { readFields, setField, splitFrontmatter } from './frontmatter.ts';
@@ -289,6 +289,65 @@ export function saveMemory(input: { folder: string; file: string; description: s
     head = setField(head, 'metadata.modified', new Date().toISOString());
     await atomicWrite(path, `---\n${head.join('\n')}\n---\n\n${input.body.trim()}\n`);
     return { mtime: Math.floor((await stat(path)).mtimeMs) };
+  });
+}
+
+export const MEMORY_INDEX = INDEX;
+
+/**
+ * O arquivo que um Write ou Edit do Claude vai gravar, se for da memória: um arquivo direto na pasta
+ * de memória de um projeto em ~/.claude/projects, o índice (MEMORY.md) inclusive.
+ */
+export function memoryTarget(path: string): { folder: string; file: string } | null {
+  const full = resolve(path);
+  const dir = dirname(full);
+  if (basename(dir) !== 'memory' || dirname(dirname(dir)) !== PROJECTS) return null;
+  const folder = basename(dirname(dir));
+  const file = basename(full);
+  return FOLDER.test(folder) && FILE.test(file) ? { folder, file } : null;
+}
+
+/** Os arquivos que um texto de índice cita. */
+export const indexLinks = (text: string) => new Set(text.split('\n').flatMap(indexed));
+
+/** O texto de uma memória (ou do índice) e a data do arquivo; null se ele não existe. */
+export async function readMemoryFile(folder: string, file: string): Promise<{ text: string; mtime: number } | null> {
+  if (!FOLDER.test(folder) || !FILE.test(file)) throw new HttpError(400, 'invalid_memory');
+  const path = join(PROJECTS, folder, 'memory', file);
+  const [info, text] = await Promise.all([stat(path).catch(() => null), readFile(path, 'utf8').catch(() => null)]);
+  return info?.isFile() && text !== null ? { text, mtime: Math.floor(info.mtimeMs) } : null;
+}
+
+/**
+ * Grava uma memória que o Claude sugeriu e você aceitou (ver memory-suggestions.ts), com a linha dela
+ * no fim do índice se ainda não houver uma. `base`: a data do arquivo quando a sugestão chegou, ou
+ * null se ela era nova; se ele mudou (ou apareceu) desde então, recusa em vez de passar por cima.
+ */
+export function addMemory(input: { folder: string; file: string; text: string; base: number | null; line: string }): Promise<void> {
+  return serial(async () => {
+    const path = memoryPath(input.folder, input.file);
+    const info = await stat(path).catch(() => null);
+    if (input.base === null && info) throw new HttpError(409, 'memory_exists', { file: input.file });
+    if (input.base !== null && (!info || Math.floor(info.mtimeMs) !== input.base)) throw new HttpError(409, 'memory_changed');
+    await mkdir(dirname(path), { recursive: true });
+    await atomicWrite(path, input.text);
+    const lines = (await readIndex(input.folder)) ?? [''];
+    if (lines.some((l) => indexed(l).includes(input.file))) return;
+    lines.splice(lines.at(-1) === '' ? lines.length - 1 : lines.length, 0, input.line);
+    await writeIndex(input.folder, lines);
+  });
+}
+
+/**
+ * Tira do índice a linha de uma memória que não existe: o Claude pode pôr a linha junto da memória
+ * que virou sugestão, e ela fica apontando para o nada quando a sugestão é recusada.
+ */
+export function dropIndexLine(folder: string, file: string): Promise<void> {
+  return serial(async () => {
+    if (await stat(memoryPath(folder, file)).catch(() => null)) return;
+    const lines = await readIndex(folder);
+    if (!lines?.some((l) => onlyFor(l, file))) return;
+    await writeIndex(folder, lines.filter((l) => !onlyFor(l, file)));
   });
 }
 

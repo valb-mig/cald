@@ -3,6 +3,7 @@ import { AGENT_TOOLS, type ActivityEntry, type Item } from '@/components/chat/it
 import type { ToolEntry } from '@/components/chat/turn'
 import { askOf, picked, questionsOf } from '@/components/chat/questions'
 import { toolSummary } from '@/lib/format'
+import { isMemoryHeld } from '@/lib/memory-suggestions'
 import type { Question } from '@/lib/types'
 
 /**
@@ -119,7 +120,8 @@ function hostPath(url: string): string {
 function toolStatus(e: ToolEntry, pending: Set<string>): MindStatus {
   if (pending.has(e.use.id)) return 'waiting'
   if (!e.result) return 'running'
-  return e.result.isError ? 'failed' : 'done'
+  // A memória que virou sugestão foi negada de propósito: não falhou.
+  return e.result.isError && !isMemoryHeld(e.result) ? 'failed' : 'done'
 }
 
 const READS = new Set(['Read'])

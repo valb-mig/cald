@@ -4,6 +4,7 @@ import {
   query,
   type CanUseTool,
   type EffortLevel,
+  type HookCallback,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
@@ -115,6 +116,11 @@ export type PanelSessionOptions = {
   habilidades?: string;
   /** O MCP do cald (ver cald-mcp.ts), montado para esta conversa: recebe ela, para saber a quem pôr o time. */
   mcp?: (session: PanelSession) => McpSdkServerConfigWithInstance;
+  /**
+   * Antes de cada Write ou Edit: se ele grava uma memória, vira sugestão para você decidir no painel
+   * (ver memory-suggestions.ts), e a ferramenta é negada com o recado que volta, sem travar a conversa.
+   */
+  memory?: (sessionId: string, tool: string, input: unknown) => Promise<string | null>;
 };
 
 /** O que vai no fim do prompt de sistema: o time, o workspace e o worktree da conversa. */
@@ -226,6 +232,8 @@ export class PanelSession extends EventEmitter {
         forwardSubagentText: true,
         agentProgressSummaries: true,
         canUseTool: this.canUseTool,
+        // A pasta de memória do projeto é liberada para escrita sem passar pelo `canUseTool`: só um hook a vê.
+        hooks: opts.memory ? { PreToolUse: [{ matcher: 'Write|Edit', hooks: [this.memoryHook(opts.memory)] }] } : undefined,
         // Sem isto o SDK engole os `session_state_changed`, e um turno que o Claude começa sozinho
         // (tarefa em segundo plano terminou) não tira a sessão de "Concluída".
         env: { ...childEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
@@ -496,6 +504,17 @@ export class PanelSession extends EventEmitter {
         { once: true },
       );
     });
+
+  /** Memória que o Claude ia gravar vira sugestão: o hook nega a ferramenta com o recado, e ele segue. */
+  private memoryHook(suggest: NonNullable<PanelSessionOptions['memory']>): HookCallback {
+    return async (input) => {
+      if (input.hook_event_name !== 'PreToolUse') return {};
+      // Se a sugestão não deu para guardar, a memória é gravada como sempre foi.
+      const reason = await suggest(this.id, input.tool_name, input.tool_input).catch(() => null);
+      if (!reason) return {};
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
+    };
+  }
 
   private findPending(requestId: string, kind: PendingKind): Pending {
     const pending = this.pending.get(requestId);

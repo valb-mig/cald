@@ -24,6 +24,7 @@ import type {
   McpScope,
   MemoryList,
   MemoryRef,
+  MemorySuggestion,
   ModelOption,
   OfficeRoom,
   PrototypeOpen,
@@ -213,6 +214,13 @@ export const api = {
   restoreMemories: (m: string, ids: string[]) => post(`${at(m)}/memory/restore`, { ids }),
   /** Sem `ids`, a lixeira inteira. */
   emptyMemoryTrash: (m: string, ids?: string[]) => post(`${at(m)}/memory/trash/empty`, ids ? { ids } : {}),
+  /** As memórias que o Claude quis guardar na conversa e esperam você (ver server/src/memory-suggestions.ts). */
+  memorySuggestions: (id: string) => request<MemorySuggestion[]>('GET', `${sid(id)}/memory-suggestions`),
+  /** Salva a sugestão; com `edit`, com a descrição e o texto mudados. */
+  saveMemorySuggestion: (id: string, suggestion: string, edit: { description?: string; body?: string } = {}) =>
+    post(`${sid(id)}/memory-suggestions/${encodeURIComponent(suggestion)}/save`, edit),
+  dismissMemorySuggestion: (id: string, suggestion: string) => post(`${sid(id)}/memory-suggestions/${encodeURIComponent(suggestion)}/dismiss`),
+  restoreMemorySuggestion: (id: string, suggestion: string) => post(`${sid(id)}/memory-suggestions/${encodeURIComponent(suggestion)}/restore`),
   /** Skills, agentes e servidores MCP de uma pasta (ver server/src/claude-config.ts); sem `cwd`, os que valem em todas. */
   claudeSetup: (m: string, cwd?: string, refresh = false) => {
     const params = new URLSearchParams()
@@ -539,6 +547,8 @@ export function errorMessage(err: unknown): string {
       return `Já existe outra memória com o nome ${String(err.details.file ?? '')} nesse projeto.`
     case 'invalid_memory':
       return 'Memória inválida.'
+    case 'suggestion_not_found':
+      return 'Essa sugestão já foi respondida.'
     case 'settings_invalid':
       return `As configurações do Claude Code não abrem (${String(err.details.file ?? '')}); nada foi mudado.`
     case 'claude_cli_failed':
