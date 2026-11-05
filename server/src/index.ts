@@ -40,6 +40,7 @@ import { attachTerminal, openTerminal } from './terminal.ts';
 import { ARTEFATO_VIEW_ROUTE, ArtefatoStore, SHELL_CSP, shellHtml, startPublicServer } from './artefatos.ts';
 import { caldMcp } from './cald-mcp.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
+import { DetalheStore, MAX_DETALHE_BODY, MAX_DETALHE_TITLE, MAX_DETALHES, type DetalheInput } from './detalhes.ts';
 import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } from './saved-commands.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
@@ -59,6 +60,9 @@ const meta = new MetaStore();
 await meta.load();
 const todos = new TodoStore();
 await todos.load();
+// Como cada parte de um projeto funciona, para o Claude ler só o que precisa (ver detalhes.ts).
+const detalhes = new DetalheStore();
+await detalhes.load();
 const teams = new TeamStore();
 await teams.load();
 // O endereço da tailnet vem do `policy`, mais abaixo: só é lido quando o artefato precisa dele.
@@ -91,7 +95,7 @@ const manager = new Manager(live, meta, teams, workspaces, origins, habilidades)
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
 // O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
-manager.mcpFor = (ctx) => caldMcp({ todos, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
+manager.mcpFor = (ctx) => caldMcp({ todos, detalhes, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
@@ -1162,6 +1166,53 @@ app.get<{ Params: { id: string }; Querystring: { type?: string } }>('/api/todos/
     .send(createReadStream(path));
 });
 
+app.get<{ Querystring: { cwd: string } }>(
+  '/api/detalhes',
+  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
+  async (req) => {
+    const cwd = await manager.knownCwd(req.query.cwd);
+    return { items: detalhes.list(cwd), rev: detalhes.rev(cwd) };
+  },
+);
+
+// Os detalhes do projeto, a lista inteira de uma vez (como o TODO), com o `rev` que o app leu.
+app.post<{ Body: { cwd: string; items: DetalheInput[]; rev?: number } }>(
+  '/api/detalhes',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'items'],
+        properties: {
+          cwd: { type: 'string' },
+          rev: { type: 'integer', minimum: 0 },
+          items: {
+            type: 'array',
+            maxItems: MAX_DETALHES,
+            items: {
+              type: 'object',
+              required: ['id', 'title', 'body', 'createdAt'],
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', minLength: 1, maxLength: 64 },
+                chave: { type: 'string', maxLength: 100 },
+                title: { type: 'string', minLength: 1, maxLength: MAX_DETALHE_TITLE },
+                body: { type: 'string', maxLength: MAX_DETALHE_BODY },
+                createdAt: { type: 'number' },
+                updatedAt: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const cwd = await manager.knownCwd(req.body.cwd);
+    return { items: await detalhes.replace(cwd, req.body.items, req.body.rev), rev: detalhes.rev(cwd) };
+  },
+);
+
 // Quanto você já codou hoje, para o anel na alça do PC; `null` sem o wakatime-cli instalado.
 app.get('/api/wakatime', async () => ({ today: await wakatimeToday().catch(() => null) }));
 
@@ -1834,6 +1885,7 @@ monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
 // Mudou o TODO de um projeto, um time, um workspace ou uma habilidade (pelo app ou pelo Claude, ver
 // cald-mcp.ts): cada aparelho recarrega o que tiver aberto disso.
 todos.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'todos', cwd, rev: todos.rev(cwd) }));
+detalhes.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'detalhes', cwd, rev: detalhes.rev(cwd) }));
 teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
 workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
 artefatos.on('change', () => broadcastAll({ type: 'changed', what: 'artefatos' }));

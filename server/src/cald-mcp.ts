@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MAX_BYTES, type ArtefatoStore, type Artefato } from './artefatos.ts';
+import { type Detalhe, type DetalheStore } from './detalhes.ts';
 import { HttpError } from './errors.ts';
 import { MAX_BODY, MAX_DESCRIPTION, type Habilidade, type HabilidadeStore } from './habilidades.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, type Team, type TeamStore } from './teams.ts';
@@ -10,7 +11,8 @@ import { worktreeOf } from './worktrees.ts';
 
 /**
  * O MCP do cald: ferramentas para o Claude de uma conversa do painel criar e mudar as coisas do
- * próprio cald (o TODO do projeto, times, workspaces e habilidades), que aparecem na hora no app.
+ * próprio cald (o TODO do projeto, times, workspaces e habilidades), que aparecem na hora no app, e ler
+ * os detalhes do projeto (como cada parte dele funciona), que só você escreve.
  * Roda no mesmo processo (`createSdkMcpServer`), um por conversa, já amarrado à pasta dela. Nada
  * aqui apaga: é a mesma regra do app de não ter ação sem volta. As abertas no terminal não o veem.
  */
@@ -27,6 +29,8 @@ export const CALD_MCP_ALLOWED = [
   'listar_todos',
   'criar_todos',
   'editar_todo',
+  'listar_detalhes',
+  'ler_detalhe',
   'listar_times',
   'criar_time',
   'usar_time',
@@ -40,6 +44,7 @@ export const CALD_MCP_ALLOWED = [
 
 export type CaldMcpDeps = {
   todos: TodoStore;
+  detalhes: DetalheStore;
   teams: TeamStore;
   workspaces: WorkspaceStore;
   habilidades: HabilidadeStore;
@@ -59,11 +64,24 @@ export type CaldMcpContext = {
 
 const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
 - TODO: a lista de tarefas deste projeto no cald (não é a sua lista interna de tarefas). Cada item tem um número, que o usuário menciona no chat como \`TODO:n\`. Ao quebrar um trabalho em tarefas, crie todas de uma vez com \`criar_todos\`; ao terminar uma, marque-a como feita com \`editar_todo\` (\`feito: true\`).
+- Detalhes: notas do usuário sobre como partes deste projeto funcionam. Quando a conversa abre com uma lista deles abaixo, leia com \`ler_detalhe\` o que tocar no trabalho antes de varrer o código para entender aquela parte: é mais rápido e mais barato.
 - Times: subagentes do usuário (nome, papel, modelo, esforço e instruções), que uma conversa recebe para delegar pela ferramenta Agent. Ao montar um time para um projeto, estude o projeto antes (CLAUDE.md, README, a stack, os comandos de build, teste e lint, as convenções) e escreva para cada membro instruções específicas dele: do que cuida, onde isso fica no código, que padrões seguir e como validar. Um time editado só vale nas conversas que começarem depois; \`usar_time\` põe um time nesta conversa quando a sua resposta terminar.
 - Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Cada projeto pode ter um workspace padrão, com que a conversa nova dele já vem. Mudanças valem da próxima vez que uma conversa do workspace abrir.
 - Habilidades: skills do cald (\`/cald:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
 - Artefatos: para mostrar uma página HTML (protótipo, relatório, painel, visualização) ao usuário, publique com \`publicar_artefato\`. O cald congela o HTML e os arquivos que ele usa (CSS, JS, imagens e fontes da mesma pasta, por caminho relativo) numa versão, e o chat mostra um cartão para abrir. Publicar o mesmo arquivo de novo cria a versão seguinte, com o mesmo link. O link fica na tailnet do usuário; deixá-lo público na internet é escolha dele, no app.
 Nada aqui apaga: para tirar algo, o usuário usa o app.`;
+
+/**
+ * O índice dos detalhes do projeto, junto das instruções: o Claude já abre sabendo o que existe (só
+ * chave e título), sem gastar uma chamada. Vale como estava ao abrir a conversa; `listar_detalhes` dá o atual.
+ */
+function instructionsFor(index: string | null): string {
+  if (!index) return INSTRUCTIONS;
+  return `${INSTRUCTIONS}
+
+Detalhes deste projeto (chave: título). Antes de ler o código para entender uma destas partes, leia o detalhe dela com \`ler_detalhe\`:
+${index}`;
+}
 
 const artefatoOut = (a: Artefato, link: string) => ({
   id: a.id,
@@ -91,6 +109,7 @@ function guarded<A>(run: (args: A) => Promise<unknown>) {
 }
 
 // O que o Claude lê de cada coisa: os nomes em português, como nos parâmetros.
+const detalheOut = (d: Detalhe) => ({ chave: d.chave, titulo: d.title, conteudo: d.body, atualizado: new Date(d.updatedAt ?? d.createdAt).toISOString().slice(0, 10) });
 const todoOut = (t: Todo) => ({ n: t.n, titulo: t.title, feito: t.done, descricao: t.body || undefined, anexos: t.files.length || undefined });
 const teamOut = (t: Team) => ({
   id: t.id,
@@ -145,7 +164,7 @@ const mapMembers = (list: z.infer<typeof member>[], old?: Team) =>
 const mapCommands = (list: z.infer<typeof command>[]) => list.map((c) => ({ label: c.rotulo, command: c.comando, cwd: c.pasta }));
 
 export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerConfigWithInstance {
-  const { todos, teams, workspaces, habilidades, artefatos } = deps;
+  const { todos, detalhes, teams, workspaces, habilidades, artefatos } = deps;
   const knownProjects = (list: string[]) => Promise.all(list.map((p) => deps.knownCwd(p)));
   const habilidade = (id: string) => {
     const { global, project } = habilidades.list(ctx.cwd);
@@ -157,7 +176,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
   return createSdkMcpServer({
     name: CALD_MCP,
     version: '1.0.0',
-    instructions: INSTRUCTIONS,
+    instructions: instructionsFor(detalhes.index(ctx.cwd)),
     tools: [
       // ---- TODO do projeto ----
       tool(
@@ -194,6 +213,33 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
         },
         guarded(async ({ n, feito, titulo, descricao }) => todoOut(await todos.update(ctx.cwd, n, { done: feito, title: titulo, body: descricao }))),
         { annotations: { idempotentHint: true } },
+      ),
+
+      // ---- detalhes do projeto ----
+      tool(
+        'listar_detalhes',
+        'Lista os detalhes deste projeto no cald (notas do usuário sobre como partes dele funcionam): a chave e o título de cada um, sem o conteúdo.',
+        {},
+        guarded(async () =>
+          detalhes
+            .list(ctx.cwd)
+            .filter((d) => d.body.trim())
+            .map((d) => ({ chave: d.chave, titulo: d.title, tamanho: d.body.length })),
+        ),
+        { annotations: { readOnlyHint: true } },
+      ),
+      tool(
+        'ler_detalhe',
+        'Lê o conteúdo (Markdown, com @caminho para arquivos do projeto) de um ou mais detalhes deste projeto, pela chave. Peça de uma vez todos os que o trabalho toca.',
+        { chaves: z.array(z.string().min(1).max(200)).min(1).max(20).describe('Chaves de listar_detalhes (ou do índice nas instruções)') },
+        guarded(async ({ chaves }) => {
+          const { found, missing } = detalhes.read(ctx.cwd, chaves);
+          return {
+            detalhes: found.map(detalheOut),
+            ...(missing.length ? { naoAchados: missing, existentes: detalhes.list(ctx.cwd).filter((d) => d.body.trim()).map((d) => d.chave) } : {}),
+          };
+        }),
+        { annotations: { readOnlyHint: true } },
       ),
 
       // ---- times ----
