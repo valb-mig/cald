@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ALLOWED_LOGINS, EXTRA_ORIGINS, PORT } from './config.ts';
 import type { PinLock } from './pin.ts';
+import { VIEW_ROUTE } from './prototypes.ts';
 
 const exec = promisify(execFile);
 
@@ -59,9 +60,10 @@ function knownOrigin(policy: AccessPolicy, origin: string): boolean {
   return name !== origin && policy.origins.has(name);
 }
 
-// Abertas mesmo com o PIN ligado: a tela de bloqueio, a sondagem e os avisos entre as suas máquinas
-// (ver machines.ts e push.ts). Continuam valendo o Host, a origem e o login do Tailscale.
-const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay']);
+// Abertas mesmo com o PIN ligado: a tela de bloqueio, a sondagem, os avisos entre as suas máquinas
+// (ver machines.ts e push.ts) e as páginas dos protótipos, cujo id aleatório é a credencial (ver
+// prototypes.ts). Continuam valendo o Host, a origem e o login do Tailscale.
+const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay', VIEW_ROUTE]);
 
 /** O token do PIN: no cabeçalho (fetch) ou em `?t=` (WebSocket, `<img>` e links, que não mandam cabeçalho). */
 export function pinToken(req: FastifyRequest): string | undefined {
@@ -101,8 +103,13 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock) {
       if (!policy.logins.has(login)) return reply.code(403).send({ error: 'tailnet_identity_required' });
     }
 
+    // Pela rota que casou, e não pela URL crua: `/%61pi/...` cai na mesma rota da API.
+    const route = req.routeOptions.url ?? '';
     const origin = req.headers.origin;
-    if (origin && !knownOrigin(policy, origin)) {
+    // A página de um protótipo roda com origem opaca (ver prototypes.ts): o que ela busca da própria
+    // pasta com fetch ou como módulo chega com `Origin: null`. Só ali, e só para ler.
+    const sandboxed = origin === 'null' && route === VIEW_ROUTE && (req.method === 'GET' || req.method === 'HEAD');
+    if (origin && !sandboxed && !knownOrigin(policy, origin)) {
       return reply.code(403).send({ error: 'origin_not_allowed' });
     }
     // App servido por outra máquina sua (ver machines.ts): o navegador só entrega a resposta com
@@ -123,8 +130,6 @@ export function accessGuard(policy: AccessPolicy, pin: PinLock) {
       return reply.code(415).send({ error: 'json_required' });
     }
 
-    // Pela rota que casou, e não pela URL crua: `/%61pi/...` cai na mesma rota da API.
-    const route = req.routeOptions.url ?? '';
     const guarded = route.startsWith('/api/') || route === '/ws' || route.startsWith('/ws/');
     if (pin.enabled && guarded && !PIN_FREE.has(route) && !pin.check(pinToken(req))) {
       return reply.code(401).send({ error: 'pin_required' });

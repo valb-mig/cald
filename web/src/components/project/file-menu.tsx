@@ -1,8 +1,9 @@
-import { AtSign, Copy, FileText } from 'lucide-react'
+import { AppWindow, AtSign, Copy, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { mentionInChat, openViewer, type PanelProject } from '@/lib/project-panel'
+import { isHtmlPath, showPrototype } from '@/lib/prototype'
 import { splitPath } from './status'
 
 /** Arquivo (ou pasta) e o ponto da tela (o do clique ou do dedo) onde o menu abre. */
@@ -48,6 +49,12 @@ export function useFileMenu(project: PanelProject) {
             {!at.dir && !at.deleted && (
               <DropdownMenuItem onSelect={() => openViewer({ machine: project.machine, cwd: project.cwd, path: at.path })}>
                 <FileText /> Abrir
+              </DropdownMenuItem>
+            )}
+            {/* Um HTML também abre como página, num mini-navegador, que recarrega quando ele muda. */}
+            {!at.dir && !at.deleted && isHtmlPath(at.path) && (
+              <DropdownMenuItem onSelect={() => showPrototype({ machine: project.machine, cwd: project.cwd, path: at.path })}>
+                <AppWindow /> Abrir como página
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

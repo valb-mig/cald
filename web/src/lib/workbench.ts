@@ -6,7 +6,7 @@ import { closeGuarded } from './unsaved'
 /**
  * Abas no PC, como os grupos de editores do VSCode: cada lado da tela (um grupo) tem a sua barra de
  * abas, e cada aba é uma conversa, um arquivo (ou o diff de um lado dele), uma issue ou PR do GitHub
- * (abertos pela barra do projeto) ou o hub de um projeto. As regras são as do VSCode:
+ * (abertos pela barra do projeto), o hub de um projeto ou uma página do Claude. As regras são as do VSCode:
  * - clicar abre numa aba de prévia (título em itálico); só há uma por grupo, e a próxima toma o lugar dela;
  * - a prévia vira fixa com dois cliques (na lista ou na aba), ao escrever ou mandar mensagem nela (como
  *   editar um arquivo), ao ser arrastada para outro grupo, e a conversa nova já nasce fixa;
@@ -34,6 +34,12 @@ export type TabRef =
   | { kind: 'workspace'; machine: string; id: string }
   /** A inbox: tudo o que pede você, de todas as máquinas (uma aba só). */
   | { kind: 'inbox' }
+  /**
+   * Uma página do Claude (o HTML que a ferramenta Artifact publica, ou um .html do projeto), num
+   * mini-navegador (ver lib/prototype.ts). `path` sempre absoluto; `cwd` (o projeto, para a barra dele),
+   * `url` (o artifact no claude.ai) e `title` (a descrição) não fazem parte da chave.
+   */
+  | { kind: 'prototype'; machine: string; path: string; cwd?: string; url?: string; title?: string }
 
 export type Tab = TabRef & { key: string; preview?: boolean }
 
@@ -69,7 +75,9 @@ export const keyOf = (ref: TabRef) =>
             ? `w:${ref.machine}\n${ref.id}`
             : ref.kind === 'inbox'
               ? 'i:'
-              : `p:${ref.machine}\n${ref.cwd}`
+              : ref.kind === 'prototype'
+                ? `pt:${ref.machine}\n${ref.path}`
+                : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0
@@ -170,7 +178,19 @@ export const openWorkspace = (machine: string, id: string) => openPanelTab({ kin
 export const openInbox = () => openPanelTab({ kind: 'inbox' })
 
 /**
- * Abre `ref`. Já aberta em algum grupo: só vai para ela (e, sem `preview`, ela vira fixa). Senão,
+ * A aba já aberta, aberta de novo: com o que `ref` sabe e fica de fora da chave (o título de uma issue, o
+ * link de uma página) e, com `pin`, fixa. Sem nada novo, a mesma aba, para quem a acompanha não redesenhar.
+ */
+function reopened(tab: Tab, ref: TabRef, pin: boolean): Tab {
+  const next: Record<string, unknown> = { ...tab, ...(pin && { preview: false }) }
+  for (const [k, v] of Object.entries(ref)) if (v !== undefined) next[k] = v
+  const old = tab as Record<string, unknown>
+  return Object.keys(next).every((k) => next[k] === old[k]) ? tab : (next as Tab)
+}
+
+/**
+ * Abre `ref`. Já aberta em algum grupo: só vai para ela (e, sem `preview`, ela vira fixa), com o que
+ * `ref` traz de novo (a página que ganhou o link do claude.ai depois de aberta pela árvore). Senão,
  * entra no grupo em foco (ou num grupo novo ao lado, com `beside`), logo depois da ativa; como
  * prévia, toma o lugar da prévia que houver no grupo.
  */
@@ -181,7 +201,9 @@ export function openTab(ref: TabRef, opts: { preview?: boolean; beside?: boolean
   if (open && !opts.beside) {
     set(
       groups.map((g) =>
-        g.id === open.id ? { ...g, active: key, tabs: g.tabs.map((t) => (t.key === key && !opts.preview ? { ...t, preview: false } : t)) } : g,
+        g.id === open.id
+          ? { ...g, active: key, tabs: g.tabs.map((t) => (t.key === key ? reopened(t, ref, !opts.preview) : t)) }
+          : g,
       ),
       open.id,
     )

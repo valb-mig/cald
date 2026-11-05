@@ -1,6 +1,7 @@
 import {
   AArrowDown,
   AArrowUp,
+  AppWindow,
   ArrowLeft,
   AtSign,
   ExternalLink,
@@ -27,6 +28,7 @@ import { tokenStyle, useTokens } from '@/lib/highlight'
 import { setMinimap, useMinimap } from '@/lib/minimap'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { closeViewer, openViewer, useProjectPanel, type Viewing } from '@/lib/project-panel'
+import { isHtmlPath, showPrototype } from '@/lib/prototype'
 import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
 import { useUnsaved } from '@/lib/unsaved'
@@ -767,6 +769,18 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
         {markdown && (
           <Button variant={rendered ? 'secondary' : 'ghost'} size="sm" onClick={() => setRendered((r) => !r)}>
             {rendered ? 'Código' : 'Formatado'}
+          </Button>
+        )}
+        {!diff && isHtmlPath(name) && (
+          // O HTML como página, num mini-navegador (no PC, numa aba ao lado desta; no celular, por cima).
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => showPrototype({ machine: viewing.machine, cwd, path })}
+            aria-label="Ver como página"
+            title="Ver como página"
+          >
+            <AppWindow /> <span className="max-sm:hidden">Página</span>
           </Button>
         )}
         {isCode && (

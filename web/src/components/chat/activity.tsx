@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   Bot,
   Brain,
   ChevronRight,
@@ -29,11 +30,13 @@ import { useNow } from '@/components/agents/status'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
 import { CopyButton, Markdown } from '@/components/markdown'
+import { PrototypeCard } from '@/components/prototype/prototype-card'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { FILE_TOOLS, shortPath, toolSummary, took } from '@/lib/format'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { isMemoryHeld, isMemorySuggested, openMemorySuggestions, useMemorySuggestions } from '@/lib/memory-suggestions'
+import { publishedPage, type PublishedPage } from '@/lib/prototype'
 import { cn } from '@/lib/utils'
 import { Arrival, useArrivals } from './arrival'
 import { useGallery } from './gallery'
@@ -61,6 +64,7 @@ const ICONS: Record<string, LucideIcon> = {
   ToolSearch: Search,
   ExitPlanMode: ClipboardList,
   AskUserQuestion: MessageCircleQuestion,
+  Artifact: AppWindow,
 }
 
 export function toolIcon(name: string): LucideIcon {
@@ -219,7 +223,8 @@ function ToolRow({
   at,
   started,
   finished,
-}: Pick<ToolEntry, 'use' | 'result' | 'answer' | 'at' | 'started' | 'finished'> & { sessionId: string }) {
+  page,
+}: Pick<ToolEntry, 'use' | 'result' | 'answer' | 'at' | 'started' | 'finished'> & { sessionId: string; page?: PublishedPage }) {
   const pending = !result
   const time = useTook({ result, at, started, finished })
   // Pergunta que você recusou volta como erro, mas não é falha: a linha diz o que houve, sem o X.
@@ -261,6 +266,12 @@ function ToolRow({
           {result.images.map((key) => (
             <ImageThumb key={key} src={imageUrl(sessionId, key)} thumb={thumbUrl(sessionId, key)} gallery={claude} from="Claude" className="h-24 max-w-44" />
           ))}
+        </div>
+      )}
+      {/* A página publicada pela Artifact também: o abrir fica à mão. */}
+      {page && (
+        <div className="px-2 pb-1.5">
+          <PrototypeCard sessionId={sessionId} page={page} />
         </div>
       )}
       <CollapsibleContent className="space-y-1.5 px-2 pt-1 pb-2">
@@ -309,6 +320,21 @@ function ThinkingRow({ text }: { text: string }) {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /**
+ * As páginas que a Artifact publicou no bloco, pela chave da entrada: uma por arquivo, a da última
+ * publicação dele, que é a que está no claude.ai agora.
+ */
+function publishedPages(entries: ActivityEntry[]): Map<string, PublishedPage> {
+  const byPath = new Map<string, { key: string; page: PublishedPage }>()
+  for (const e of entries) {
+    const page = e.kind === 'tool' ? publishedPage(e.use.name, e.use.input, e.result) : null
+    if (!page) continue
+    byPath.delete(page.path)
+    byPath.set(page.path, { key: e.key, page })
+  }
+  return new Map([...byPath.values()].map(({ key, page }) => [key, page]))
+}
+
+/**
  * Bloco de eventos de execução, visualmente separado das mensagens. `summary` (o chat): o bloco vira
  * uma linha só, que abre ao tocar, para os passos não ocuparem a conversa entre um texto e outro. Os
  * subagentes ficam à vista embaixo dela: o andamento deles é assunto, não passo.
@@ -319,27 +345,29 @@ export function Activity({ sessionId, entries, summary = false }: { sessionId: s
   const isFresh = useArrivals(sessionId, entries.map((e) => e.key))
   const isAgent = (e: ActivityEntry) => e.kind === 'tool' && Boolean(e.inner && agents?.tree.byId.get(e.use.id))
   const steps = summary ? entries.filter((e) => !isAgent(e)) : entries
-  const list = (shown: ActivityEntry[]) => (
+  const pages = publishedPages(steps)
+  // `cards`: as páginas vão na linha de quem as publicou; no bloco resumido, já estão debaixo do resumo.
+  const list = (shown: ActivityEntry[], cards: boolean) => (
     <div className="rounded-lg border bg-muted/30 p-1">
       {shown.map((entry) => (
         <Arrival key={entry.key} fresh={isFresh(entry.key)}>
-          <EntryRow sessionId={sessionId} entry={entry} agents={agents} />
+          <EntryRow sessionId={sessionId} entry={entry} agents={agents} page={cards ? pages.get(entry.key) : undefined} />
         </Arrival>
       ))}
     </div>
   )
-  if (!summary) return list(entries)
+  if (!summary) return list(entries, true)
   const others = entries.filter(isAgent)
   return (
     <div className="space-y-1">
       {/* Um passo só já é uma linha: o resumo dele não economizaria nada. */}
       {steps.length === 1 ? (
-        <EntryRow sessionId={sessionId} entry={steps[0]!} agents={agents} />
+        <EntryRow sessionId={sessionId} entry={steps[0]!} agents={agents} page={pages.get(steps[0]!.key)} />
       ) : (
         steps.length > 1 && (
           <Collapsible>
-            <StepsSummary sessionId={sessionId} steps={steps} />
-            <CollapsibleContent className="pt-1">{list(steps)}</CollapsibleContent>
+            <StepsSummary sessionId={sessionId} steps={steps} pages={[...pages.values()]} />
+            <CollapsibleContent className="pt-1">{list(steps, false)}</CollapsibleContent>
           </Collapsible>
         )
       )}
@@ -355,9 +383,9 @@ export function Activity({ sessionId, entries, summary = false }: { sessionId: s
 /**
  * "▸ 5 ferramentas · 2 raciocínios · +12 −3 · 8,4s   Bash  pnpm build": quantos passos, o que mudou
  * nos arquivos, quanto levou do primeiro ao último e, na ponta, o passo rodando agora ou o último.
- * As imagens devolvidas (prints, arquivos lidos) continuam à vista, como na linha aberta.
+ * As imagens devolvidas (prints, arquivos lidos) e as páginas publicadas continuam à vista, como na linha aberta.
  */
-function StepsSummary({ sessionId, steps }: { sessionId: string; steps: ActivityEntry[] }) {
+function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: ActivityEntry[]; pages: PublishedPage[] }) {
   const { claude } = useGallery()
   const tools = steps.filter((e): e is ToolEntry => e.kind === 'tool')
   const thoughts = steps.filter((e) => e.kind === 'thinking').length
@@ -417,17 +445,35 @@ function StepsSummary({ sessionId, steps }: { sessionId: string; steps: Activity
           ))}
         </div>
       )}
+      {pages.length > 0 && (
+        <div className="space-y-1 px-2 pb-1.5">
+          {pages.map((page) => (
+            <PrototypeCard key={page.path} sessionId={sessionId} page={page} />
+          ))}
+        </div>
+      )}
     </>
   )
 }
 
-function EntryRow({ sessionId, entry, agents }: { sessionId: string; entry: ActivityEntry; agents: ReturnType<typeof useAgents> }) {
+function EntryRow({
+  sessionId,
+  entry,
+  agents,
+  page,
+}: {
+  sessionId: string
+  entry: ActivityEntry
+  agents: ReturnType<typeof useAgents>
+  /** A página que esta entrada publicou, com o cartão dela debaixo da linha. */
+  page?: PublishedPage
+}) {
   // Subagente: uma linha com o andamento; o que ele fez fica no painel dele.
   const agent = entry.kind === 'tool' && entry.inner ? agents?.tree.byId.get(entry.use.id) : undefined
   if (agent) return <AgentRow node={agent} onOpen={() => agents!.open(agent.id)} />
   if (entry.kind === 'tool') {
     const { use, result, answer, at, started, finished } = entry
-    return <ToolRow sessionId={sessionId} use={use} result={result} answer={answer} at={at} started={started} finished={finished} />
+    return <ToolRow sessionId={sessionId} use={use} result={result} answer={answer} at={at} started={started} finished={finished} page={page} />
   }
   if (entry.kind === 'thinking') return <ThinkingRow text={entry.text} />
   return (

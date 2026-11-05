@@ -94,6 +94,8 @@ export function stateInfo(state: CatalogState | SessionState | undefined, waitin
 type Input = Record<string, unknown>
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
+const ARTIFACT_ACTIONS: Record<string, string> = { read: 'ler', list: 'listar' }
+
 /** Linha de resumo de uma chamada de ferramenta. */
 export function toolSummary(name: string, input: Input): string {
   switch (name) {
@@ -124,6 +126,13 @@ export function toolSummary(name: string, input: Input): string {
       return str(input.description) || str(input.command).split('\n')[0]
     case 'ToolSearch':
       return str(input.query).replace(/^select:/, '')
+    case 'Artifact': {
+      // Publicar (o padrão) diz o arquivo; ler e listar, o que fizeram e com o quê.
+      const file = str(input.file_path).split('/').pop() || str(input.description)
+      const action = str(input.action)
+      if (!action || action === 'publish') return file || 'página'
+      return [ARTIFACT_ACTIONS[action] ?? action, file || str(input.url)].filter(Boolean).join(' ')
+    }
     case 'ExitPlanMode':
       return 'plano pronto para revisão'
     case 'AskUserQuestion':
