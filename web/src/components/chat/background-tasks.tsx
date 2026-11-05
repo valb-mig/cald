@@ -13,9 +13,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { api, errorMessage } from '@/lib/api'
 import { duration } from '@/lib/format'
 import type { BackgroundTask, PanelEvent } from '@/lib/types'
+import { cn } from '@/lib/utils'
+import { ShellCommand } from './activity'
 
 type ToolUse = Extract<PanelEvent, { kind: 'tool_use' }>
 
@@ -68,6 +71,10 @@ function Output({ sessionId, taskId }: { sessionId: string; taskId: string }) {
   )
 }
 
+/**
+ * Uma tarefa, como a linha de uma ferramenta no chat: o tipo, o que ela faz e há quanto tempo roda. Num
+ * comando, tocar abre o comando inteiro e o fim da saída; o quadradinho ao lado para.
+ */
 function TaskRow({
   sessionId,
   task,
@@ -83,49 +90,40 @@ function TaskRow({
   actionable: boolean
   onStop: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const { label, icon: Icon } = kindOf(task, use)
   const command = typeof use?.input.command === 'string' ? use.input.command : ''
   // Saída só de comandos e monitores (o Claude Code não guarda a de workflows assim).
   const hasOutput = task.type === 'local_bash'
   return (
-    <li className="space-y-1.5 py-2 first:pt-0 last:pb-0">
-      <div className="flex min-w-0 items-start gap-2">
-        <Icon className="mt-0.5 size-4 shrink-0 text-sky-700 dark:text-sky-300" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 text-xs font-medium text-sky-700 dark:text-sky-300">{label}</span>
-            <span className="min-w-0 flex-1 truncate text-sm">{task.description}</span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums" title="Há quanto tempo roda">
-              {duration(Math.max(0, now - task.startedAt))}
-            </span>
-          </div>
-          {command && command !== task.description && (
-            <div className="truncate font-mono text-[11px] text-muted-foreground" title={command}>
-              {command}
-            </div>
+    <Collapsible disabled={!hasOutput}>
+      <div className="flex min-w-0 items-center gap-0.5">
+        <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted/60">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 font-medium">{label}</span>
+          <span className={cn('min-w-0 flex-1 truncate text-xs text-muted-foreground', task.description === command && 'font-mono')}>
+            {task.description}
+          </span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums" title="Há quanto tempo roda">
+            {duration(Math.max(0, now - task.startedAt))}
+          </span>
+          {/* Sem saída para abrir, o vão da setinha fica, para os tempos alinharem. */}
+          {hasOutput ? (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+          ) : (
+            <span className="size-3.5 shrink-0" />
           )}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-1.5 pl-6">
-        {hasOutput && (
-          <Button variant="outline" size="xs" onClick={() => setOpen(!open)} aria-expanded={open}>
-            <ChevronRight className={open ? 'rotate-90 transition-transform' : 'transition-transform'} />
-            {open ? 'Esconder saída' : 'Ver saída'}
-          </Button>
-        )}
+        </CollapsibleTrigger>
         {actionable && (
-          <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onStop}>
-            <CircleStop /> Parar
+          <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" onClick={onStop} aria-label={`Parar ${task.description}`} title="Parar">
+            <CircleStop />
           </Button>
         )}
       </div>
-      {open && hasOutput && (
-        <div className="pl-6">
-          <Output sessionId={sessionId} taskId={task.taskId} />
-        </div>
-      )}
-    </li>
+      <CollapsibleContent className="space-y-1.5 px-2 pt-1 pb-2">
+        {command && <ShellCommand command={command} />}
+        <Output sessionId={sessionId} taskId={task.taskId} />
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -196,35 +194,31 @@ export function BackgroundTasks({
   if (!shown.length) return null
   const monitors = shown.some((t) => callOf(t)?.name === 'Monitor')
 
+  // Um bloco como o das ferramentas do turno; a ampulheta é o único azul: algo ainda roda.
   return (
-    <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2.5" aria-label="Em segundo plano">
-      <div className="mb-2 space-y-0.5">
-        <h3 className="flex items-center gap-1.5 text-sm font-medium">
-          <Hourglass className="size-4 text-sky-700 dark:text-sky-300" />
-          Em segundo plano
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          O Claude deixou {shown.length === 1 ? 'isto rodando' : `${shown.length} coisas rodando`}. Ele
-          volta sozinho quando {shown.length === 1 ? 'terminar' : 'cada uma terminar'}
-          {monitors ? ' e, num monitor, a cada novidade que aparecer' : ''}; você pode mandar mensagem enquanto isso.
-        </p>
-      </div>
-      <ul className="divide-y divide-sky-500/15">
-        {shown.map((task) => (
-          <TaskRow
-            key={task.taskId}
-            sessionId={sessionId}
-            task={task}
-            use={callOf(task)}
-            now={now}
-            actionable={actionable}
-            onStop={() => {
-              setStopping(task)
-              setConfirm(true)
-            }}
-          />
-        ))}
-      </ul>
+    <section className="rounded-xl bg-foreground/[0.04] p-1" aria-label="Em segundo plano">
+      <h3
+        className="flex min-w-0 items-center gap-1.5 px-2 pt-1 pb-0.5 text-xs text-muted-foreground"
+        title="O turno acabou, mas o Claude volta sozinho quando isto terminar. Dá para mandar mensagem enquanto isso."
+      >
+        <Hourglass className="size-3.5 shrink-0 text-sky-700 dark:text-sky-300" />
+        <span className="shrink-0 font-medium text-foreground/80">Em segundo plano</span>
+        <span className="truncate">· o Claude volta {monitors ? 'a cada novidade' : 'ao terminar'}</span>
+      </h3>
+      {shown.map((task) => (
+        <TaskRow
+          key={task.taskId}
+          sessionId={sessionId}
+          task={task}
+          use={callOf(task)}
+          now={now}
+          actionable={actionable}
+          onStop={() => {
+            setStopping(task)
+            setConfirm(true)
+          }}
+        />
+      ))}
 
       <StopTaskDialog sessionId={sessionId} task={stopping} open={confirm} onOpenChange={setConfirm} />
     </section>
