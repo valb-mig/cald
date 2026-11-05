@@ -16,7 +16,7 @@ import { SlidePanel } from '@/components/ui/slide-panel'
 import { BottomPanel, StatusBar } from '@/components/status-bar'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
-import { setComputerOpen } from '@/lib/computer'
+import { openComputerLink, setComputerOpen } from '@/lib/computer'
 import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
 import { checkLock, startLock, useLock } from '@/lib/lock'
@@ -103,10 +103,11 @@ function Panel() {
     return () => clearInterval(machines)
   }, [])
 
-  // Toque numa notificação com o app já aberto: o service worker pede a troca de tela.
+  // Toque numa notificação com o app já aberto: o service worker pede a troca de tela. A que pede o
+  // painel Computador (`/?computador=acesso`) abre ele por cima da tela em que você está.
   useEffect(() => {
     const onMessage = (e: MessageEvent<{ type?: string; url?: string }>) => {
-      if (e.data?.type === 'navigate' && e.data.url) navigate(e.data.url)
+      if (e.data?.type === 'navigate' && e.data.url && openComputerLink(e.data.url) === null) navigate(e.data.url)
     }
     navigator.serviceWorker?.addEventListener('message', onMessage)
     return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
