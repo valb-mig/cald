@@ -26,6 +26,7 @@ import type {
   MemoryRef,
   ModelOption,
   OfficeRoom,
+  PrototypeOpen,
   PushPrefs,
   RunOptions,
   SavedCommand,
@@ -108,6 +109,12 @@ export const workspaceFileUrl = (m: string, id: string, file: WorkspaceFile) =>
   withToken(`${at(m)}/workspaces/${encodeURIComponent(id)}/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`)
 export const todoFileUrl = (m: string, file: { id: string; mediaType: string }) =>
   withToken(`${at(m)}/todos/files/${encodeURIComponent(file.id)}?type=${encodeURIComponent(file.mediaType)}`)
+/**
+ * Uma página do Claude (ver `api.openPrototype`), para o iframe ou uma aba do navegador. Sem o token do
+ * PIN, de propósito: o id é a credencial, e a página, escrita pelo Claude, não pode levar o token junto.
+ */
+export const prototypeViewUrl = (m: string, id: string, entry: string) =>
+  `${at(m)}/prototype/view/${encodeURIComponent(id)}/${entry.split('/').map(encodeURIComponent).join('/')}`
 
 export const api = {
   health: (m: string) =>
@@ -278,6 +285,13 @@ export const api = {
       signal,
     ),
   /** O arquivo no último commit; `''` se é novo, `null` fora do git (ou ignorado por ele). */
+  /**
+   * Prepara uma página do Claude (um .html, ou uma pasta com index.html) para ver no app; `path` relativo
+   * vale a partir de `cwd`. O id dura enquanto o servidor não reinicia: 404 no `prototypeInfo` pede outro.
+   */
+  openPrototype: (m: string, path: string, cwd?: string) => post<PrototypeOpen>(`${at(m)}/prototype/open`, { path, ...(cwd ? { cwd } : {}) }),
+  /** A versão da página: muda quando o Claude mexe no HTML (ou no que está ao lado dele). */
+  prototypeInfo: (m: string, id: string) => request<{ mtime: number }>('GET', `${at(m)}/prototype/${encodeURIComponent(id)}`),
   gitBase: (m: string, cwd: string, path: string) => request<{ content: string | null }>('GET', `${at(m)}/git/base?${project(cwd, path)}`),
   git: (m: string, cwd: string) => request<GitStatus | null>('GET', `${at(m)}/git?${project(cwd)}`),
   /** Quanto você já codou hoje; `null` quando a máquina não tem o wakatime-cli. */
@@ -384,6 +398,12 @@ export function errorMessage(err: unknown): string {
       return 'As instruções passaram de 50 mil caracteres.'
     case 'habilidade_not_found':
       return 'Essa habilidade não existe mais.'
+    case 'not_html':
+      return 'Não é uma página: só abre .html, ou uma pasta com index.html.'
+    case 'path_not_allowed':
+      return 'Só abre páginas da pasta pessoal ou do /tmp.'
+    case 'path_not_absolute':
+      return 'O caminho da página é relativo, e não se sabe a pasta de onde ele parte.'
     case 'not_utf8':
       return 'O arquivo não está em UTF-8: salvar pelo painel trocaria os acentos.'
     case 'file_too_large':

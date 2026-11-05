@@ -1,4 +1,4 @@
-import { CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
+import { AppWindow, CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
 import { createElement, Fragment, useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
@@ -10,6 +10,7 @@ import { GithubItemView } from '@/components/project/github-item'
 import { ProjectHub } from '@/components/project/hub'
 import { WorkspacePage } from '@/pages/workspace'
 import { InboxView } from '@/components/inbox/inbox-view'
+import { PrototypeView } from '@/components/prototype/prototype-view'
 import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { fileIcon, splitPath } from '@/components/project/status'
@@ -19,7 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { claudinhoName } from '@/lib/claudinho'
-import { projectName } from '@/lib/format'
+import { projectName, shortPath } from '@/lib/format'
 import { MachineContext } from '@/lib/machines'
 import { useProjectPanel, useShowProject } from '@/lib/project-panel'
 import { repaintShell } from '@/lib/shell'
@@ -156,7 +157,9 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
             ? 'Workspace'
             : tab.kind === 'inbox'
               ? 'Inbox'
-              : `Projeto ${projectName(tab.cwd)}`
+              : tab.kind === 'prototype'
+                ? `${tab.title ? `${tab.title}\n` : ''}${shortPath(tab.path)}`
+                : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -255,6 +258,11 @@ function TabItem({
           <WorkspaceTabLabel tab={tab} />
         ) : tab.kind === 'inbox' ? (
           <InboxTabLabel />
+        ) : tab.kind === 'prototype' ? (
+          <>
+            <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{tab.title || splitPath(tab.path).name}</span>
+          </>
         ) : (
           <>
             <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -450,6 +458,25 @@ function WorkspaceTabLabel({ tab }: { tab: Extract<Tab, { kind: 'workspace' }> }
   )
 }
 
+/**
+ * Uma página do Claude como aba, num mini-navegador: a barra do projeto mostra o projeto dela, como um
+ * arquivo. Mexer dentro da página não chega ao grupo (o iframe engole o clique): ela avisa, e o grupo vem para o foco.
+ */
+function PrototypeTabContent({ tab, group, visible, focused }: { tab: Extract<Tab, { kind: 'prototype' }>; group: string; visible: boolean; focused: boolean }) {
+  useShowProject(tab.machine, tab.cwd, null, focused)
+  return (
+    <PrototypeView
+      machine={tab.machine}
+      path={tab.path}
+      cwd={tab.cwd}
+      url={tab.url}
+      title={tab.title}
+      active={visible}
+      onInteract={() => focusGroup(group)}
+    />
+  )
+}
+
 /** O hub do projeto como aba: a barra da direita fica nele, e o que se escreve vai para a caixa do hub. */
 function ProjectTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind: 'project' }>; visible: boolean; focused: boolean }) {
   useShowProject(tab.machine, tab.cwd, `new:${tab.cwd}`, focused)
@@ -594,6 +621,8 @@ function GroupView({
                   </MachineContext>
                 ) : tab.kind === 'inbox' ? (
                   <InboxView panel />
+                ) : tab.kind === 'prototype' ? (
+                  <PrototypeTabContent tab={tab} group={group.id} visible={active} focused={focused && active} />
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}

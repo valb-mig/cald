@@ -9,6 +9,7 @@ import { ProjectBar } from '@/components/project/panel'
 import { QuickOpen } from '@/components/project/quick-open'
 import { HabilidadesDialog } from '@/components/habilidades-dialog'
 import { ProjectViewer } from '@/components/project/viewer'
+import { PrototypeDialog } from '@/components/prototype/prototype-view'
 import { ShellPaint } from '@/components/shell-paint'
 import { SidebarMeters, SidebarRail } from '@/components/sidebar-rail'
 import { SlidePanel } from '@/components/ui/slide-panel'
@@ -226,6 +227,8 @@ function Panel() {
           {wide && <BottomPanel />}
           {wide && <StatusBar />}
           <ProjectViewer />
+          {/* A página do Claude no celular, por cima do arquivo, se ela foi aberta dele. */}
+          <PrototypeDialog />
         </div>
         {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
         <ProjectBar hidden={zen} />

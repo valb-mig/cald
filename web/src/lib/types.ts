@@ -294,6 +294,12 @@ export type FileView =
   | { kind: 'image' | 'pdf' | 'binary' | 'large'; size: number }
 
 /**
+ * Uma página do Claude aberta para ver (ver server/src/prototypes.ts): `id` serve a pasta dela, `entry` é o
+ * HTML dentro dessa pasta, `name` o nome do arquivo e `mtime` a versão, que muda quando o Claude mexe nela.
+ */
+export type PrototypeOpen = { id: string; entry: string; name: string; mtime: number }
+
+/**
  * O que a busca nos arquivos achou (ver server/src/search.ts): por arquivo, as linhas com o trecho de
  * cada achado (`ranges`, no `text` mostrado) e a coluna do primeiro na linha inteira, para o editor.
  */
