@@ -2,10 +2,12 @@ import { Check, Copy, ImageIcon } from 'lucide-react'
 import { memo, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { toast } from 'sonner'
 import { ImageThumb } from '@/components/image-viewer'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { findColors } from '@/lib/colors'
+import { commandOf } from '@/lib/commands'
 import { cn } from '@/lib/utils'
 
 const COLLAPSE_AFTER_LINES = 14
@@ -26,6 +28,41 @@ export function CopyButton({ text, className }: { text: string; className?: stri
     >
       {copied ? <Check /> : <Copy />}
     </Button>
+  )
+}
+
+/**
+ * Copiar ao lado de um link ou de um comando no meio do texto: discreto e sempre à vista, porque no
+ * celular não há "passar o mouse". A área de toque passa do ícone (`after:`) sem empurrar o texto.
+ */
+function InlineCopy({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(t)
+  }, [copied])
+  const Icon = copied ? Check : Copy
+  return (
+    // O navegador quebra a linha antes de qualquer botão (nem o "word joiner" segura), e o ícone caía
+    // sozinho na linha de baixo. Num span comum, colado no texto, ele vai junto com a última letra.
+    <span className="relative ml-1 pl-[1em] select-none">
+      {'\u2060'}
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        onClick={() =>
+          navigator.clipboard.writeText(text).then(
+            () => setCopied(true),
+            () => toast.error('Não deu para copiar: o navegador não liberou a área de transferência.'),
+          )
+        }
+        className="absolute inset-0 flex items-center justify-center rounded-sm text-muted-foreground/60 transition-colors after:absolute after:-inset-1.5 hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <Icon className={cn('size-[1em] shrink-0', copied && 'text-emerald-600 dark:text-emerald-400')} />
+      </button>
+    </span>
   )
 }
 
@@ -199,14 +236,47 @@ function rehypeColors() {
   return walk
 }
 
-const components: Components = {
-  pre: Pre,
-  code: ({ className, children }) => {
+/** Código inline (com as cores) ou em bloco; no chat, o inline que é um comando ganha o copiar. */
+const code =
+  (chat: boolean): Components['code'] =>
+  ({ className, children }) => {
     const text = String(children).replace(/\n$/, '')
     const lang = /language-([\w+-]+)/.exec(className ?? '')?.[1]
     if (lang || text.includes('\n')) return <CodeBlock code={text} lang={lang} />
-    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{withSwatches(text)}</code>
-  },
+    const command = chat && commandOf(text)
+    return (
+      <>
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{withSwatches(text)}</code>
+        {command && <InlineCopy text={command} label="Copiar o comando" />}
+      </>
+    )
+  }
+
+/** Link em outra aba; no chat, com o copiar do endereço ao lado. */
+const link =
+  (chat: boolean): Components['a'] =>
+  ({ children, href }) => {
+    const copy = chat && href && /^https?:\/\//.test(href)
+    // A URL escrita por extenso quebra em qualquer letra; link com texto quebra nos espaços, como o resto.
+    // Com o copiar, o `break-all` vai em volta do link e do ícone: só no link, o Firefox quebra a linha
+    // entre os dois.
+    const a = (
+      <a href={href} target="_blank" rel="noreferrer" className={cn('text-primary underline underline-offset-2', !copy && 'break-all')}>
+        {children}
+      </a>
+    )
+    if (!copy) return a
+    return (
+      <span className={cn(typeof children === 'string' && !/\s/.test(children) && 'break-all')}>
+        {a}
+        <InlineCopy text={href} label="Copiar o link" />
+      </span>
+    )
+  }
+
+const components: Components = {
+  pre: Pre,
+  code: code(false),
   span: ({ node, children }) => {
     const color = node?.properties.dataColor
     if (typeof color !== 'string') return <span>{children}</span>
@@ -224,11 +294,7 @@ const components: Components = {
   h1: Heading,
   h2: Heading,
   h3: Subheading,
-  a: ({ children, href }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2 break-all">
-      {children}
-    </a>
-  ),
+  a: link(false),
   blockquote: ({ children }) => <blockquote className="my-2 border-l-2 pl-3 text-muted-foreground">{children}</blockquote>,
   hr: () => <hr className="my-4" />,
   // Imagem com URL abre em tela cheia; caminho local do PC não carrega no celular, vira etiqueta.
@@ -247,13 +313,17 @@ const components: Components = {
   td: ({ children }) => <td className="border-b px-2 py-1.5 align-top">{children}</td>,
 }
 
+// O chat ganha os atalhos de copiar; nos outros lugares (README, issue, tarefa) eles só poluiriam.
+const chatComponents: Components = { ...components, code: code(true), a: link(true) }
+
 const remarkPlugins = [remarkGfm]
 const rehypePlugins = [rehypeColors]
 
-export const Markdown = memo(function Markdown({ text, className }: { text: string } & ComponentProps<'div'>) {
+/** `chat`: uma resposta do Claude, com o copiar ao lado dos links e dos comandos. */
+export const Markdown = memo(function Markdown({ text, className, chat = false }: { text: string; chat?: boolean } & ComponentProps<'div'>) {
   return (
     <div className={cn('text-sm break-words', className)}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={chat ? chatComponents : components}>
         {text}
       </ReactMarkdown>
     </div>
@@ -293,11 +363,11 @@ function blocksOf(text: string): string[] {
  * (`memo`), então cada atualização processa só o último, em vez da resposta inteira de novo. O
  * espaçamento entre os blocos é o mesmo de dentro de um só (as margens se juntam).
  */
-export function StreamingMarkdown({ text, className }: { text: string; className?: string }) {
+export function StreamingMarkdown({ text, className, chat }: { text: string; className?: string; chat?: boolean }) {
   return (
     <div className={cn('space-y-2', className)}>
       {blocksOf(text).map((block, i) => (
-        <Markdown key={i} text={block} />
+        <Markdown key={i} text={block} chat={chat} />
       ))}
     </div>
   )
