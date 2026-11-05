@@ -9,6 +9,7 @@ import { ProjectPanelButton } from '@/components/project/panel'
 import { ProjectPicker } from '@/components/project-picker'
 import { RepoLink } from '@/components/repo-link'
 import { Button } from '@/components/ui/button'
+import { Veil } from '@/components/wallpaper/veil'
 import { WorktreeToggle } from '@/components/worktree-toggle'
 import { projectOf, useWorktreeChoice } from '@/lib/worktree'
 import { api } from '@/lib/api'
@@ -20,6 +21,8 @@ import { useShowProject } from '@/lib/project-panel'
 import type { RunOptions } from '@/lib/types'
 import { useNewChatWorkspace } from '@/lib/workspaces'
 import { backHref } from '@/lib/tabs'
+import { cn } from '@/lib/utils'
+import { useGlass, useScrim } from '@/lib/wallpaper'
 
 /**
  * A nova conversa como tela (no celular), com a máquina (`?maquina=`) e o projeto (`?cwd=`) da URL. No
@@ -92,6 +95,8 @@ function NewChat({
   const git = useGitStatus(machine, cwd, null)
   const worktree = useWorktreeChoice(machine, cwd, git.status)
   const [creating, setCreating] = useState(false)
+  const glass = useGlass()
+  const scrim = useScrim()
   useShowProject(machine, cwd, `new:${cwd ?? '~'}`, showProject)
   const where = cwd ? projectName(cwd) : 'Sem projeto (~)'
   const label = machineLabel ? `${where} · ${machineLabel}` : where
@@ -102,7 +107,13 @@ function NewChat({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col" {...drop.bind}>
       <DropOverlay show={drop.over} />
-      <header className="flex shrink-0 items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2 compact:py-1">
+      {/* Como no chat: o cabeçalho em vidro e o resto sob o véu, senão a cena aparecia crua atrás do texto. */}
+      <header
+        className={cn(
+          'flex shrink-0 items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2 compact:py-1',
+          glass && 'relative z-10 bg-background/70 backdrop-blur-md',
+        )}
+      >
         {/* No PC a lista de conversas já está ao lado. */}
         <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
           <Link href={backHref()}>
@@ -120,67 +131,73 @@ function NewChat({
         {cwd && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-        <MessageSquarePlus className="size-8 text-muted-foreground" />
-        <p className="text-sm">
-          Nova conversa em <span className="font-medium">{label}</span>
-        </p>
-        {/* O workspace escolhido na caixa, por extenso: no celular a caixa só mostra a bolinha. */}
-        {ws && (
-          <p className="-mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <WorkspaceDot color={ws.color} />
-            {ws.name}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Escolha modelo e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos, # para issues e PRs e + para anexar.
-        </p>
-        <Button variant="outline" size="sm" onClick={() => setPicker(true)}>
-          Trocar projeto
-        </Button>
-      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {scrim !== null && <Veil dim={scrim} />}
+        {/* Posicionado para ficar por cima do véu, que é absoluto. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
+            <MessageSquarePlus className="size-8 text-muted-foreground" />
+            <p className="text-sm">
+              Nova conversa em <span className="font-medium">{label}</span>
+            </p>
+            {/* O workspace escolhido na caixa, por extenso: no celular a caixa só mostra a bolinha. */}
+            {ws && (
+              <p className="-mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <WorkspaceDot color={ws.color} />
+                {ws.name}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Escolha modelo e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos, # para issues e PRs e + para anexar.
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setPicker(true)}>
+              Trocar projeto
+            </Button>
+          </div>
 
-      {cwd && (
-        <div className="mx-auto w-full max-w-3xl px-2 wide:px-4">
-          <WorktreeToggle choice={worktree} cwd={cwd} creating={creating} />
+          {cwd && (
+            <div className="mx-auto w-full max-w-3xl px-2 wide:px-4">
+              <WorktreeToggle choice={worktree} cwd={cwd} creating={creating} />
+            </div>
+          )}
+
+          <Composer
+            key={cwd ?? '~'}
+            sessionId={`new:${cwd ?? '~'}`}
+            cwd={cwd ?? home}
+            branch={cwd ? git.status?.branch : undefined}
+            working={false}
+            settings={pending}
+            context={null}
+            onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+            extra={
+              <>
+                {project && <WorkspacePill machine={machine} project={project} value={ws} onChange={choose} />}
+                <TeamPill machine={machine} value={teamId} onChange={setTeamId} />
+              </>
+            }
+            onSend={async (text, attachments) => {
+              setCreating(worktree.on)
+              try {
+                const { sessionId } = await api.create(machine, {
+                  cwd,
+                  prompt: text,
+                  attachments,
+                  teamId,
+                  workspaceId: ws?.id,
+                  worktree: worktree.on || undefined,
+                  ...pending,
+                })
+                // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
+                noteSession(sessionId, machine)
+                onCreated(sessionId)
+              } finally {
+                setCreating(false)
+              }
+            }}
+          />
         </div>
-      )}
-
-      <Composer
-        key={cwd ?? '~'}
-        sessionId={`new:${cwd ?? '~'}`}
-        cwd={cwd ?? home}
-        branch={cwd ? git.status?.branch : undefined}
-        working={false}
-        settings={pending}
-        context={null}
-        onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-        extra={
-          <>
-            {project && <WorkspacePill machine={machine} project={project} value={ws} onChange={choose} />}
-            <TeamPill machine={machine} value={teamId} onChange={setTeamId} />
-          </>
-        }
-        onSend={async (text, attachments) => {
-          setCreating(worktree.on)
-          try {
-            const { sessionId } = await api.create(machine, {
-              cwd,
-              prompt: text,
-              attachments,
-              teamId,
-              workspaceId: ws?.id,
-              worktree: worktree.on || undefined,
-              ...pending,
-            })
-            // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
-            noteSession(sessionId, machine)
-            onCreated(sessionId)
-          } finally {
-            setCreating(false)
-          }
-        }}
-      />
+      </div>
 
       <ProjectPicker
         open={picker}

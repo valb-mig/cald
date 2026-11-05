@@ -1,4 +1,4 @@
-import { Bot, GitBranch, GitFork, Hourglass, Layers, Monitor, Pin, Server } from 'lucide-react'
+import { Bot, GitBranch, GitFork, Hourglass, Monitor, Pin, Server } from 'lucide-react'
 import { Claudinho } from '@/components/claudinho'
 import { TeamFaces } from '@/components/teams/team-faces'
 import { claudinhoName } from '@/lib/claudinho'
@@ -48,8 +48,9 @@ export function SessionInfo({ s, grouped = false, roomy = false }: { s: CatalogE
           {s.workspace && (
             <>
               <span>·</span>
-              <span className="flex min-w-0 shrink items-center gap-1 font-medium" style={{ color: workspaceColor(s.workspace.color) }}>
-                <Layers className="size-3 shrink-0" />
+              {/* Como no topo do chat: a bolinha é a cor do workspace, e o nome fica cinza como o resto. */}
+              <span className="flex min-w-0 shrink items-center gap-1">
+                <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(s.workspace.color) }} />
                 <span className="truncate">{s.workspace.name}</span>
               </span>
             </>

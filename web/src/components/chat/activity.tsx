@@ -28,7 +28,7 @@ import { useAgents } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ImageThumb } from '@/components/image-viewer'
-import { Markdown } from '@/components/markdown'
+import { CopyButton, Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { duration, FILE_TOOLS, shortPath, toolSummary } from '@/lib/format'
@@ -86,26 +86,29 @@ function Pre({ children, tone }: { children: string; tone?: 'add' | 'del' | 'err
 
 /**
  * Um comando do terminal com as cores de sintaxe do shell (as do VSCode, ver lib/highlight.ts);
- * enquanto elas carregam, ou sem rede, o texto puro.
+ * enquanto elas carregam, ou sem rede, o texto puro. O copiar no canto leva o comando sem o `$ `.
  */
 export function ShellCommand({ command, className }: { command: string; className?: string }) {
   const lines = useTokens(command, 'comando.sh')
   return (
-    <pre className={cn(PRE, className)}>
-      <span className="text-muted-foreground select-none">$ </span>
-      {lines
-        ? lines.map((line, i) => (
-            <Fragment key={i}>
-              {i > 0 && '\n'}
-              {line.map((t, j) => (
-                <span key={j} style={tokenStyle(t)}>
-                  {t.content}
-                </span>
-              ))}
-            </Fragment>
-          ))
-        : command}
-    </pre>
+    <div className="relative">
+      <pre className={cn(PRE, 'pr-8', className)}>
+        <span className="text-muted-foreground select-none">$ </span>
+        {lines
+          ? lines.map((line, i) => (
+              <Fragment key={i}>
+                {i > 0 && '\n'}
+                {line.map((t, j) => (
+                  <span key={j} style={tokenStyle(t)}>
+                    {t.content}
+                  </span>
+                ))}
+              </Fragment>
+            ))
+          : command}
+      </pre>
+      <CopyButton text={command} label="Copiar o comando" className="absolute top-1 right-1 text-muted-foreground" />
+    </div>
   )
 }
 

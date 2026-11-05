@@ -287,7 +287,7 @@ function AssistantMessage({
   return (
     <div className="group/answer">
       <ReadingLine value={line}>
-        <Markdown text={text} />
+        <Markdown text={text} chat />
       </ReadingLine>
       <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
         {model && <WrittenBy model={model} effort={effort} />}
@@ -441,7 +441,7 @@ function LiveTail({ sessionId, working, items }: { sessionId: string; working: b
   const cheer = useTurnCheer(working, items.findLast((i): i is ResultItem => i.type === 'result'))
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
   const text = streaming && typed
-  if (text) return <StreamingMarkdown text={text} className="chat-enter opacity-90" />
+  if (text) return <StreamingMarkdown text={text} className="chat-enter opacity-90" chat />
   if (working) return <WorkingLine sessionId={sessionId} items={items} />
   // O turno acabou bem: o claudinho do "Trabalhando…" faz o joinha e sai.
   return cheer ? (
