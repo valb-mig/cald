@@ -28,6 +28,7 @@ import { MetaStore } from './meta.ts';
 import { Notifier } from './notifier.ts';
 import { PinLock } from './pin.ts';
 import { clearProjectIcon, projectIcon, projectIconInfo, setProjectIcon } from './project-icon.ts';
+import { openPrototype, PROTOTYPE_CSP, prototypeFile, prototypeVersion, VIEW_ROUTE } from './prototypes.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
 import { sessionCost } from './session-cost.ts';
 import { AudioMonitor } from './audio.ts';
@@ -694,6 +695,37 @@ app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
     .header('content-type', file.mediaType)
     .header('cache-control', 'private, no-cache')
     .header('content-security-policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
+    .send(createReadStream(file.path));
+});
+
+// ---- protótipos do Claude (o HTML que a ferramenta Artifact publica; ver prototypes.ts) ----
+
+app.post<{ Body: { path: string; cwd?: string } }>(
+  '/api/prototype/open',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['path'],
+        properties: { path: { type: 'string', minLength: 1, maxLength: 4096 }, cwd: { type: 'string', maxLength: 4096 } },
+      },
+    },
+  },
+  async (req) => openPrototype(req.body.path, req.body.cwd),
+);
+
+app.get<{ Params: IdParams }>('/api/prototype/:id', async (req) => prototypeVersion(req.params.id));
+
+// Sem o PIN (ver PIN_FREE em guard.ts): o id é a credencial, e a URL do iframe não leva o token.
+app.get<{ Params: IdParams & { '*': string } }>(VIEW_ROUTE, async (req, reply) => {
+  const file = await prototypeFile(req.params.id, req.params['*']);
+  return reply
+    .header('content-type', file.mediaType)
+    .header('cache-control', 'no-cache')
+    .header('content-security-policy', PROTOTYPE_CSP)
+    .header('x-content-type-options', 'nosniff')
+    // O id vai no caminho: as fontes e scripts de CDN que a página carrega não o recebem.
+    .header('referrer-policy', 'no-referrer')
     .send(createReadStream(file.path));
 });
 
