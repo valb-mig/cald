@@ -10,7 +10,17 @@ import { cn } from '@/lib/utils'
  */
 
 /** A busca do topo, como a do TODO: sem borda, um tom acima do fundo. */
-export function SearchField({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+export function SearchField({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+  autoFocus?: boolean
+}) {
   return (
     <div className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -19,6 +29,7 @@ export function SearchField({ value, onChange, placeholder }: { value: string; o
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
+        autoFocus={autoFocus}
         className="h-8 rounded-lg border-transparent bg-foreground/[0.05] pl-8 text-[13px] shadow-none dark:bg-foreground/[0.05]"
       />
     </div>
