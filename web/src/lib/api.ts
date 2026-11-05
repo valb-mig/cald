@@ -28,6 +28,8 @@ import type {
   OfficeRoom,
   PushPrefs,
   RunOptions,
+  SavedCommand,
+  SavedCommandList,
   SessionCost,
   Team,
   TeamInput,
@@ -140,6 +142,13 @@ export const api = {
   trashHabilidade: (m: string, id: string) => post(`${at(m)}/habilidades/trash`, { id }),
   restoreHabilidade: (m: string, id: string) => post<Habilidade>(`${at(m)}/habilidades/restore`, { id }),
   purgeHabilidade: (m: string, id: string) => post(`${at(m)}/habilidades/purge`, { id }),
+  /** Os comandos salvos do terminal para uma pasta: os do projeto dela, os globais, a lixeira e as sugestões. */
+  savedCommands: (m: string, cwd?: string) => request<SavedCommandList>('GET', `${at(m)}/saved-commands${cwd ? `?${project(cwd)}` : ''}`),
+  /** Cria (sem `id`) ou edita. `project`: uma pasta do projeto (o PC acha a raiz dele), ou `null` para global. */
+  saveCommand: (m: string, c: { id?: string; label: string; command: string; project: string | null; pinned: boolean }) => post<SavedCommand>(`${at(m)}/saved-commands`, c),
+  trashCommand: (m: string, id: string) => post(`${at(m)}/saved-commands/trash`, { id }),
+  restoreCommand: (m: string, id: string) => post<SavedCommand>(`${at(m)}/saved-commands/restore`, { id }),
+  purgeCommand: (m: string, id: string) => post(`${at(m)}/saved-commands/purge`, { id }),
   /** As habilidades desligadas numa conversa; o resto vale nela. */
   sessionHabilidades: (id: string) => request<{ off: string[] }>('GET', `${sid(id)}/habilidades`),
   setSessionHabilidade: (id: string, habilidade: string, on: boolean) => post<{ off: string[] }>(`${sid(id)}/habilidades`, { id: habilidade, on }),
@@ -413,6 +422,14 @@ export function errorMessage(err: unknown): string {
       return 'Todo membro do time precisa de um nome.'
     case 'team_too_big':
       return `Um time vai até ${String(err.details.max ?? 8)} membros.`
+    case 'command_required':
+      return 'Escreva o comando.'
+    case 'command_too_long':
+      return 'Esse comando é longo demais para salvar.'
+    case 'command_not_found':
+      return 'Esse comando não está mais salvo.'
+    case 'not_a_project':
+      return 'Essa pasta não é de um repositório: salve como global.'
     case 'cwd_outside_roots':
       return 'Esse diretório está fora das pastas de projetos permitidas.'
     case 'invalid_project_name':

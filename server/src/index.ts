@@ -36,6 +36,7 @@ import { thumbnail } from './thumbs.ts';
 import { attachTerminal, openTerminal } from './terminal.ts';
 import { caldMcp } from './cald-mcp.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
+import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } from './saved-commands.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
 import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
@@ -59,6 +60,9 @@ const inboxState = new InboxState();
 await inboxState.load();
 const workspaces = new WorkspaceStore();
 await workspaces.load();
+// Os comandos salvos do terminal (ver saved-commands.ts), com as sugestões dos workspaces do projeto.
+const savedCommands = new SavedCommandStore(() => workspaces.list());
+await savedCommands.load();
 // De que aparelho saiu cada mensagem (ver origins.ts).
 const origins = new OriginLog();
 await origins.load();
@@ -1049,6 +1053,49 @@ app.post<{ Body: { id: string } }>('/api/habilidades/purge', habilidadeId, async
   return { ok: true };
 });
 
+// ---- Comandos salvos do terminal (ver saved-commands.ts) ----
+
+// Os do projeto de `cwd`, os globais, a lixeira e as sugestões da pasta. Uma pasta fora dos projetos
+// (o terminal foi para `/etc`) recebe só os globais.
+app.get<{ Querystring: { cwd?: string } }>(
+  '/api/saved-commands',
+  { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
+  async (req) => savedCommands.list(req.query.cwd ? await manager.knownCwd(req.query.cwd).catch(() => undefined) : undefined),
+);
+
+// Cria (sem `id`) ou edita. `project`: uma pasta do projeto (vale a raiz dele), ou `null` para global.
+app.post<{ Body: SavedCommandInput }>(
+  '/api/saved-commands',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['label', 'command', 'project', 'pinned'],
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', maxLength: 64 },
+          label: { type: 'string', maxLength: MAX_LABEL },
+          command: { type: 'string', minLength: 1, maxLength: MAX_COMMAND },
+          project: { type: ['string', 'null'] },
+          pinned: { type: 'boolean' },
+        },
+      },
+    },
+  },
+  async (req) => savedCommands.save({ ...req.body, project: req.body.project ? await manager.knownCwd(req.body.project) : null }),
+);
+
+const savedCommandId = { schema: { body: { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 64 } } } } };
+app.post<{ Body: { id: string } }>('/api/saved-commands/trash', savedCommandId, async (req) => {
+  await savedCommands.toTrash(req.body.id);
+  return { ok: true };
+});
+app.post<{ Body: { id: string } }>('/api/saved-commands/restore', savedCommandId, async (req) => savedCommands.restore(req.body.id));
+app.post<{ Body: { id: string } }>('/api/saved-commands/purge', savedCommandId, async (req) => {
+  await savedCommands.purge(req.body.id);
+  return { ok: true };
+});
+
 // O que está desligado numa conversa, e liga ou desliga uma (vale na hora, nas abertas no painel).
 app.get<{ Params: IdParams }>('/api/sessions/:id/habilidades', async (req) => manager.sessionHabilidades(req.params.id));
 app.post<{ Params: IdParams; Body: { id: string; on: boolean } }>(
@@ -1570,6 +1617,7 @@ todos.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'todos
 teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
 workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
 habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidades' }));
+savedCommands.on('change', () => broadcastAll({ type: 'changed', what: 'saved-commands' }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
 manager.on('catalog', () => {

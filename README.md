@@ -378,6 +378,9 @@ No chat:
   - **Copiar e colar:** Ctrl+C copia o que está selecionado (sem seleção, interrompe o comando, como sempre) e Ctrl+V cola; Ctrl+Shift+C/V e Ctrl/Shift+Insert também valem.
   - **O shell continua no PC:** travar o app, recarregar a página, a rede piscar ou fechar o navegador não encerra nada. Ao voltar, a aba reconecta sozinha ao mesmo shell e recebe o que saiu enquanto isso (até 1 MB); um programa de tela cheia, como o vim, se redesenha. Um terminal sem nenhum aparelho ligado por 24 h é encerrado, e reiniciar o cald encerra todos (a aba abre um novo na mesma pasta).
   - Cada comando vira um bloco, com a pasta e a branch no cabeçalho e, à direita, ✓ ou ✗ com o código de saída e quanto levou.
+  - **Salvos:** uma mini barra à direita do terminal, que liga e desliga no cabeçalho do painel, guarda os comandos que você roda sempre, deste projeto ou globais (`git pull --rebase` em qualquer pasta). Os fixados ficam no alto. Tocar roda o comando na aba à vista; se ela estiver ocupada (um `pnpm dev` rodando), abre outra aba na mesma pasta e roda lá. O **⋯** tem rodar numa aba nova, colar sem rodar, editar e mandar para a lixeira, com **Desfazer** ali mesmo e **Restaurar** no pé da barra (o que passa de 30 dias some sozinho).
+    - **Sugestões:** a barra já traz o que a pasta oferece e ainda não foi salvo: os scripts do `package.json` mais perto, com o gerenciador do lockfile ou do `packageManager` (`pnpm dev`, `yarn build`, `npm run test`; os ganchos como `postinstall` ficam de fora), os alvos do `Makefile` (com `make -C` quando ele está numa pasta acima) e os comandos dos workspaces do projeto. Tocar roda; salvar ou fixar é um toque.
+    - O projeto é o repositório da pasta da aba (um worktree conta como o projeto de origem); fora de um, só os globais. Eles ficam guardados no PC, em `~/.local/share/cald/commands.json` (`COMMANDS_FILE`), e aparecem em qualquer aparelho.
 - A caixa de mensagem segue o formato da extensão do VSCode: o texto em cima e, na mesma caixa, uma linha com:
   - **+**: enviar do celular (câmera, galeria, arquivos) ou adicionar contexto com `@`;
   - **/**: comandos e skills;
@@ -520,6 +523,9 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/release` | Liberar para o terminal |
 | POST | `/api/sessions/:id/messages` | Enviar `{text, attachments?: [{name, mediaType, data (base64), thumb?}]}` |
 | GET | `/api/commands?cwd=&session=` | Comandos e skills do projeto (cache de 10 min), com as habilidades do cald como `cald:nome`; com `session`, sem as desligadas nela |
+| GET | `/api/saved-commands?cwd=` | Os comandos salvos do terminal: `{projectDir, project, global, trash, suggestions}` (o projeto da pasta, se ela for de um repositório) |
+| POST | `/api/saved-commands` | `{id?, label, command, project, pinned}`: cria ou edita (`project`: uma pasta do projeto, ou `null` para global; `400 not_a_project` fora de um repositório) |
+| POST | `/api/saved-commands/trash`, `/restore`, `/purge` | `{id}`: para a lixeira, de volta, ou apaga de vez |
 | GET | `/api/habilidades?cwd=` | As habilidades do cald: `{global, project, trash}` (as do projeto de `cwd`, se veio) |
 | POST | `/api/habilidades` | `{id?, name, description, body, project}`: cria ou edita (`project`: a pasta, ou `null` para global; `409 habilidade_exists`, `400 invalid_habilidade_name`) |
 | POST | `/api/habilidades/trash`, `/restore`, `/purge` | `{id}`: para a lixeira, de volta, ou apaga de vez |
