@@ -98,6 +98,8 @@ const ARTIFACT_ACTIONS: Record<string, string> = { read: 'ler', list: 'listar' }
 
 /** Linha de resumo de uma chamada de ferramenta. */
 export function toolSummary(name: string, input: Input): string {
+  // O artefato que o Claude publica pelo MCP do cald: o título que ele deu, ou o arquivo.
+  if (name.startsWith('mcp__') && name.endsWith('__publicar_artefato')) return str(input.titulo) || str(input.arquivo).split('/').pop() || 'artefato'
   switch (name) {
     case 'Bash':
       return str(input.description) || str(input.command).split('\n')[0]

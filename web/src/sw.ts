@@ -12,7 +12,8 @@ self.skipWaiting()
 clientsClaim()
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
-registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//, /^\/ws/] }))
+// O link fixo de um artefato (`/a/<id>/`) é uma página do próprio servidor, não uma tela do app.
+registerRoute(new NavigationRoute(createHandlerBoundToURL('/index.html'), { denylist: [/^\/api\//, /^\/ws/, /^\/a\//] }))
 
 // ---- "Compartilhar" do Android (share_target no manifesto) ----
 

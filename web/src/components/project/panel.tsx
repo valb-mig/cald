@@ -31,6 +31,7 @@ import { broughtFocus, GAP, MIN_CHAT, useMainWidth, usePane, useSplit } from '@/
 import { useTodos } from '@/lib/todos'
 import { cn } from '@/lib/utils'
 import { openHabilidades } from '@/components/habilidades-dialog'
+import { ArtefatoIcon, openArtefatos } from '@/lib/artefatos'
 import { FilesTab } from './files'
 import { SearchTab } from './search'
 import { IssuesTab, PullsTab } from './github'
@@ -147,6 +148,9 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
                   </button>
                 ))}
               </div>
+              <Button variant="ghost" size="icon" onClick={() => openArtefatos()} aria-label="Artefatos" title="Artefatos">
+                <ArtefatoIcon />
+              </Button>
               <Button variant="ghost" size="icon" onClick={openHabilidades} aria-label="Habilidades do cald" title="Habilidades do cald">
                 <WandSparkles />
               </Button>
@@ -227,8 +231,11 @@ function ProjectRail({ project }: { project: PanelProject }) {
             </RailItem>
           )
         })}
-        {/* No pé da alça, longe das abas: as habilidades do cald valem para a conversa, não são uma aba. */}
+        {/* No pé da alça, longe das abas: os artefatos e as habilidades do cald abrem por cima, não são uma aba. */}
         <div className="flex-1" />
+        <RailItem side="left" label="Artefatos" onClick={() => openArtefatos()}>
+          <ArtefatoIcon />
+        </RailItem>
         <RailItem side="left" label="Habilidades do cald" onClick={openHabilidades}>
           <WandSparkles />
         </RailItem>

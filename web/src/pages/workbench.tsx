@@ -11,6 +11,8 @@ import { ProjectHub } from '@/components/project/hub'
 import { WorkspacePage } from '@/pages/workspace'
 import { InboxView } from '@/components/inbox/inbox-view'
 import { PrototypeView } from '@/components/prototype/prototype-view'
+import { ArtefatoView } from '@/components/artefatos/artefato-view'
+import { ArtefatoIcon, useArtefatos } from '@/lib/artefatos'
 import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
 import { fileIcon, splitPath } from '@/components/project/status'
@@ -159,7 +161,9 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
               ? 'Inbox'
               : tab.kind === 'prototype'
                 ? `${tab.title ? `${tab.title}\n` : ''}${shortPath(tab.path)}`
-                : `Projeto ${projectName(tab.cwd)}`
+                : tab.kind === 'artefato'
+                  ? `${tab.title ?? 'Artefato'}${tab.n ? ` · v${tab.n}` : ''}`
+                  : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -263,6 +267,8 @@ function TabItem({
             <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{tab.title || splitPath(tab.path).name}</span>
           </>
+        ) : tab.kind === 'artefato' ? (
+          <ArtefatoTabLabel tab={tab} />
         ) : (
           <>
             <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground" />
@@ -477,6 +483,36 @@ function PrototypeTabContent({ tab, group, visible, focused }: { tab: Extract<Ta
   )
 }
 
+/** O artefato: o título da lista (o da aba, até ela chegar). */
+function ArtefatoTabLabel({ tab }: { tab: Extract<Tab, { kind: 'artefato' }> }) {
+  const title = useArtefatos((s) => s.byMachine[tab.machine]?.artefatos.find((a) => a.id === tab.id)?.title)
+  return (
+    <>
+      <ArtefatoIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{title ?? tab.title ?? 'Artefato'}</span>
+    </>
+  )
+}
+
+/**
+ * Um artefato como aba, no mesmo mini-navegador da página do Claude: a barra do projeto mostra o projeto
+ * de onde ele saiu. Trocar a versão na barra fica na aba (a chave é o artefato, e a versão vai junto).
+ */
+function ArtefatoTabContent({ tab, group, focused }: { tab: Extract<Tab, { kind: 'artefato' }>; group: string; focused: boolean }) {
+  const cwd = useArtefatos((s) => s.byMachine[tab.machine]?.artefatos.find((a) => a.id === tab.id)?.cwd)
+  useShowProject(tab.machine, cwd, null, focused)
+  return (
+    <ArtefatoView
+      machine={tab.machine}
+      id={tab.id}
+      n={tab.n}
+      title={tab.title}
+      onVersion={(n) => openTab({ kind: 'artefato', machine: tab.machine, id: tab.id, n })}
+      onInteract={() => focusGroup(group)}
+    />
+  )
+}
+
 /** O hub do projeto como aba: a barra da direita fica nele, e o que se escreve vai para a caixa do hub. */
 function ProjectTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind: 'project' }>; visible: boolean; focused: boolean }) {
   useShowProject(tab.machine, tab.cwd, `new:${tab.cwd}`, focused)
@@ -623,6 +659,8 @@ function GroupView({
                   <InboxView panel />
                 ) : tab.kind === 'prototype' ? (
                   <PrototypeTabContent tab={tab} group={group.id} visible={active} focused={focused && active} />
+                ) : tab.kind === 'artefato' ? (
+                  <ArtefatoTabContent tab={tab} group={group.id} focused={focused && active} />
                 ) : (
                   <ProjectTabContent tab={tab} visible={active} focused={focused && active} />
                 )}
