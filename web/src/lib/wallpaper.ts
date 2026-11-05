@@ -65,6 +65,11 @@ export function useGlass(): boolean {
   return theme !== 'none' && onWorkbench(location)
 }
 
+/** O fundo de um bloco numa aba sobre a cena (o hub, o workspace): o vidro da barra do chat; sem cena, um tom acima. */
+export function useSurface(): string {
+  return useGlass() ? 'bg-background/70 backdrop-blur-md' : 'bg-foreground/[0.04]'
+}
+
 /** Se a cena escolhida pede o escurecido: a foto pede, como uma cena cheia; a imagem em ASCII dispensa, como as Ondas. */
 export function useVeiled(): boolean {
   const theme = useWallpaper((s) => s.theme)

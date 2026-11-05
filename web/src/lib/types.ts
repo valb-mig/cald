@@ -599,6 +599,20 @@ export type MemoryFolder = { folder: string; dir: string; cwd: string | null; in
 export type TrashedMemory = { id: string; folder: string; cwd: string | null; file: string; name: string; description: string; deletedAt: number }
 export type MemoryList = { folders: MemoryFolder[]; trash: TrashedMemory[] }
 export type MemoryRef = { folder: string; file: string }
+/**
+ * Uma memória que o Claude quis guardar numa conversa e espera você (ver server/src/memory-suggestions.ts).
+ * `update`: muda uma que já existe, em vez de criar uma nova.
+ */
+export type MemorySuggestion = {
+  id: string
+  file: string
+  name: string
+  description: string
+  type: string | null
+  body: string
+  update: boolean
+  createdAt: number
+}
 
 export type ClaudeItemKind = 'skill' | 'command' | 'agent'
 export type ClaudeItemSource = 'project' | 'user' | 'claude.ai' | 'plugin' | 'builtin'

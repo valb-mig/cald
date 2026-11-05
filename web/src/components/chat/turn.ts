@@ -1,4 +1,5 @@
 import { FILE_TOOLS } from '@/lib/format'
+import { isMemoryHeld } from '@/lib/memory-suggestions'
 import type { ActivityEntry, Item } from './items'
 import { askOf } from './questions'
 
@@ -97,9 +98,12 @@ export function sessionOf(items: Item[]): TurnInfo {
   return summarize(toolsOf(items), items.flatMap((i) => (i.type === 'assistant' ? [i.text] : [])))
 }
 
-/** As que deram erro. Pergunta que você recusou volta como erro, mas não é falha (como na linha da atividade). */
+/**
+ * As que deram erro. Pergunta que você recusou volta como erro, mas não é falha (como na linha da atividade),
+ * e a memória que virou sugestão foi negada de propósito.
+ */
 export const failedTools = (tools: ToolEntry[]): ToolEntry[] =>
-  tools.filter((t) => t.result?.isError && !(t.use.name === 'AskUserQuestion' && askOf(t.use.input, t.result, t.answer).note))
+  tools.filter((t) => t.result?.isError && !isMemoryHeld(t.result) && !(t.use.name === 'AskUserQuestion' && askOf(t.use.input, t.result, t.answer).note))
 
 export type LinkEntry =
   | { kind: 'cited'; key: string; url: string; label: string }

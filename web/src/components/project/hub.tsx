@@ -34,7 +34,7 @@ import { useStore } from '@/lib/store'
 import { saveTodos, useTodos } from '@/lib/todos'
 import type { Activity, CatalogEntry, GitStatus, RunOptions, Team, Workspace } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useGlass, useScrim } from '@/lib/wallpaper'
+import { useScrim, useSurface } from '@/lib/wallpaper'
 import { keyOf, openPanelTab, pinTab } from '@/lib/workbench'
 import {
   createProjectWorkspace,
@@ -59,11 +59,6 @@ const CELL = 'h-[min(36rem,calc(100dvh-12rem))] min-h-80'
 const liveFirst = (a: CatalogEntry, b: CatalogEntry) => {
   const rank = (c: CatalogEntry) => (c.state === 'waiting' ? 0 : c.state === 'running' ? 1 : 2)
   return rank(a) - rank(b) || b.lastModified - a.lastModified
-}
-
-/** O fundo de um bloco do hub: com a cena atrás, o vidro da barra do chat; sem ela, um tom acima. */
-function useSurface(): string {
-  return useGlass() ? 'bg-background/70 backdrop-blur-md' : 'bg-foreground/[0.04]'
 }
 
 /**
