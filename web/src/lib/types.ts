@@ -183,6 +183,7 @@ export type TeamMember = {
 }
 export type Team = { id: string; name: string; members: TeamMember[]; updatedAt: number }
 export type TeamSnapshot = Pick<Team, 'id' | 'name' | 'members'>
+export type TrashedTeam = Team & { deletedAt: number }
 /** O time como o editor manda: membros novos ainda sem `id` e nenhum com `key` (o PC é quem dá). */
 export type TeamInput = { id?: string; name: string; members: (Omit<TeamMember, 'id' | 'key'> & { id?: string })[] }
 
@@ -200,6 +201,29 @@ export type CommandInfo = { name: string; description: string; argumentHint: str
  */
 export type Habilidade = { id: string; name: string; description: string; body: string; project: string | null; createdAt: number; updatedAt: number }
 export type HabilidadeList = { global: Habilidade[]; project: Habilidade[]; trash: (Habilidade & { deletedAt: number })[] }
+
+/** Um comando salvo do terminal (ver server/src/saved-commands.ts): de um projeto ou global (`project: null`). */
+export type SavedCommand = {
+  id: string
+  /** O nome curto; vazio, a linha mostra o próprio comando. */
+  label: string
+  command: string
+  project: string | null
+  pinned: boolean
+  createdAt: number
+  updatedAt: number
+}
+/** Um comando que o projeto já tem: um script do package.json, um alvo do Makefile ou um comando do workspace. */
+export type CommandSuggestion = { label: string; command: string; source: 'package' | 'make' | 'workspace'; from?: string }
+export type SavedCommandList = {
+  /** O projeto da pasta pedida (um worktree conta como o de origem), ou `null` fora de um repositório. */
+  projectDir: string | null
+  project: SavedCommand[]
+  global: SavedCommand[]
+  trash: (SavedCommand & { deletedAt: number })[]
+  /** O que a pasta oferece e ainda não foi salvo. */
+  suggestions: CommandSuggestion[]
+}
 
 export type AttachmentPayload = { name: string; mediaType: string; data: string; thumb?: string }
 

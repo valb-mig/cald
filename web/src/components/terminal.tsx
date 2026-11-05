@@ -9,7 +9,7 @@ import { useCodeFont } from '@/lib/code-font'
 import { pinRejected, useLock } from '@/lib/lock'
 import { baseOf } from '@/lib/machines'
 import { withToken } from '@/lib/pin-tokens'
-import { setTermActivity, setTerminalHere, useTerminals, type TermActivity } from '@/lib/terminals'
+import { registerTerminal, setTermActivity, setTerminalHere, useTerminals, type TermActivity } from '@/lib/terminals'
 
 /**
  * Fundo transparente (o da janela aparece) e o texto nos cinzas do app; as cores ANSI, as do terminal
@@ -129,9 +129,10 @@ function paintHead(node: HTMLElement, b: Block): void {
  * Os blocos do terminal do painel, pelas marcas OSC 133 que o zsh dele escreve (ver
  * server/src/shell/cald.zsh): `A` abre o cabeçalho de um bloco, `C` diz que o comando rodou e
  * `D;n`, que saiu com `n`. Cada cabeçalho ganha uma faixa por baixo do texto, com o resultado e o tempo
- * do comando à direita. Sem as marcas (outro shell), o terminal fica como é.
+ * do comando à direita. Sem as marcas (outro shell), o terminal fica como é. `onPrompt` avisa de cada
+ * prompt novo, o sinal de que o shell está esperando um comando.
  */
-function watchBlocks(t: Terminal, onState: (state: TermActivity) => void, replaying: () => boolean): void {
+function watchBlocks(t: Terminal, onState: (state: TermActivity) => void, replaying: () => boolean, onPrompt: () => void): void {
   let block: Block | null = null
   const repaint = (b: Block) => {
     if (b.deco?.element) paintHead(b.deco.element, b)
@@ -147,6 +148,7 @@ function watchBlocks(t: Terminal, onState: (state: TermActivity) => void, replay
       b.deco = t.registerDecoration({ marker, width: t.cols, layer: 'bottom' })
       b.deco?.onRender((node) => paintHead(node, b))
       block = b
+      onPrompt()
     } else if (kind === 'C' && block) {
       block.state = 'running'
       // Na saída que o PC repassa ao reconectar, o relógio daqui não mede nada: o bloco fica sem tempo.
@@ -249,7 +251,26 @@ export function TerminalView({ id, machine, cwd, active }: { id: string; machine
       t.open(el)
       // A saída de antes, que o PC repassa ao reconectar, está sendo escrita (ver `watchBlocks`).
       let replaying = false
-      watchBlocks(t, (state) => setTermActivity(id, state), () => replaying)
+      // Pronto para o que o app manda rodar aqui (os comandos salvos, ver lib/terminals.ts); `ready` liga.
+      let unregister: (() => void) | undefined
+      let readyTimer: ReturnType<typeof setTimeout> | undefined
+      const ready = () => {
+        clearTimeout(readyTimer)
+        if (unregister || ws?.readyState !== WebSocket.OPEN) return
+        unregister = registerTerminal(id, {
+          paste: (text) => t.paste(text),
+          send: (d) => send({ t: 'in', d }),
+          focus: () => t.focus(),
+        })
+      }
+      const unready = () => {
+        clearTimeout(readyTimer)
+        unregister?.()
+        unregister = undefined
+      }
+      // Depois do resto do prompt, que liga o "bracketed paste" do zsh: colado antes, um comando de
+      // várias linhas rodaria linha por linha.
+      watchBlocks(t, (state) => setTermActivity(id, state), () => replaying, () => setTimeout(ready, 50))
       watchFolder(t, (dir) => setTerminalHere(id, dir))
       handleClipboard(t)
       term.current = t
@@ -297,8 +318,13 @@ export function TerminalView({ id, machine, cwd, active }: { id: string; machine
             pending = msg.replay
             setStatus('open')
             send({ t: 'size', c: t.cols, r: t.rows })
+            // O shell que já vivia está no prompt (ou no comando dele): recebe já. Um novo ainda está abrindo,
+            // e o que chegasse agora sairia antes do prompt: espera o primeiro (sem as marcas, outro shell, um tempo).
+            if (msg.fresh) readyTimer = setTimeout(ready, 3000)
+            else ready()
           } else if (msg.t === 'exit') {
             ended = true
+            unready()
             t.write(note(msg.error ? `Não deu para abrir o terminal: ${msg.error}` : 'O shell terminou.'))
             setStatus('exited')
           }
@@ -306,6 +332,8 @@ export function TerminalView({ id, machine, cwd, active }: { id: string; machine
         socket.onclose = (e) => {
           if (ws !== socket) return
           ws = null
+          // Até reconectar, o que o app mandar para cá fica esperando.
+          unready()
           if (ended) return
           // A pasta não é de um projeto conhecido: tentar de novo não muda nada.
           if (e.code === 1008) {
@@ -344,6 +372,7 @@ export function TerminalView({ id, machine, cwd, active }: { id: string; machine
         removeEventListener('online', now)
         document.removeEventListener('visibilitychange', visible)
         clearTimeout(retry)
+        unready()
         // A aba foi fechada (não é só o app saindo da tela): o shell no PC acaba junto.
         if (!useTerminals.getState().tabs.some((tab) => tab.id === id)) send({ t: 'close' })
         ended = true

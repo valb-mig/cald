@@ -225,7 +225,7 @@ export function ModelPill({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(footerButton, 'min-w-0 max-w-36')} disabled={!models?.length}>
+        <button type="button" className={cn(footerButton, 'min-w-0 max-w-36 shrink')} disabled={!models?.length}>
           <span className="truncate text-foreground/80">{label}</span>
           {settings.effort && <span className="shrink-0">{EFFORTS[settings.effort] ?? settings.effort}</span>}
           <ChevronDown className="size-3 shrink-0" />
@@ -266,9 +266,9 @@ export function ModeMenu({ settings, onChange }: { settings: SessionSettings; on
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(footerButton, 'min-w-0 max-w-32')} title={info.description}>
+        <button type="button" className={cn(footerButton, 'min-w-0 max-w-32 shrink')} title={info.description}>
           <Icon className="size-4 shrink-0" />
-          <span className="truncate">{info.short}</span>
+          <span className="truncate @max-[21rem]:hidden">{info.short}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="end" className="w-72" onCloseAutoFocus={(e) => e.preventDefault()}>

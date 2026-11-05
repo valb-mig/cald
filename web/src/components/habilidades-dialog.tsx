@@ -1,9 +1,10 @@
-import { ArrowLeft, Loader2, Pencil, Plus, RotateCcw, Trash2, WandSparkles, X } from 'lucide-react'
+import { Loader2, Pencil, Plus, RotateCcw, Trash2, WandSparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { create } from 'zustand'
 import { UndoBar } from '@/components/claude/bits'
 import { forgetCommands } from '@/components/chat/prompt-input'
+import { FIELD, ISLAND, ISLAND_WIDE, NAV_ITEM, NavGroup, WINDOW, WindowHeader } from '@/components/island'
 import { Markdown } from '@/components/markdown'
 import { Group, Segmented, SettingRow } from '@/components/settings-ui'
 import { Button } from '@/components/ui/button'
@@ -45,18 +46,12 @@ const slug = (text: string) =>
     .replace(/^-+/, '')
     .slice(0, 50)
 
-// Os campos do editor: sem borda, um tom acima da janela, como a busca das listas do app.
-const FIELD = 'w-full rounded-lg bg-foreground/[0.05] px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70 focus-visible:bg-foreground/[0.07] focus-visible:ring-1 focus-visible:ring-foreground/15'
-
 export function HabilidadesDialog() {
   const open = useHabilidadesDialog((s) => s.open)
   const project = useProjectPanel((s) => s.project)
   return (
     <Dialog open={open} onOpenChange={(o) => useHabilidadesDialog.setState({ open: o })}>
-      <DialogContent
-        showCloseButton={false}
-        className="flex h-[min(38rem,calc(100dvh-2rem))] w-[min(52rem,calc(100vw-1.5rem))] max-w-none flex-col gap-0 overflow-hidden rounded-island bg-shell p-0 shadow-island ring-0 max-sm:h-[calc(100dvh-6rem)] sm:max-w-none sm:flex-row"
-      >
+      <DialogContent showCloseButton={false} className={ISLAND}>
         <DialogTitle className="sr-only">Habilidades do cald</DialogTitle>
         <DialogDescription className="sr-only">As habilidades do cald deste projeto e as globais, com o liga e desliga nesta conversa.</DialogDescription>
         {open && <Body key={`${project?.machine ?? ''}\n${project?.cwd ?? ''}`} machine={project?.machine ?? ''} cwd={project?.cwd} session={project?.chat || undefined} />}
@@ -66,7 +61,7 @@ export function HabilidadesDialog() {
 }
 
 function Body({ machine, cwd, session }: { machine: string; cwd?: string; session?: string }) {
-  const wide = useMediaQuery('(min-width: 40rem)')
+  const wide = useMediaQuery(ISLAND_WIDE)
   const [list, setList] = useState<HabilidadeList>()
   const [off, setOff] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -192,9 +187,8 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
         </nav>
       )}
 
-      {/* A janela, como a do Computador: um tom acima da casca no claro, e mais clara que ela no escuro. */}
       {showWindow && (
-        <div className="relative m-gap flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-pane bg-background max-sm:mt-0 sm:ml-0">
+        <div className={WINDOW}>
           {shown?.kind === 'edit' ? (
             <Editor
               key={shown.draft.id ?? 'nova'}
@@ -239,20 +233,6 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
         </div>
       )}
     </>
-  )
-}
-
-const NAV_ITEM =
-  'flex h-9 w-full shrink-0 items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground aria-[current=page]:shadow-xs [&_svg]:size-4 [&_svg]:shrink-0'
-
-function NavGroup({ title, empty, children }: { title: string; empty: string; children: React.ReactNode[] }) {
-  return (
-    <section className="space-y-0.5">
-      <h3 className="truncate px-2.5 pb-1 text-[11px] font-medium text-muted-foreground" title={title}>
-        {title}
-      </h3>
-      {children.length ? children : <p className="px-2.5 text-xs text-muted-foreground/70">{empty}</p>}
-    </section>
   )
 }
 
@@ -309,32 +289,6 @@ function Intro({ onNew }: { onNew: () => void }) {
         <Plus /> Nova habilidade
       </Button>
     </div>
-  )
-}
-
-/** O cabeçalho da janela, como o do Computador; no celular, com o voltar para a lista. */
-function WindowHeader({ title, subtitle, onBack, children }: { title: React.ReactNode; subtitle?: React.ReactNode; onBack?: () => void; children?: React.ReactNode }) {
-  const wide = useMediaQuery('(min-width: 40rem)')
-  return (
-    <header className="flex shrink-0 items-start gap-2 px-6 pt-5 pb-4 max-sm:px-4 max-sm:pt-4">
-      {!wide && onBack && (
-        <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Voltar" className="-ml-1">
-          <ArrowLeft />
-        </Button>
-      )}
-      <div className="min-w-0 flex-1">
-        <h2 className="truncate text-base font-medium">{title}</h2>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-      </div>
-      {children}
-      {wide && (
-        <DialogClose asChild>
-          <Button variant="ghost" size="icon-sm" className="-mt-1 -mr-2" aria-label="Fechar">
-            <X />
-          </Button>
-        </DialogClose>
-      )}
-    </header>
   )
 }
 
