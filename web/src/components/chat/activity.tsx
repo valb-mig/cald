@@ -31,7 +31,7 @@ import { ImageThumb } from '@/components/image-viewer'
 import { CopyButton, Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
-import { duration, FILE_TOOLS, shortPath, toolSummary } from '@/lib/format'
+import { FILE_TOOLS, shortPath, toolSummary, took } from '@/lib/format'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { isMemoryHeld, isMemorySuggested, openMemorySuggestions, useMemorySuggestions } from '@/lib/memory-suggestions'
 import { cn } from '@/lib/utils'
@@ -201,12 +201,6 @@ function AskSummary({ questions, answers }: Ask) {
         {q.header || q.question} → <span className="font-medium text-foreground">{answers![q.question]!.replace(RECOMMENDED, '')}</span>
       </Fragment>
     ))
-}
-
-/** Quanto uma ferramenta levou: com décimo abaixo de 10 s, que é onde quase todas terminam. */
-function took(ms: number): string {
-  if (ms >= 10_000) return duration(ms)
-  return `${(Math.max(0, ms) / 1000).toFixed(1).replace('.', ',')}s`
 }
 
 /** Quanto levou ou, rodando agora, há quanto tempo roda; vazio se não se sabe. */

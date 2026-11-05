@@ -64,6 +64,12 @@ export function duration(ms: number): string {
   return `${m}min ${s % 60}s`
 }
 
+/** Quanto uma ferramenta levou: com décimo abaixo de 10 s, que é onde quase todas terminam. */
+export function took(ms: number): string {
+  if (ms >= 10_000) return duration(ms)
+  return `${(Math.max(0, ms) / 1000).toFixed(1).replace('.', ',')}s`
+}
+
 export type Tone = 'running' | 'attention' | 'done' | 'muted'
 
 /** Rótulo e tom de um estado (do catálogo ou do processo do painel). */

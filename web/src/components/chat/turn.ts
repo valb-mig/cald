@@ -1,5 +1,7 @@
 import { FILE_TOOLS } from '@/lib/format'
+import { isMemoryHeld } from '@/lib/memory-suggestions'
 import type { ActivityEntry, Item } from './items'
+import { askOf } from './questions'
 
 export type ToolEntry = Extract<ActivityEntry, { kind: 'tool' }>
 
@@ -86,6 +88,44 @@ function summarize(tools: ToolEntry[], texts: string[]): TurnInfo {
 /** Ferramentas de um bloco de atividade, incluindo as dos subagentes criados nele. */
 export function toolsIn(entries: ActivityEntry[]): ToolEntry[] {
   return entries.flatMap((e) => (e.kind === 'tool' ? [e, ...toolsIn(e.inner ?? [])] : []))
+}
+
+/** Todas as ferramentas da conversa carregada, inclusive as dos subagentes, na ordem do chat. */
+export const toolsOf = (items: Item[]): ToolEntry[] => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : [])))
+
+/** O que o Claude fez na conversa carregada inteira, com as mesmas contas de um turno: o resumo da sessão. */
+export function sessionOf(items: Item[]): TurnInfo {
+  return summarize(toolsOf(items), items.flatMap((i) => (i.type === 'assistant' ? [i.text] : [])))
+}
+
+/**
+ * As que deram erro. Pergunta que você recusou volta como erro, mas não é falha (como na linha da atividade),
+ * e a memória que virou sugestão foi negada de propósito.
+ */
+export const failedTools = (tools: ToolEntry[]): ToolEntry[] =>
+  tools.filter((t) => t.result?.isError && !isMemoryHeld(t.result) && !(t.use.name === 'AskUserQuestion' && askOf(t.use.input, t.result, t.answer).note))
+
+export type LinkEntry =
+  | { kind: 'cited'; key: string; url: string; label: string }
+  | { kind: 'opened'; key: string; url: string; tool: ToolEntry }
+  | { kind: 'search'; key: string; query: string; tool: ToolEntry }
+
+/**
+ * Os links de um turno (ou da conversa) numa lista só: as páginas abertas e as pesquisas, na ordem,
+ * e depois os citados na resposta. Página aberta de novo aparece uma vez, a primeira.
+ */
+export function linksOf({ visited, cited }: Pick<TurnInfo, 'visited' | 'cited'>): LinkEntry[] {
+  const opened = new Set<string>()
+  const links: LinkEntry[] = []
+  for (const { tool, url, query } of visited) {
+    if (url) {
+      if (opened.has(url)) continue
+      opened.add(url)
+      links.push({ kind: 'opened', key: tool.key, url, tool })
+    } else if (query) links.push({ kind: 'search', key: tool.key, query, tool })
+  }
+  for (const { url, label } of cited) links.push({ kind: 'cited', key: `cited:${url}`, url, label })
+  return links
 }
 
 /**

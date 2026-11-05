@@ -45,7 +45,7 @@ import { PeerChip } from '@/components/chat/peer-chip'
 import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
-import { SummarySheet } from '@/components/chat/summary-sheet'
+import { SummaryDialog } from '@/components/chat/summary-dialog'
 import { toolsIn } from '@/components/chat/turn'
 import { WorktreeMenu } from '@/components/chat/worktree-menu'
 import { Claudinho } from '@/components/claudinho'
@@ -885,7 +885,7 @@ export function ChatPage({ id }: { id: string }) {
         </div>
 
         <MemorySuggestionsSheet sessionId={id} />
-        <SummarySheet sessionId={id} events={events} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
+        <SummaryDialog sessionId={id} items={items} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
         <SessionPicker open={besideOpen} onOpenChange={setBesideOpen} exclude={split.ids} onPick={(other) => openBeside(other, id)} />
 
         <Dialog open={renaming !== null} onOpenChange={(o) => !o && setRenaming(null)}>
