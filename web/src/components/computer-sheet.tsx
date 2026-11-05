@@ -1,7 +1,8 @@
-import { Activity, Armchair, Bell, Brain, ChevronRight, Gauge, GitBranch, Info, Lock, Monitor, Moon, Palette, Plug, RefreshCw, Sparkles, Sun, X } from 'lucide-react'
+import { Activity, Armchair, Bell, Brain, ChevronRight, Gauge, GitBranch, Info, Lock, Monitor, MonitorSmartphone, Moon, Palette, Plug, RefreshCw, Sparkles, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'wouter'
+import { AccessSettings } from '@/components/access-settings'
 import { MemoryView } from '@/components/claude/memory-view'
 import { McpView, SkillsView } from '@/components/claude/setup-view'
 import { WorktreesView } from '@/components/claude/worktrees-view'
@@ -15,8 +16,9 @@ import { UpdateCard } from '@/components/update-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { useOthersConnected } from '@/lib/access'
 import { api } from '@/lib/api'
-import { setComputerOpen, useComputer } from '@/lib/computer'
+import { setComputerOpen, setComputerSection, useComputer, type ComputerSection } from '@/lib/computer'
 import { AUTOLOCK_MINUTES, lockNow, setAutoLock, useAutoLock, useLock } from '@/lib/lock'
 import { bytes, relativeTime, uptime } from '@/lib/format'
 import { HOME, baseOf, useMachineFilter } from '@/lib/machines'
@@ -30,7 +32,7 @@ const CONNECTION = {
   closed: { label: 'Desconectado', dot: 'bg-red-500' },
 } as const
 
-type Section = 'status' | 'usage' | 'memory' | 'skills' | 'mcp' | 'worktrees' | 'alerts' | 'look' | 'about'
+type Section = ComputerSection
 
 /** `machine`: a seção é de uma máquina, e o filtro delas aparece no topo (com mais de uma). */
 const SECTIONS: { key: Section; label: string; description: string; icon: typeof Activity; machine?: boolean }[] = [
@@ -40,6 +42,7 @@ const SECTIONS: { key: Section; label: string; description: string; icon: typeof
   { key: 'skills', label: 'Skills', description: 'Skills, comandos e agentes que valem em todo projeto.', icon: Sparkles, machine: true },
   { key: 'mcp', label: 'MCP', description: 'Os servidores que o Claude usa, e onde.', icon: Plug, machine: true },
   { key: 'worktrees', label: 'Worktrees', description: 'Os worktrees de cada projeto, para trazer o trabalho ou apagar.', icon: GitBranch, machine: true },
+  { key: 'access', label: 'Acesso', description: 'Conectar o celular e ver quem está usando.', icon: MonitorSmartphone, machine: true },
   { key: 'alerts', label: 'Avisos', description: 'Notificações e sons deste aparelho.', icon: Bell },
   { key: 'look', label: 'Aparência', description: 'Tema e fundo, só neste aparelho.', icon: Palette },
   { key: 'about', label: 'Sobre', description: 'Versão, atualização e segurança.', icon: Info, machine: true },
@@ -66,11 +69,17 @@ export function ComputerSheet() {
 }
 
 function Computer() {
-  const [section, setSection] = useState<Section>('status')
+  // A seção fica no store: quem abre o painel pode pedir uma (o aviso de aparelho novo abre no Acesso).
+  const section = useComputer((s) => s.section)
   const current = SECTIONS.find((s) => s.key === section)!
+  const nav = useRef<HTMLElement>(null)
+  // No celular, as pílulas rolam de lado: a escolhida de fora (pelo aviso, por um atalho) entra na vista.
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current=page]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [section])
   return (
     <>
-      <nav className="flex shrink-0 flex-col gap-1 p-3 max-sm:pb-2 sm:w-52">
+      <nav ref={nav} className="flex shrink-0 flex-col gap-1 p-3 max-sm:pb-2 sm:w-52">
         <div className="flex items-center justify-between px-2 pt-1 pb-2 sm:pb-3">
           <DialogTitle className="text-sm">Computador</DialogTitle>
           <DialogClose asChild>
@@ -86,7 +95,7 @@ function Computer() {
               key={s.key}
               type="button"
               aria-current={section === s.key ? 'page' : undefined}
-              onClick={() => setSection(s.key)}
+              onClick={() => setComputerSection(s.key)}
               className="flex h-9 shrink-0 items-center gap-2.5 rounded-lg px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground aria-[current=page]:shadow-xs [&_svg]:size-4 [&_svg]:shrink-0"
             >
               <s.icon />
@@ -119,6 +128,8 @@ function Computer() {
             <UsageSection />
           ) : section === 'memory' || section === 'skills' || section === 'mcp' || section === 'worktrees' ? (
             <ClaudeSection section={section} />
+          ) : section === 'access' ? (
+            <AccessSection />
           ) : section === 'alerts' ? (
             <>
               <PushSettings />
@@ -135,7 +146,7 @@ function Computer() {
   )
 }
 
-/** Um relance na própria navegação: a conexão no Status, a janela de 5 h no Uso. */
+/** Um relance na própria navegação: a conexão no Status, a janela de 5 h no Uso, os outros aparelhos no Acesso. */
 function NavMeta({ section }: { section: Section }) {
   const machine = useMachineFilter() ?? HOME
   const connection = useStore((s) => s.connections[machine] ?? 'connecting')
@@ -143,7 +154,19 @@ function NavMeta({ section }: { section: Section }) {
   if (section === 'status') return <span className={cn('size-1.5 rounded-full', CONNECTION[connection].dot)} />
   if (section === 'usage' && fiveHour != null) return <span className="text-xs text-muted-foreground tabular-nums max-sm:hidden">{Math.round(fiveHour)}%</span>
   if (section === 'memory') return <MemoryAlerts machine={machine} />
+  if (section === 'access') return <OthersConnected machine={machine} />
   return null
+}
+
+/** Quantos outros aparelhos estão com o app aberto agora; nada quando é só este. */
+function OthersConnected({ machine }: { machine: string }) {
+  const n = useOthersConnected(machine)
+  if (!n) return null
+  return (
+    <span className="text-xs text-muted-foreground tabular-nums" title={n === 1 ? 'Outro aparelho conectado' : `${n} outros aparelhos conectados`}>
+      {n}
+    </span>
+  )
 }
 
 /** Memórias que o Claude não chega a ver (fora do índice, link quebrado), em todos os projetos. */
@@ -317,6 +340,11 @@ function ClaudeSection({ section }: { section: 'memory' | 'skills' | 'mcp' | 'wo
   if (section === 'skills') return <SkillsView key={machine} machine={machine} />
   if (section === 'worktrees') return <WorktreesView key={machine} machine={machine} onLeave={leave} />
   return <McpView key={machine} machine={machine} />
+}
+
+function AccessSection() {
+  const machine = useMachineFilter() ?? HOME
+  return <AccessSettings key={machine} machine={machine} />
 }
 
 function LookSection() {

@@ -669,3 +669,59 @@ export type ClaudeSetup = {
   trash: ClaudeTrashed[]
   at: number
 }
+
+/** O que falta para o celular chegar ao PC pela tailnet (ver a seção Acesso do painel Computador). */
+export type LinkCheck = {
+  /** Tailscale no PC: não instalado, parado/deslogado, ou rodando. */
+  tailscale: 'missing' | 'stopped' | 'running'
+  /** Login do dono na tailnet: o celular entra no Tailscale com essa mesma conta. */
+  login?: string
+  magicDns: boolean
+  /** Certificados HTTPS ligados no painel DNS do Tailscale. */
+  https: boolean
+  /** O `tailscale serve` publica este servidor. */
+  published: boolean
+  /** Endereço que o celular abre (ex.: https://valb.tail3c8510.ts.net). Vem mesmo com o link desligado, se o Tailscale souber o nome. */
+  url?: string
+  /** Atalho em http (ex.: http://valb), se publicado. */
+  shortcut?: string
+  /** Celulares do dono na tailnet (Android/iOS), achados pelo `tailscale status`. */
+  phones: { name: string; os: string; online: boolean }[]
+}
+
+/** Um aparelho com o app aberto agora. */
+export type AccessConnection = {
+  /** Id do aparelho: o IP dele na tailnet, ou 'local' (o próprio PC, sem tailnet). */
+  key: string
+  name: string
+  mobile: boolean
+  /** O próprio PC: não dá para desconectar. */
+  local: boolean
+  /** O aparelho que pediu esta lista (este aqui): não dá para desconectar. */
+  self: boolean
+  /** Conectado desde (ms epoch). */
+  since: number
+  /** Quantas janelas/abas do app abertas nele. */
+  tabs: number
+  /** Ex.: "Chrome · Android". */
+  client?: string
+  login?: string
+}
+
+export type AccessEvent = {
+  at: number
+  kind: 'new_device' | 'connect' | 'denied_login' | 'pin_wrong' | 'pin_blocked' | 'kicked' | 'unblocked' | 'link_off' | 'link_on'
+  key?: string
+  name?: string
+  mobile?: boolean
+  /** Em denied_login: a conta do Tailscale que tentou. */
+  login?: string
+  /** Repetições juntadas (ex.: PIN errado 3 vezes em poucos minutos). */
+  count?: number
+}
+
+/** Aparelho desconectado pelo dono: fica de fora até ser liberado. */
+export type AccessBlocked = { key: string; name: string; mobile: boolean; at: number }
+
+/** `events`: do mais novo para o mais antigo, no máximo 100. */
+export type AccessInfo = { link: LinkCheck; connected: AccessConnection[]; events: AccessEvent[]; blocked: AccessBlocked[] }

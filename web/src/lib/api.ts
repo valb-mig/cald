@@ -2,6 +2,7 @@ import { pinRejected } from './lock'
 import { HOME, baseOf, machineOf } from './machines'
 import { authHeader, withToken } from './pin-tokens'
 import type {
+  AccessInfo,
   Activity,
   AttachmentPayload,
   CommandInfo,
@@ -20,6 +21,7 @@ import type {
   GithubItem,
   GitStatus,
   GitSummary,
+  LinkCheck,
   LoggedEvent,
   McpScope,
   MemoryList,
@@ -352,6 +354,17 @@ export const api = {
   answer: (id: string, requestId: string, body: { answers?: Record<string, string>; decline?: boolean }) =>
     post(`${sid(id)}/questions/${requestId}`, body),
 
+  /** Quem usa o app agora, o histórico de acessos e o que falta para o celular chegar pela tailnet. */
+  access: (m: string) => request<AccessInfo>('GET', `${at(m)}/access`),
+  /**
+   * Liga ou desliga o link remoto (o `tailscale serve`). Desligado pela tailnet, o aparelho que pediu
+   * perde a conexão logo depois da resposta: só dá para religar pelo PC.
+   */
+  setLink: (m: string, on: boolean) => post<{ link: LinkCheck }>(`${at(m)}/access/link`, { on }),
+  /** Fecha as conexões do aparelho e o bloqueia até `unblockDevice`. */
+  kickDevice: (m: string, key: string) => post(`${at(m)}/access/kick`, { key }),
+  unblockDevice: (m: string, key: string) => post(`${at(m)}/access/unblock`, { key }),
+
   pushKey: () => request<{ publicKey: string }>('GET', '/api/push/key'),
   pushSubscribe: (subscription: PushSubscriptionJSON, prefs: PushPrefs) => post('/api/push/subscribe', { subscription, prefs }),
   pushUnsubscribe: (endpoint: string) => post('/api/push/unsubscribe', { endpoint }),
@@ -561,6 +574,22 @@ export function errorMessage(err: unknown): string {
       return 'A configuração desse servidor não foi achada.'
     case 'probe_timeout':
       return 'O Claude Code demorou demais para responder.'
+    case 'tailscale_missing':
+      return 'O Tailscale não está rodando no PC.'
+    case 'serve_denied':
+      return 'O Tailscale recusou. No PC, rode: sudo tailscale set --operator=$USER'
+    case 'serve_failed':
+      return `O Tailscale não publicou o link${err.details.message ? `: ${String(err.details.message)}` : '.'}`
+    case 'port_busy':
+      return 'Outra coisa já está publicada na porta 443 do Tailscale.'
+    case 'cannot_kick_self':
+      return 'Este aparelho não dá para desconectar daqui.'
+    case 'cannot_kick_local':
+      return 'O próprio PC não dá para desconectar.'
+    case 'device_not_found':
+      return 'Esse aparelho não está mais conectado.'
+    case 'device_blocked':
+      return 'Este aparelho foi desconectado pelo dono do PC.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

@@ -11,12 +11,18 @@ const exec = promisify(execFile);
 /** O aparelho de onde saiu um pedido. */
 export type Device = { name: string; mobile: boolean };
 
-const HERE: Device = { name: MACHINE_NAME, mobile: false };
+/** O próprio PC: pelo 127.0.0.1 ou pelos IPs dele na tailnet. */
+export const HERE: Device = { name: MACHINE_NAME, mobile: false };
 const MOBILE_OS = new Set(['android', 'iOS']);
 // Aparelho que não estava no tailnet da última leitura (acabou de entrar): lê de novo, no máximo a cada 30 s.
 const REREAD_MS = 30_000;
 
 type Node = { DNSName?: string; HostName?: string; OS?: string; TailscaleIPs?: string[] };
+
+/** O IP do aparelho na tailnet, que o `tailscale serve` repassa; vazio quando o pedido veio do próprio PC. */
+export function ipOf(req: FastifyRequest): string {
+  return String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim() ?? '';
+}
 
 /**
  * Quem fez cada pedido. O `tailscale serve` repassa o IP do aparelho no `X-Forwarded-For`, e o
@@ -30,7 +36,7 @@ export class DeviceDirectory {
 
   /** `undefined`: veio pelo tailnet de um IP que o Tailscale não conhece. */
   async of(req: FastifyRequest): Promise<Device | undefined> {
-    const ip = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim();
+    const ip = ipOf(req);
     if (!ip) return HERE;
     if (!this.byIp.has(ip) && Date.now() - this.readAt > REREAD_MS) await this.read();
     return this.byIp.get(ip);

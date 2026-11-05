@@ -3,11 +3,11 @@ import { useEffect, useRef } from 'react'
 /**
  * O que mudou numa máquina, pelo app ou pelo Claude de uma conversa (o MCP do cald, ver
  * server/src/cald-mcp.ts): o TODO de um projeto, os times, os workspaces, as habilidades ou as
- * sugestões de memória de uma conversa. Chega pelo WebSocket (ver store.ts), e quem tem isso na tela
- * recarrega.
+ * sugestões de memória de uma conversa; ou quem acessa o app (ver lib/access.ts). Chega pelo
+ * WebSocket (ver store.ts), e quem tem isso na tela recarrega.
  */
 export type Changed = {
-  what: 'todos' | 'teams' | 'workspaces' | 'habilidades' | 'saved-commands' | 'memory-suggestions'
+  what: 'todos' | 'teams' | 'workspaces' | 'habilidades' | 'saved-commands' | 'memory-suggestions' | 'access'
   cwd?: string
   rev?: number
   /** A conversa, nas sugestões de memória. */

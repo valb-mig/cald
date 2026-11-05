@@ -50,6 +50,10 @@ export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(DATA_DIR, 'activity.json'
 // o Claude Code não grava isso, e sem o arquivo o histórico só diria "pelo cald".
 export const ORIGINS_FILE = env.ORIGINS_FILE ?? join(DATA_DIR, 'origins.jsonl');
 
+// Quem usa o painel (ver access.ts): os aparelhos que já entraram, os acessos e tentativas barradas
+// recentes e os aparelhos desconectados por você.
+export const ACCESS_FILE = env.ACCESS_FILE ?? join(STATE_DIR, 'access.json');
+
 // Raízes onde o painel pode iniciar sessões novas (separadas por ':').
 export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).split(':').filter(Boolean);
 

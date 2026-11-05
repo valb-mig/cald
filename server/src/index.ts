@@ -7,6 +7,7 @@ import websocket from '@fastify/websocket';
 import Fastify, { LogController, type FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
+import { AccessMonitor, keyOf, LOCAL } from './access.ts';
 import { activity } from './activity.ts';
 import { agentTranscript } from './agents.ts';
 import type { Attachment } from './attachments.ts';
@@ -21,6 +22,7 @@ import { githubAct, githubInfo, githubItem, type GithubAction } from './github.t
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
+import { RemoteLink } from './link.ts';
 import { LiveRegistry } from './live.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
@@ -69,6 +71,10 @@ await savedCommands.load();
 const origins = new OriginLog();
 await origins.load();
 const devices = new DeviceDirectory();
+// Quem usa o painel agora, quem já passou e quem você desconectou (ver access.ts); o link remoto (ver link.ts).
+const access = new AccessMonitor(devices);
+await access.load();
+const link = new RemoteLink();
 // As habilidades do cald (ver habilidades.ts); os plugins de conversas de antes de subir saem.
 const habilidades = new HabilidadeStore();
 await habilidades.load();
@@ -95,11 +101,15 @@ setInterval(() => void machines.list(), 15_000).unref();
 const push = new PushService(() => machines.bases());
 await push.load();
 push.on('error', (err) => app.log.warn({ err }, 'falha ao enviar notificação'));
+// Aparelho novo ou tentativa barrada: avisa sempre, como as perguntas, e abre na seção Acesso.
+access.on('alert', (title: string, body: string) =>
+  void push.notify({ title, body, tag: 'access', url: '/?computador=acesso', ts: Date.now() }, { needs: [], urgency: 'high', ttl: 24 * 3600, topic: 'access' }),
+);
 new Notifier(manager, live, push);
 
 const app = Fastify({ logger: { level: 'info' }, logController: new LogController({ disableRequestLogging: true }) });
 await app.register(websocket);
-app.addHook('onRequest', accessGuard(policy, pin));
+app.addHook('onRequest', accessGuard(policy, pin, access));
 
 app.setErrorHandler((err: unknown, _req, reply) => {
   if (err instanceof HttpError) return reply.code(err.status).send({ error: err.code, ...err.details });
@@ -155,11 +165,68 @@ app.get('/api/pin', async (req) => ({ ...pin.status(), unlocked: pin.check(pinTo
 app.post<{ Body: { pin: string } }>(
   '/api/pin/unlock',
   { schema: { body: { type: 'object', required: ['pin'], properties: { pin: { type: 'string', maxLength: 16 } } } } },
-  async (req) => ({ token: await pin.unlock(req.body.pin) }),
+  async (req) => {
+    try {
+      return { token: await pin.unlock(req.body.pin) };
+    } catch (err) {
+      // Na seção Acesso, e com aviso no celular quando passa a fazer esperar.
+      if (err instanceof HttpError && (err.code === 'pin_wrong' || err.code === 'pin_blocked')) void access.pinFailed(req, err.code === 'pin_blocked');
+      throw err;
+    }
+  },
 );
 
 app.post('/api/pin/lock', async (req) => {
   pin.lock(pinToken(req));
+  return { ok: true };
+});
+
+// ---- Acesso (ver access.ts e link.ts): ligar o celular, quem está usando e o link remoto ----
+
+app.get('/api/access', async (req) => ({ link: await link.check(), ...access.list(req) }));
+
+/**
+ * Liga ou desliga o link remoto. Desligar pela tailnet derruba quem pediu: a resposta sai antes, e o
+ * `tailscale serve` desliga logo depois, junto com as janelas abertas por ela.
+ */
+app.post<{ Body: { on: boolean } }>(
+  '/api/access/link',
+  { schema: { body: { type: 'object', required: ['on'], properties: { on: { type: 'boolean' } } } } },
+  async (req) => {
+    if (req.body.on) {
+      await link.on();
+      await access.linkToggled(req, true);
+      return { link: await link.check(true) };
+    }
+    const off = async () => {
+      await link.off();
+      await access.linkToggled(req, false);
+      for (const [socket, held] of pinSockets) if (held.key !== LOCAL) socket.close(4410, 'link_off');
+    };
+    if (keyOf(req) === LOCAL) {
+      await off();
+      return { link: await link.check(true) };
+    }
+    setTimeout(() => off().catch((err: unknown) => app.log.warn({ err }, 'não deu para desligar o link remoto')), 500);
+    return { link: { ...(await link.check()), published: false, shortcut: undefined } };
+  },
+);
+
+const keyBody = { schema: { body: { type: 'object', required: ['key'], properties: { key: { type: 'string', maxLength: 64 } } } } };
+
+// Desconecta e bloqueia: as janelas abertas dele caem, e o token do PIN dele deixa de valer.
+app.post<{ Body: { key: string } }>('/api/access/kick', keyBody, async (req) => {
+  access.kick(req.body.key, req);
+  for (const [socket, held] of pinSockets) {
+    if (held.key !== req.body.key) continue;
+    pin.lock(held.token);
+    socket.close(4403, 'device_blocked');
+  }
+  return { ok: true };
+});
+
+app.post<{ Body: { key: string } }>('/api/access/unblock', keyBody, async (req) => {
+  access.unblock(req.body.key);
   return { ok: true };
 });
 
@@ -1523,16 +1590,17 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
  * O token do PIN de cada WebSocket aberto (o do painel e os de terminal): ao travar o app ou trocar o
  * PIN, quem ficou sem token válido cai na hora. Aberto conta como uso, e o token não expira no meio.
  */
-const pinSockets = new Map<WebSocket, string | undefined>();
+const pinSockets = new Map<WebSocket, { token: string | undefined; key: string }>();
 
 function holdPin(socket: WebSocket, req: FastifyRequest): void {
-  // Guardado mesmo sem PIN: ligar o PIN com o app aberto derruba quem não tem token.
-  pinSockets.set(socket, pinToken(req));
+  // Guardado mesmo sem PIN: ligar o PIN com o app aberto derruba quem não tem token. O aparelho é para
+  // desconectar todas as janelas dele de uma vez, e para fechar as da tailnet ao desligar o link.
+  pinSockets.set(socket, { token: pinToken(req), key: keyOf(req) });
   socket.on('close', () => pinSockets.delete(socket));
 }
 
 function dropUnlocked(): void {
-  for (const [socket, token] of pinSockets) {
+  for (const [socket, { token }] of pinSockets) {
     if (pin.enabled && !pin.check(token)) socket.close(4401, 'pin_required');
   }
 }
@@ -1645,6 +1713,8 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>('/ws/file', { websocke
 
 app.get('/ws', { websocket: true }, (socket, req) => {
   holdPin(socket, req);
+  // Uma janela do app aberta: entra na lista de quem está usando (ver access.ts).
+  void access.open(socket, req);
   clients.set(socket, new Set());
   let alive = true;
   socket.on('pong', () => (alive = true));
@@ -1715,6 +1785,7 @@ teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
 workspaces.on('change', () => broadcastAll({ type: 'changed', what: 'workspaces' }));
 habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidades' }));
 savedCommands.on('change', () => broadcastAll({ type: 'changed', what: 'saved-commands' }));
+access.on('change', () => broadcastAll({ type: 'changed', what: 'access' }));
 memorySuggestions.on('change', (session: string) => broadcastAll({ type: 'changed', what: 'memory-suggestions', session }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
