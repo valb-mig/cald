@@ -9,6 +9,9 @@ import type { MemoryList, MemoryRef, MemorySignal } from './types'
  * projetos, no painel Computador, ou a de um só (com `cwd`). Apagar tira da tela na
  * hora e manda para a lixeira do cald, com Desfazer no aviso.
  */
+/** Os tipos com que o Claude Code grava cada memória. */
+export const MEMORY_TYPES: Record<string, string> = { feedback: 'Jeito de trabalhar', project: 'Projeto', reference: 'Referência', user: 'Sobre você' }
+
 type Entry = { list?: MemoryList; error?: string }
 const useMemoryCache = create<Record<string, Entry>>(() => ({}))
 const loading = new Map<string, Promise<void>>()
