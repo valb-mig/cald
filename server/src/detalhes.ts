@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -6,8 +7,8 @@ import { HttpError } from './errors.ts';
 import { worktreeOf } from './worktrees.ts';
 
 /**
- * Um detalhe de um projeto: como uma parte dele funciona, escrito por você ("Avatares" → "o ícone vem
- * de tal arquivo, cai para tal coisa…"). A descrição é Markdown, com menções `@caminho` a arquivos do
+ * Um detalhe de um projeto: como uma parte dele funciona, escrito por você ou pelo Claude a seu pedido
+ * ("Avatares" → "o ícone vem de tal arquivo, cai para tal coisa…"). A descrição é Markdown, com menções `@caminho` a arquivos do
  * projeto. A `chave` sai do título e é por ela que o Claude pede o detalhe (ver cald-mcp.ts): ele recebe
  * só a lista de chaves e títulos ao abrir a conversa e lê o que precisa, em vez de varrer o código.
  */
@@ -113,6 +114,29 @@ export class DetalheStore extends EventEmitter {
     this.projects = projects;
     await this.save(cwd);
     return this.list(cwd);
+  }
+
+  /**
+   * Um detalhe novo no fim da lista, pelo MCP do cald. Título com a chave de um que já existe é recusado,
+   * para o Claude editar aquele em vez de criar um `-2` ao lado.
+   */
+  async add(cwd: string, input: { title: string; body: string }): Promise<Detalhe> {
+    const items = this.list(cwd);
+    const chave = chaveOf(input.title.trim().slice(0, MAX_DETALHE_TITLE));
+    if (items.some((d) => d.chave === chave)) throw new HttpError(409, 'detalhe_exists', { chave });
+    const id = randomUUID();
+    const saved = await this.replace(cwd, [...items, { id, title: input.title, body: input.body, createdAt: Date.now() }]);
+    return saved.find((d) => d.id === id)!;
+  }
+
+  /** Muda um detalhe pela chave (ou pelo título), pelo MCP do cald; o que não vier fica como está. */
+  async update(cwd: string, wanted: string, patch: { title?: string; body?: string }): Promise<Detalhe> {
+    const items = this.list(cwd);
+    const [old] = this.read(cwd, [wanted]).found;
+    if (!old) throw new HttpError(404, 'detalhe_not_found', { existentes: items.map((d) => d.chave) });
+    const next = items.map((d) => (d === old ? { ...d, title: patch.title ?? d.title, body: patch.body ?? d.body, updatedAt: Date.now() } : d));
+    const saved = await this.replace(cwd, next);
+    return saved.find((d) => d.id === old.id)!;
   }
 
   /**

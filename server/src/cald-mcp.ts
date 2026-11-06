@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MAX_BYTES, type ArtefatoStore, type Artefato } from './artefatos.ts';
-import { type Detalhe, type DetalheStore } from './detalhes.ts';
+import { MAX_DETALHE_BODY, MAX_DETALHE_TITLE, type Detalhe, type DetalheStore } from './detalhes.ts';
 import { HttpError } from './errors.ts';
 import { MAX_BODY, MAX_DESCRIPTION, type Habilidade, type HabilidadeStore } from './habilidades.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, type Team, type TeamStore } from './teams.ts';
@@ -11,8 +11,8 @@ import { worktreeOf } from './worktrees.ts';
 
 /**
  * O MCP do cald: ferramentas para o Claude de uma conversa do painel criar e mudar as coisas do
- * próprio cald (o TODO do projeto, times, workspaces e habilidades), que aparecem na hora no app, e ler
- * os detalhes do projeto (como cada parte dele funciona), que só você escreve.
+ * próprio cald (o TODO do projeto, os detalhes dele, times, workspaces e habilidades), que aparecem na
+ * hora no app.
  * Roda no mesmo processo (`createSdkMcpServer`), um por conversa, já amarrado à pasta dela. Nada
  * aqui apaga: é a mesma regra do app de não ter ação sem volta. As abertas no terminal não o veem.
  */
@@ -22,8 +22,9 @@ export const CALD_MCP = 'cald';
 /**
  * Passam sem pedir aprovação: ler, criar TODOs e marcá-los, e criar time ou workspace (nada disso muda o
  * que já existe, nem vale antes de você escolher). Editar time ou workspace e criar ou editar habilidade
- * pedem: uma habilidade global vale em todo projeto, e um arquivo de um repositório qualquer poderia
- * convencer o Claude a plantar ali uma instrução que fica.
+ * ou detalhe pedem: uma habilidade global vale em todo projeto, o índice dos detalhes abre toda conversa
+ * do projeto, e um arquivo de um repositório qualquer poderia convencer o Claude a plantar ali uma
+ * instrução que fica.
  */
 export const CALD_MCP_ALLOWED = [
   'listar_todos',
@@ -64,7 +65,7 @@ export type CaldMcpContext = {
 
 const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
 - TODO: a lista de tarefas deste projeto no cald (não é a sua lista interna de tarefas). Cada item tem um número, que o usuário menciona no chat como \`TODO:n\`. Ao quebrar um trabalho em tarefas, crie todas de uma vez com \`criar_todos\`; ao terminar uma, marque-a como feita com \`editar_todo\` (\`feito: true\`).
-- Detalhes: notas do usuário sobre como partes deste projeto funcionam. Quando a conversa abre com uma lista deles abaixo, leia com \`ler_detalhe\` o que tocar no trabalho antes de varrer o código para entender aquela parte: é mais rápido e mais barato.
+- Detalhes: notas do usuário sobre como partes deste projeto funcionam. Quando a conversa abre com uma lista deles abaixo, leia com \`ler_detalhe\` o que tocar no trabalho antes de varrer o código para entender aquela parte: é mais rápido e mais barato. Quando o usuário pedir para registrar uma parte, estude-a no código e escreva com \`criar_detalhe\` (ou \`editar_detalhe\`, para um que já existe): curto, direto, citando os arquivos com @caminho.
 - Times: subagentes do usuário (nome, papel, modelo, esforço e instruções), que uma conversa recebe para delegar pela ferramenta Agent. Ao montar um time para um projeto, estude o projeto antes (CLAUDE.md, README, a stack, os comandos de build, teste e lint, as convenções) e escreva para cada membro instruções específicas dele: do que cuida, onde isso fica no código, que padrões seguir e como validar. Um time editado só vale nas conversas que começarem depois; \`usar_time\` põe um time nesta conversa quando a sua resposta terminar.
 - Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Cada projeto pode ter um workspace padrão, com que a conversa nova dele já vem. Mudanças valem da próxima vez que uma conversa do workspace abrir.
 - Habilidades: skills do cald (\`/cald:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
@@ -240,6 +241,26 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
           };
         }),
         { annotations: { readOnlyHint: true } },
+      ),
+      tool(
+        'criar_detalhe',
+        'Cria um detalhe neste projeto no cald: como uma parte dele funciona, para a próxima conversa entender a parte sem varrer o código. Escreva curto e direto, citando os arquivos com @caminho. Se já existir um com a mesma chave, use editar_detalhe.',
+        {
+          titulo: z.string().min(1).max(MAX_DETALHE_TITLE).describe('O nome da parte (ex.: "Visual"); a chave sai dele'),
+          conteudo: z.string().min(1).max(MAX_DETALHE_BODY).describe('Markdown; pode citar arquivos do projeto com @caminho'),
+        },
+        guarded(async ({ titulo, conteudo }) => detalheOut(await detalhes.add(ctx.cwd, { title: titulo, body: conteudo }))),
+      ),
+      tool(
+        'editar_detalhe',
+        'Muda um detalhe deste projeto pela chave: o título ou o conteúdo, que vem inteiro como deve ficar. O que não vier fica como está. Leia com ler_detalhe antes, para não perder o que o usuário escreveu.',
+        {
+          chave: z.string().min(1).max(200).describe('Chave de listar_detalhes (ou do índice nas instruções)'),
+          titulo: z.string().min(1).max(MAX_DETALHE_TITLE).optional(),
+          conteudo: z.string().max(MAX_DETALHE_BODY).optional(),
+        },
+        guarded(async ({ chave, titulo, conteudo }) => detalheOut(await detalhes.update(ctx.cwd, chave, { title: titulo, body: conteudo }))),
+        { annotations: { idempotentHint: true } },
       ),
 
       // ---- times ----
