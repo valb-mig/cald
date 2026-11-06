@@ -25,7 +25,7 @@ import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
-import { linksOf, turnsOf, type ToolEntry, type TurnInfo } from './turn'
+import { lastAnswersOf, linksOf, turnsOf, type ToolEntry, type TurnInfo } from './turn'
 import { TurnDialog, type TurnSection } from './turn-dialog'
 
 function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -269,8 +269,8 @@ function CopyMarkdown({ text }: { text: string }) {
 }
 
 /**
- * Resposta do Claude, com quem escreveu (só na última da conversa) e, na última de cada turno, os
- * atalhos do que o turno fez embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
+ * Resposta do Claude. Na última de cada turno, quem escreveu e os atalhos do que o turno fez
+ * embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
  * cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular, sem mouse,
  * ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
  * de controle fica em cima da caixa de mensagem); lendo, o botão fica à vista. `fresh`: acabou de
@@ -359,7 +359,7 @@ function ItemView({
   sessionId: string
   actionable: boolean
   fresh: boolean
-  /** Resposta com quem a escreveu: só a última da conversa, para o modelo não se repetir na tela toda. */
+  /** Resposta com quem a escreveu: só a última de cada turno, para o modelo não se repetir na tela toda. */
   signed: boolean
   onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
@@ -550,7 +550,7 @@ export function MessageList({
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
   const turns = useMemo(() => turnsOf(items), [items])
-  const lastAnswer = items.findLast((i) => i.type === 'assistant')?.key
+  const lastAnswers = useMemo(() => lastAnswersOf(items), [items])
   const isFresh = useArrivals(sessionId, items.map((i) => i.key))
   // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
   useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
@@ -572,7 +572,7 @@ export function MessageList({
                 turn={turns.get(item.key)}
                 cwd={cwd}
                 fresh={isFresh(item.key)}
-                signed={item.key === lastAnswer}
+                signed={lastAnswers.has(item.key)}
               />
             </Arrival>
           </div>
