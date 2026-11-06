@@ -157,3 +157,18 @@ export function turnsOf(items: Item[]): Map<string, TurnInfo> {
   close()
   return turns
 }
+
+/** A chave da última resposta do Claude em cada turno, com ou sem atalhos (onde aparece quem escreveu). */
+export function lastAnswersOf(items: Item[]): Set<string> {
+  const keys = new Set<string>()
+  let last: string | null = null
+  for (const item of items) {
+    if (item.type === 'assistant') last = item.key
+    else if ((item.type === 'user' || item.type === 'result') && last) {
+      keys.add(last)
+      last = null
+    }
+  }
+  if (last) keys.add(last)
+  return keys
+}
