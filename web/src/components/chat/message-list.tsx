@@ -269,8 +269,8 @@ function CopyMarkdown({ text }: { text: string }) {
 }
 
 /**
- * Resposta do Claude, com quem escreveu e, na última de cada turno, os atalhos do que o turno fez
- * embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
+ * Resposta do Claude, com quem escreveu (só na última da conversa) e, na última de cada turno, os
+ * atalhos do que o turno fez embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
  * cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular, sem mouse,
  * ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
  * de controle fica em cima da caixa de mensagem); lendo, o botão fica à vista. `fresh`: acabou de
@@ -353,11 +353,14 @@ function ItemView({
   turn,
   cwd,
   fresh,
+  signed,
 }: {
   item: Item
   sessionId: string
   actionable: boolean
   fresh: boolean
+  /** Resposta com quem a escreveu: só a última da conversa, para o modelo não se repetir na tela toda. */
+  signed: boolean
   onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
   cwd?: string
@@ -380,7 +383,7 @@ function ItemView({
           id={`${sessionId}:${item.key}`}
           sessionId={sessionId}
           text={item.text}
-          model={item.model}
+          model={signed ? item.model : undefined}
           effort={item.effort}
           turn={turn}
           cwd={cwd}
@@ -547,6 +550,7 @@ export function MessageList({
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
   const turns = useMemo(() => turnsOf(items), [items])
+  const lastAnswer = items.findLast((i) => i.type === 'assistant')?.key
   const isFresh = useArrivals(sessionId, items.map((i) => i.key))
   // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
   useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
@@ -568,6 +572,7 @@ export function MessageList({
                 turn={turns.get(item.key)}
                 cwd={cwd}
                 fresh={isFresh(item.key)}
+                signed={item.key === lastAnswer}
               />
             </Arrival>
           </div>
