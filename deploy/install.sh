@@ -79,9 +79,12 @@ mkdir -p "$SERVICE_DIR"
 
 # Instalação de antes da troca de nome: desliga o serviço antigo, que ocupa a mesma porta. As pastas
 # de dados mudam de nome sozinhas na primeira subida do servidor (ver server/src/config.ts).
-if [ -e "$SERVICE_DIR/$LEGACY_SERVICE.service" ]; then
+# O -L pega a unit instalada como symlink para deploy/claude-remote.service: o pull que trouxe o cald
+# a deixa quebrada, o -e dá falso e o 'disable' falha, então o link em default.target.wants sai à mão.
+LEGACY_FILE="$SERVICE_DIR/$LEGACY_SERVICE.service"
+if [ -e "$LEGACY_FILE" ] || [ -L "$LEGACY_FILE" ]; then
   systemctl --user disable --now "$LEGACY_SERVICE" >/dev/null 2>&1 || true
-  rm -f "$SERVICE_DIR/$LEGACY_SERVICE.service"
+  rm -f "$LEGACY_FILE" "$SERVICE_DIR/default.target.wants/$LEGACY_SERVICE.service"
   info "Serviço antigo ($LEGACY_SERVICE) desligado e removido."
 fi
 # Remove qualquer arquivo/symlink anterior (ex.: de um 'systemctl --user link'),
