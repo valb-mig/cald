@@ -27,6 +27,8 @@ const ordered = (s: Span) => [Math.min(s.anchor, s.head), Math.max(s.anchor, s.h
 const rowOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('[data-row]') : null)
 // O número da linha (a margem): no toque, é onde se escolhe a linha, para o resto do código seguir rolando.
 const onGutter = (target: EventTarget | null) => target instanceof Element && target.hasAttribute('data-n')
+// Um botão ou link entre as linhas (recolher um bloco do diff): o clique é dele, não da seleção.
+const onControl = (target: EventTarget | null) => target instanceof Element && target.closest('button, a, input, textarea') !== null
 
 /** As linhas do arquivo e o texto das linhas na faixa da seleção. */
 function readSpan(container: HTMLElement, span: Span) {
@@ -138,6 +140,7 @@ export function useCodeSelection(path: string) {
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     pointer.current = e.pointerType
+    if (onControl(e.target)) return
     if (e.pointerType !== 'mouse') {
       // Segundo dedo é pinça (fonte do código), não dedo segurado.
       if (press.current) return release()
@@ -207,7 +210,7 @@ export function useCodeSelection(path: string) {
       held.current = false
       return
     }
-    if (pointer.current === 'mouse' || !onGutter(e.target)) return
+    if (pointer.current === 'mouse' || !onGutter(e.target) || onControl(e.target)) return
     const row = rowOf(e.target)
     if (!row) return
     const i = Number(row.dataset.row)

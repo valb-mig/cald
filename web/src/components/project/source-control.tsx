@@ -1,4 +1,22 @@
-import { ArrowDown, ArrowDownToLine, ArrowUp, Check, ChevronDown, ChevronsUpDown, FileText, GitBranch, GitPullRequestCreate, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowDownToLine,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronsUpDown,
+  CloudUpload,
+  Ellipsis,
+  FileText,
+  GitBranch,
+  GitPullRequestCreate,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -30,6 +48,7 @@ import { openViewer, useProjectPanel, type PanelProject } from '@/lib/project-pa
 import type { BranchChanges, GitBranches, GitStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { openPanelTab } from '@/lib/workbench'
+import { DumpDialog } from './dump-dialog'
 import { useFileMenu, type FileMenuAt } from './file-menu'
 import { ChangeChip } from './patch-list'
 import { badge, BADGES, splitPath, type Badge } from './status'
@@ -140,7 +159,9 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
     setScopeState(next)
   }
   const [query, setQuery] = useState('')
-  const [busy, setBusy] = useState<'pull' | 'switch' | 'branch' | 'reload' | 'delete' | null>(null)
+  const [busy, setBusy] = useState<'pull' | 'switch' | 'branch' | 'reload' | 'delete' | 'dump' | null>(null)
+  // O dump esperando a confirmação (ver dump-dialog.tsx).
+  const [dumping, setDumping] = useState(false)
   const [branches, setBranches] = useState<GitBranches | null>(null)
   const [branchesError, setBranchesError] = useState<string | null>(null)
   // O nome da branch nova em edição, no lugar da barra de baixo; `null` com ela fechada.
@@ -247,6 +268,16 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
       const { commits } = await api.gitPull(project.machine, project.cwd)
       toast.success(commits ? `${commits} ${commits === 1 ? 'commit trazido' : 'commits trazidos'} do ${status.upstream}` : 'Já estava em dia com o origin')
     })
+
+  /** O dump: tudo num commit só e direto para o origin (traz o que chegou antes, só avançando). */
+  const runDump = (message: string) => {
+    setDumping(false)
+    void run('dump', async () => {
+      const { sha } = await api.gitCommit(project.machine, project.cwd, message, true)
+      await api.gitSync(project.machine, project.cwd)
+      toast.success(`Dump ${sha} em ${status.upstream ?? `origin/${branch}`}`, { description: message.split('\n')[0] })
+    })
+  }
 
   const selected = viewing?.machine === project.machine && viewing.cwd === project.cwd && viewing.diff === scope ? viewing.path : null
 
@@ -392,34 +423,47 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
               </span>
             )}
             <span className="flex-1" />
-            {wide && status.remote && new URL(status.remote).hostname === 'github.com' && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => openPanelTab({ kind: 'pr-new', machine: project.machine, cwd: project.cwd })}
-                className="shrink-0 gap-1 px-2 text-xs"
-                title="Escrever e abrir um PR: título, descrição, os arquivos que vão e as etiquetas"
-              >
-                <GitPullRequestCreate />
-                Abrir PR
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy !== null || !status.upstream}
-              onClick={() => void pull()}
-              className="shrink-0 gap-1 px-2 text-xs"
-              aria-label="Pull do origin"
-              title={status.upstream ? `Trazer o que chegou no ${status.upstream}, só avançando` : 'Esta branch ainda não está no origin'}
-            >
-              {busy === 'pull' ? <Loader2 className="animate-spin" /> : <ArrowDownToLine />}
-              Pull
-              {status.behind > 0 && <span className="tabular-nums">{status.behind}</span>}
-            </Button>
+            {/* O que se faz com a branch: abrir PR, pull e o dump, num menu só. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" disabled={busy !== null} aria-label="Mais ações da branch" title="Abrir PR, pull e dump">
+                  {busy === 'pull' || busy === 'dump' ? <Loader2 className="animate-spin" /> : <Ellipsis />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-64">
+                {wide && status.remote && new URL(status.remote).hostname === 'github.com' && (
+                  <DropdownMenuItem onSelect={() => openPanelTab({ kind: 'pr-new', machine: project.machine, cwd: project.cwd })}>
+                    <GitPullRequestCreate /> Abrir PR
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem disabled={!status.upstream} onSelect={() => void pull()}>
+                  <ArrowDownToLine /> Pull
+                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                    {status.upstream ? (status.behind > 0 ? `${status.behind} para trazer` : '') : 'sem origin'}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={status.files.length === 0} onSelect={() => setDumping(true)}>
+                  <CloudUpload /> Dump
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {status.files.length ? `${status.files.length} ${status.files.length === 1 ? 'arquivo' : 'arquivos'}` : 'nada alterado'}
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         )}
       </div>
+
+      <DumpDialog
+        open={dumping}
+        onOpenChange={setDumping}
+        machine={project.machine}
+        cwd={project.cwd}
+        files={status.files}
+        branch={branch}
+        target={status.upstream ?? `origin/${branch}`}
+        onConfirm={runDump}
+      />
 
       <AlertDialog open={doomed !== null} onOpenChange={(open) => !open && setDoomed(null)}>
         {doomed && (

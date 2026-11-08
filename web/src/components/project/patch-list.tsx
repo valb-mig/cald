@@ -1,8 +1,9 @@
 import { ChevronRight, Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, errorMessage } from '@/lib/api'
 import type { GithubPatch } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { PatchDiff } from './diff-lines'
 import { BADGES, splitPath, type Badge } from './status'
 
 /**
@@ -71,59 +72,6 @@ export function ChangeChip({ badge, className }: { badge: Badge; className?: str
   )
 }
 
-type Line = { kind: 'hunk' | 'add' | 'del' | 'ctx'; text: string; old?: number; new?: number }
-
-/** O trecho do diff que o GitHub manda (`@@ -a,b +c,d @@` e as linhas), com o número de cada lado. */
-function parsePatch(patch: string): Line[] {
-  const lines: Line[] = []
-  let o = 0
-  let n = 0
-  for (const raw of patch.split('\n')) {
-    if (raw.startsWith('@@')) {
-      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(raw)
-      o = Number(m?.[1] ?? 0)
-      n = Number(m?.[2] ?? 0)
-      lines.push({ kind: 'hunk', text: raw })
-    } else if (raw.startsWith('+')) lines.push({ kind: 'add', text: raw.slice(1), new: n++ })
-    else if (raw.startsWith('-')) lines.push({ kind: 'del', text: raw.slice(1), old: o++ })
-    else if (!raw.startsWith('\\')) lines.push({ kind: 'ctx', text: raw.slice(1), old: o++, new: n++ })
-  }
-  return lines
-}
-
-const ROW: Record<Line['kind'], string> = {
-  hunk: 'bg-foreground/[0.04] text-muted-foreground',
-  add: 'bg-emerald-500/10',
-  del: 'bg-red-500/10',
-  ctx: '',
-}
-
-/** Um diff, lado a lado em números e numa coluna só de código; linhas longas rolam de lado. */
-export function PatchView({ patch }: { patch: string }) {
-  const lines = useMemo(() => parsePatch(patch), [patch])
-  return (
-    <div className="overflow-x-auto font-mono text-[12px] leading-5">
-      <div className="min-w-max">
-        {lines.map((l, i) => (
-          <div key={i} className={cn('flex', ROW[l.kind])}>
-            <span className="w-11 shrink-0 pr-2 text-right text-muted-foreground/60 tabular-nums select-none">{l.old ?? ''}</span>
-            <span className="w-11 shrink-0 pr-2 text-right text-muted-foreground/60 tabular-nums select-none">{l.new ?? ''}</span>
-            <span
-              className={cn(
-                'w-4 shrink-0 text-center select-none',
-                l.kind === 'add' ? 'text-emerald-600 dark:text-emerald-400' : l.kind === 'del' ? 'text-red-600 dark:text-red-400' : 'text-transparent',
-              )}
-            >
-              {l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' '}
-            </span>
-            <span className="pr-4 whitespace-pre">{l.text || ' '}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 /** Uma linha de arquivo que abre o diff dele embaixo. */
 function PatchFile({ file, open, onToggle }: { file: GithubPatch; open: boolean; onToggle: () => void }) {
   const { name, dir } = splitPath(file.path)
@@ -149,7 +97,7 @@ function PatchFile({ file, open, onToggle }: { file: GithubPatch; open: boolean;
       {open && (
         <div className="pb-2">
           {file.patch ? (
-            <PatchView patch={file.patch} />
+            <PatchDiff patch={file.patch} path={file.path} />
           ) : (
             <p className="px-9 py-1 text-xs text-muted-foreground">Sem diff para mostrar aqui (binário ou grande demais). Veja no GitHub.</p>
           )}

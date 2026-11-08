@@ -13,7 +13,6 @@ import {
   WrapText,
 } from 'lucide-react'
 import { Fragment, Suspense, createElement, lazy, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ThemedToken } from 'shiki/core'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Veil } from '@/components/wallpaper/veil'
 import { CopyButton, Markdown } from '@/components/markdown'
@@ -24,7 +23,7 @@ import { formatSize } from '@/lib/attachments'
 import { CODE_FONT, CODE_FONT_MAX, CODE_FONT_MIN, setCodeFont, stepCodeFont, useCodeFont } from '@/lib/code-font'
 import { projectName } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
-import { tokenStyle, useTokens } from '@/lib/highlight'
+import { useTokens } from '@/lib/highlight'
 import { setMinimap, useMinimap } from '@/lib/minimap'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { closeViewer, openViewer, useProjectPanel, type Viewing } from '@/lib/project-panel'
@@ -36,7 +35,8 @@ import { cn } from '@/lib/utils'
 import { keyOf } from '@/lib/workbench'
 import { useCodeSelection } from './code-mention'
 import { mention } from './file-menu'
-import { blocksOf, ChangeNavBar, ChangePeek, innerChange, KIND_LABEL, MARK_BAR, MarkedCode, type Block, type Mark } from './changes'
+import { blocksOf, ChangeNavBar, ChangePeek, KIND_LABEL, MARK_BAR, type Block, type Mark } from './changes'
+import { Code, CODE_TEXT, DiffLines, parseDiff } from './diff-lines'
 import type { EditorHandle, EditorStatus } from './editor'
 import { CodeMinimap, type MinimapToken } from './minimap'
 import { DIFF_LABEL, fileIcon, splitPath } from './status'
@@ -48,20 +48,6 @@ const MAX_DIFF_ROWS = 4_000
 // Números da margem desenhados pelo CSS (`data-n`): fora da seleção e do que se copia. Em `em`, para
 // crescerem com a fonte do código (ver `useCodeZoom`).
 const GUTTER = 'w-[4em] shrink-0 pr-[0.4em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
-const DIFF_GUTTER = 'w-[3.7em] shrink-0 pr-[0.6em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
-// O tamanho vem da variável posta no contêiner, e não por propriedade: mudar a fonte (na pinça, a cada
-// movimento) não redesenha as milhares de linhas. A altura da linha acompanha (20 px nos 12 px).
-const CODE_TEXT = 'font-mono text-[length:var(--code-font)] leading-[1.667] select-none'
-
-/** Uma linha de código: com as cores de sintaxe, quando os tokens já chegaram; senão, o texto puro. */
-function Code({ text, tokens }: { text: string; tokens: ThemedToken[] | undefined }) {
-  if (!tokens || tokens.length === 0) return text || ' '
-  return tokens.map((t, i) => (
-    <span key={i} style={tokenStyle(t)}>
-      {t.content}
-    </span>
-  ))
-}
 
 /** O que o código mostra, para o minimapa (ver minimap.tsx) e para as setas de mudança (ver `ChangeNav`). */
 export type CodeMap = {
@@ -341,77 +327,10 @@ const FileContent = memo(function FileContent({
   )
 })
 
-type DiffRow =
-  /** `line`: onde o trecho começa no arquivo novo; `context`: a função ou bloco em volta, que o git diz. */
-  | { kind: 'hunk'; line: number; context: string }
-  /** `inner`: o trecho exato que mudou dentro da linha, quando ela tem par do outro lado. */
-  | { kind: 'add' | 'del' | 'ctx'; old?: number; new?: number; text: string; side: 'old' | 'new'; at: number; inner?: [number, number] }
-  | { kind: 'note'; text: string }
-
 /**
- * O diff unificado em linhas com o número antigo e o novo; o cabeçalho do git (`diff`, `index`, `---`)
- * sai. Junta também os dois lados como texto (o antigo: contexto e tiradas; o novo: contexto e
- * colocadas), para colorir cada um de uma vez: uma linha sozinha não sabe se está dentro de um
- * comentário ou de uma string que começou antes. `at` é a linha dela no texto do seu lado. Uma troca
- * (linhas que saem seguidas das que entram) casa cada uma com a sua par, para realçar o que mudou nela.
- */
-function parseDiff(diff: string): { rows: DiffRow[]; old: string[]; new: string[] } {
-  const rows: DiffRow[] = []
-  const before: string[] = []
-  const after: string[] = []
-  let oldNo = 0
-  let newNo = 0
-  let inHunk = false
-  for (const line of diff.split('\n')) {
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$/.exec(line)
-    if (hunk) {
-      oldNo = Number(hunk[1])
-      newNo = Number(hunk[2])
-      inHunk = true
-      rows.push({ kind: 'hunk', line: newNo, context: hunk[3]!.trim() })
-    } else if (line.startsWith('… diff cortado')) {
-      rows.push({ kind: 'note', text: line })
-    } else if (!inHunk) {
-      if (line.startsWith('Binary files ')) rows.push({ kind: 'note', text: 'Arquivo binário: sem diferenças em texto.' })
-    } else if (line.startsWith('+')) {
-      rows.push({ kind: 'add', new: newNo++, text: line.slice(1), side: 'new', at: after.push(line.slice(1)) - 1 })
-    } else if (line.startsWith('-')) {
-      rows.push({ kind: 'del', old: oldNo++, text: line.slice(1), side: 'old', at: before.push(line.slice(1)) - 1 })
-    } else if (line.startsWith(' ')) {
-      before.push(line.slice(1))
-      rows.push({ kind: 'ctx', old: oldNo++, new: newNo++, text: line.slice(1), side: 'new', at: after.push(line.slice(1)) - 1 })
-    } else if (line.startsWith('\\')) {
-      rows.push({ kind: 'note', text: 'sem quebra de linha no fim do arquivo' })
-    }
-  }
-  // Trocas: um bloco de tiradas logo seguido de um de colocadas; a k-ésima de cada lado formam um par.
-  for (let i = 0; i < rows.length; ) {
-    if (rows[i]!.kind !== 'del') {
-      i++
-      continue
-    }
-    let d = i
-    while (rows[d]?.kind === 'del') d++
-    let a = d
-    while (rows[a]?.kind === 'add') a++
-    for (let k = 0; k < Math.min(d - i, a - d); k++) {
-      const del = rows[i + k] as Extract<DiffRow, { side: 'old' | 'new' }>
-      const add = rows[d + k] as Extract<DiffRow, { side: 'old' | 'new' }>
-      const inner = innerChange(del.text, add.text)
-      if (inner) {
-        del.inner = inner.old
-        add.inner = inner.new
-      }
-    }
-    i = a
-  }
-  return { rows, old: before, new: after }
-}
-
-/**
- * O diff do arquivo. Cada trecho abre com a linha em que começa e a função em volta (o que o git diz
- * depois do `@@`); as linhas que entram e saem ganham uma borda na cor delas, e numa troca o trecho
- * exato que mudou fica realçado. As mudanças (blocos seguidos de linhas que entram ou saem) vão para
+ * O diff do arquivo, no desenho de diff-lines.tsx: cada trecho abre com a linha em que começa e a função
+ * em volta (o que o git diz depois do `@@`), e cada bloco de linhas que entram e saem é um cartão na cor
+ * dele, que dá para recolher; numa troca, o trecho exato que mudou fica realçado. As mudanças (blocos seguidos de linhas que entram ou saem) vão para
  * as setas do cabeçalho e para o minimapa, pelo `onCode`.
  */
 const DiffContent = memo(function DiffContent({
@@ -473,56 +392,9 @@ const DiffContent = memo(function DiffContent({
   const { rows } = parsed
   if (rows.length === 0) return <p className="p-4 text-sm text-muted-foreground">Sem diferenças em texto (só permissões ou nada a mostrar).</p>
   return (
-    <pre className={cn('w-max min-w-full pb-2', CODE_TEXT)}>
-      {shown.map((r, i) =>
-        r.kind === 'hunk' ? (
-          // O começo de um trecho: o que ficou de fora entre um e outro não muda, e a linha diz onde se está.
-          <div
-            key={i}
-            data-row={i}
-            className="mt-3 flex items-center gap-2 border-y border-foreground/[0.06] bg-foreground/[0.035] px-3 py-1 font-sans text-[0.9em] text-muted-foreground first:mt-0 first:border-t-0"
-          >
-            <span className="shrink-0 tabular-nums">Linha {r.line}</span>
-            {r.context && <span className="truncate font-mono text-foreground/70">{r.context}</span>}
-          </div>
-        ) : r.kind === 'note' ? (
-          <div key={i} data-row={i} className="px-3 text-muted-foreground italic">
-            {r.text}
-          </div>
-        ) : (
-          <div
-            key={i}
-            data-row={i}
-            // Só as linhas que existem no arquivo novo se mencionam: as tiradas não têm para onde apontar.
-            data-line={r.new}
-            data-code=""
-            className={cn(
-              'flex',
-              r.kind === 'add' && 'bg-emerald-500/[0.1] shadow-[inset_3px_0_0_var(--color-emerald-500)]',
-              r.kind === 'del' && 'bg-red-500/[0.1] shadow-[inset_3px_0_0_var(--color-red-500)]',
-            )}
-          >
-            <span data-n={r.old ?? ''} className={DIFF_GUTTER} />
-            <span data-n={r.new ?? ''} className={DIFF_GUTTER} />
-            <span
-              data-n={r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}
-              className={cn(
-                'w-[1.4em] shrink-0 text-center select-none before:content-[attr(data-n)]',
-                r.kind === 'add' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
-              )}
-            />
-            <span className={cn('pr-4', wrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre')}>
-              {r.kind === 'ctx' ? (
-                <Code text={r.text} tokens={newTokens?.[r.at]} />
-              ) : (
-                <MarkedCode text={r.text} tokens={(r.side === 'old' ? oldTokens : newTokens)?.[r.at]} range={r.inner} tone={r.kind} />
-              )}
-            </span>
-          </div>
-        ),
-      )}
-      {rows.length > MAX_DIFF_ROWS && <div className="px-3 py-2 text-muted-foreground">… diff com {rows.length} linhas, cortado</div>}
-    </pre>
+    <DiffLines rows={shown} oldTokens={oldTokens} newTokens={newTokens} wrap={wrap} className="pb-2">
+      {rows.length > MAX_DIFF_ROWS && <div className="px-4 py-2 text-muted-foreground">… diff com {rows.length} linhas, cortado</div>}
+    </DiffLines>
   )
 })
 
