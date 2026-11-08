@@ -2,6 +2,7 @@ import { ArrowLeft, ChevronDown, MessageSquarePlus } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useSearch } from 'wouter'
 import { Composer } from '@/components/chat/composer'
+import { ProviderPill } from '@/components/chat/provider-pill'
 import { TeamPill } from '@/components/teams/team-pill'
 import { WorkspaceDot, WorkspacePill } from '@/components/workspaces/workspace-pill'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
@@ -18,6 +19,7 @@ import { projectName } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
 import { HOME, MachineContext, newChatUrl, noteSession, useMachines } from '@/lib/machines'
 import { useShowProject } from '@/lib/project-panel'
+import { enabledProviders, featuresOf, useProviders } from '@/lib/providers'
 import type { RunOptions } from '@/lib/types'
 import { useNewChatWorkspace } from '@/lib/workspaces'
 import { backHref } from '@/lib/tabs'
@@ -87,6 +89,16 @@ function NewChat({
   // Com várias máquinas, o cabeçalho diz em qual a conversa vai rodar.
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
   const [pending, setPending] = useState<RunOptions>({})
+  // O agente da conversa: o padrão da máquina, ou o escolhido na caixa quando há mais de um ligado.
+  const providers = enabledProviders(useProviders(machine).list)
+  const [chosen, setChosen] = useState<string>()
+  const provider = providers.find((p) => p.id === chosen)?.id ?? (providers.find((p) => p.default) ?? providers[0])?.id
+  // Os modelos de um agente não valem no outro; o modo fica, se o novo também tiver.
+  const chooseProvider = (id: string) => {
+    setChosen(id)
+    const modes = featuresOf(providers.find((p) => p.id === id)).permissionModes
+    setPending((p) => (p.permissionMode && modes.includes(p.permissionMode) ? { permissionMode: p.permissionMode } : {}))
+  }
   // O projeto de um worktree é o de origem: os workspaces são dele. Sem projeto, sem workspace.
   const project = cwd && cwd !== home ? projectOf(cwd) : undefined
   // O workspace vem no padrão do projeto, e o time no do workspace (os dois dá para trocar na caixa).
@@ -148,7 +160,8 @@ function NewChat({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Escolha modelo e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos, # para issues e PRs e + para anexar.
+              Escolha {providers.length > 1 ? 'agente, modelo' : 'modelo'} e modo na caixa abaixo. Use / para comandos e skills, @ para arquivos, # para
+              issues e PRs e + para anexar.
             </p>
             <Button variant="outline" size="sm" onClick={() => setPicker(true)}>
               Trocar projeto
@@ -169,7 +182,10 @@ function NewChat({
             working={false}
             settings={pending}
             context={null}
+            provider={provider}
             onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+            // Com um agente só, nada a escolher: a caixa fica como sempre foi.
+            agent={providers.length > 1 && provider && <ProviderPill providers={providers} value={provider} onChange={chooseProvider} />}
             extra={
               <>
                 {project && <WorkspacePill machine={machine} project={project} value={ws} onChange={choose} />}
@@ -186,6 +202,8 @@ function NewChat({
                   teamId,
                   workspaceId: ws?.id,
                   worktree: worktree.on || undefined,
+                  // Servidor antigo ignora: lá só existe o Claude.
+                  provider,
                   ...pending,
                 })
                 // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.

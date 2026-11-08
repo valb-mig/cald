@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { UPLOADS_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 import type { ImageSink } from './images.ts';
-import type { ContentBlocks } from './panel-session.ts';
+import type { TurnBlock } from './providers/types.ts';
 
 /** Anexo enviado pelo celular, em base64. */
 export type Attachment = {
@@ -38,18 +38,15 @@ export async function prepareTurn(
   text: string,
   attachments: Attachment[] = [],
   sink?: ImageSink,
-): Promise<{ text: string; blocks: ContentBlocks; images: string[] }> {
-  const blocks: ContentBlocks = [];
+): Promise<{ text: string; blocks: TurnBlock[]; images: string[] }> {
+  const blocks: TurnBlock[] = [];
   const images: string[] = [];
   const mentions: string[] = [];
 
   for (const a of attachments) {
     const bytes = Buffer.from(a.data, 'base64');
     if (IMAGE_TYPES.has(a.mediaType) && bytes.length <= MAX_IMAGE_BYTES) {
-      blocks.push({
-        type: 'image',
-        source: { type: 'base64', media_type: a.mediaType as 'image/png', data: a.data },
-      });
+      blocks.push({ type: 'image', mediaType: a.mediaType, data: a.data });
       // A imagem inteira vai para o cache: no chat ela abre em tamanho real.
       if (sink) images.push(sink({ mediaType: a.mediaType, data: a.data }));
       continue;

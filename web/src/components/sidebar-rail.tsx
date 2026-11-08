@@ -4,11 +4,12 @@ import { useShallow } from 'zustand/react/shallow'
 import { CaldMark, Claudinho } from '@/components/claudinho'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { setComputerOpen, useComputer } from '@/lib/computer'
+import { openComputerAgent, setComputerOpen, useComputer } from '@/lib/computer'
 import { claudinhoName } from '@/lib/claudinho'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { useInboxCount } from '@/lib/inbox'
+import { CLAUDE } from '@/lib/providers'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
 import { useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
@@ -34,7 +35,11 @@ type Metric = {
   text?: string
   /** Fixo: desliga a escala de severidade, para a medida em que encher não é problema nenhum. */
   level?: Level
+  /** Onde o toque leva; sem ele, o painel Computador no Status. */
+  open?: () => void
 }
+
+const openOf = ({ open }: Metric) => open ?? (() => setComputerOpen(true))
 
 const levelOf = ({ percent, level }: Metric): Level => level ?? (percent !== null ? severityOf(percent) : 'normal')
 const valueOf = ({ percent, text }: Metric) => text ?? (percent !== null ? `${Math.round(percent)}%` : '—')
@@ -65,7 +70,7 @@ function RailMeter(metric: Metric) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => setComputerOpen(true)}
+          onClick={openOf(metric)}
           aria-label={metric.tip}
           className="flex w-12 flex-col items-center gap-1 rounded-lg py-1.5 transition-colors hover:bg-foreground/5"
         >
@@ -91,7 +96,7 @@ function BarRow(metric: Metric) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => setComputerOpen(true)}
+          onClick={openOf(metric)}
           aria-label={tip}
           className="grid w-full grid-cols-[3.75rem_1fr_2.5rem] items-center gap-2 rounded-lg px-2 py-1 text-[11px] transition-colors hover:bg-foreground/5"
         >
@@ -172,6 +177,8 @@ export function RailItem({
   )
 }
 
+const openUsage = () => openComputerAgent(CLAUDE, 'usage')
+
 /** O tempo de hoje, CPU, memória e os limites do Claude, da máquina do filtro das Sessões. */
 function useMetrics(): Metric[] {
   const machine = useMachineFilter() ?? HOME
@@ -205,8 +212,9 @@ function useMetrics(): Metric[] {
       percent: system ? (system.memory.used / system.memory.total) * 100 : null,
       tip: of(system ? `Memória: ${bytes(system.memory.used)} de ${bytes(system.memory.total)}` : 'Memória: carregando'),
     },
-    { label: '5 h', percent: plan?.fiveHour?.utilization ?? null, tip: of(windowTip('Claude · 5 h', plan?.fiveHour)) },
-    { label: 'Semana', percent: plan?.sevenDay?.utilization ?? null, tip: of(windowTip('Claude · semana', plan?.sevenDay)) },
+    // Os limites são do Claude: abrem o uso na página dele, na seção Agentes.
+    { label: '5 h', percent: plan?.fiveHour?.utilization ?? null, tip: of(windowTip('Claude · 5 h', plan?.fiveHour)), open: openUsage },
+    { label: 'Semana', percent: plan?.sevenDay?.utilization ?? null, tip: of(windowTip('Claude · semana', plan?.sevenDay)), open: openUsage },
   ]
 }
 

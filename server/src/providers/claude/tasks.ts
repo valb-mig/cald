@@ -1,5 +1,5 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { BackgroundTask, PanelEvent } from './events.ts';
+import type { BackgroundTask, PanelEvent } from '../../events.ts';
 
 /**
  * Tarefas em segundo plano de um processo do painel: monitores, comandos com `run_in_background`,

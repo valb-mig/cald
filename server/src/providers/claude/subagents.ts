@@ -1,10 +1,11 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getSubagentMessages, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { CLAUDE_HOME } from './config.ts';
-import { HttpError } from './errors.ts';
-import { fromSessionMessage, type AgentStatus, type AgentUsage, type LoggedEvent, type PanelEvent } from './events.ts';
-import { imageStore } from './images.ts';
+import { CLAUDE_HOME } from './env.ts';
+import { HttpError } from '../../errors.ts';
+import type { AgentStatus, AgentUsage, LoggedEvent, PanelEvent } from '../../events.ts';
+import { fromSessionMessage } from './messages.ts';
+import { imageStore } from '../../images.ts';
 
 type TaskPatchStatus = 'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'paused';
 
@@ -23,25 +24,12 @@ const usageOf = (u?: { total_tokens: number; tool_uses: number; duration_ms: num
 /**
  * Subagentes de um processo do painel. O SDK fala deles por `task_id` (início, progresso,
  * mudanças, fim); aqui cada novidade vira um evento `agent` ligado à chamada da ferramenta Agent
- * que o criou. Tarefas que não são subagentes (comandos em segundo plano, monitores) ficam de fora.
+ * que o criou, e é por esses eventos que o painel sabe quem ainda trabalha (ver panel-session.ts).
+ * Tarefas que não são subagentes (comandos em segundo plano, monitores) ficam de fora.
  */
 export class AgentTasks {
   /** task_id → chamada da ferramenta Agent, para cada subagente visto neste processo. */
   private readonly calls = new Map<string, string>();
-  private readonly running = new Set<string>();
-
-  /** Subagentes trabalhando agora; os de segundo plano seguem depois do fim do turno. */
-  get active(): number {
-    return this.running.size;
-  }
-
-  /** Chamadas da ferramenta Agent dos subagentes trabalhando agora (a salinha mostra cada um). */
-  runningCalls(): string[] {
-    return [...this.running].flatMap((taskId) => {
-      const call = this.calls.get(taskId);
-      return call ? [call] : [];
-    });
-  }
 
   fromMessage(msg: SDKMessage): PanelEvent[] {
     if (msg.type !== 'system') return [];
@@ -49,7 +37,6 @@ export class AgentTasks {
       case 'task_started': {
         if (!msg.tool_use_id || (msg.task_type !== 'local_agent' && !msg.subagent_type)) return [];
         this.calls.set(msg.task_id, msg.tool_use_id);
-        this.running.add(msg.task_id);
         return [{ kind: 'agent', toolUseId: msg.tool_use_id, agentId: msg.task_id, status: 'running', background: msg.is_backgrounded }];
       }
       case 'task_progress': {
@@ -61,25 +48,18 @@ export class AgentTasks {
         const toolUseId = this.calls.get(msg.task_id);
         if (!toolUseId) return [];
         const status = msg.patch.status && PATCH_STATUS[msg.patch.status];
-        if (status) this.track(msg.task_id, status);
         if (!status && msg.patch.is_backgrounded === undefined && !msg.patch.error) return [];
         return [{ kind: 'agent', toolUseId, status, background: msg.patch.is_backgrounded, error: msg.patch.error }];
       }
       case 'task_notification': {
         const toolUseId = this.calls.get(msg.task_id);
         if (!toolUseId) return [];
-        this.track(msg.task_id, msg.status);
         // Num subagente, o resumo do fim é o relatório final dele.
         return [{ kind: 'agent', toolUseId, status: msg.status, result: msg.summary || undefined, usage: usageOf(msg.usage) }];
       }
       default:
         return [];
     }
-  }
-
-  private track(taskId: string, status: AgentStatus): void {
-    if (status === 'running') this.running.add(taskId);
-    else this.running.delete(taskId);
   }
 }
 

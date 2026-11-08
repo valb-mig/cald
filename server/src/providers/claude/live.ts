@@ -4,21 +4,17 @@ import { watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { CLAUDE_BIN, CLAUDE_HOME, LIVE_FALLBACK_POLL_MS, childEnv } from './config.ts';
-import { HttpError } from './errors.ts';
+import { CLAUDE_BIN, CLAUDE_HOME, LIVE_FALLBACK_POLL_MS, childEnv } from './env.ts';
+import { HttpError } from '../../errors.ts';
+import type { OfficeSnapshot } from '../../office.ts';
+import type { ExternalSession, ExternalSessions } from '../types.ts';
+import { pcOffice } from './office.ts';
 
 const exec = promisify(execFile);
 
 /** Linha de `claude agents --json` (formato documentado) com processo vivo. */
-export type LiveSession = {
+export type LiveSession = ExternalSession & {
   pid: number;
-  sessionId: string;
-  cwd: string;
-  kind: 'interactive' | 'background';
-  status: 'busy' | 'waiting' | 'idle';
-  waitingFor?: string;
-  name?: string;
-  startedAt: number;
   /** Só sessões em background: id curto aceito por `claude stop`. */
   id?: string;
   state?: string;
@@ -37,7 +33,7 @@ export async function fetchLive(): Promise<LiveSession[]> {
  * Espelho das sessões vivas no PC. A fonte de verdade é `claude agents --json`;
  * o diretório ~/.claude/sessions é observado apenas como gatilho para reconsultar.
  */
-export class LiveRegistry extends EventEmitter {
+export class LiveRegistry extends EventEmitter implements ExternalSessions {
   private sessions = new Map<string, LiveSession>();
   private snapshot = '';
   private watcher?: FSWatcher;
@@ -90,6 +86,17 @@ export class LiveRegistry extends EventEmitter {
 
   all(): LiveSession[] {
     return [...this.sessions.values()];
+  }
+
+  async close(session: ExternalSession): Promise<void> {
+    const live = this.sessions.get(session.sessionId);
+    if (!live) return;
+    await stopPcSession(live);
+  }
+
+  office(session: ExternalSession): Promise<OfficeSnapshot> {
+    const live = this.sessions.get(session.sessionId);
+    return live ? pcOffice(live.sessionId, live) : Promise.resolve({ workers: [], events: [] });
   }
 }
 

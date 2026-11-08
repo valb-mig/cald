@@ -1,5 +1,5 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
-import type { PlanUsage, UsageWindow } from './system.ts';
+import type { PlanUsage, UsageWindow } from '../../system.ts';
 
 type RawWindow = { utilization: number | null; resets_at: string | null } | null | undefined;
 

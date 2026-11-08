@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import type { FastifyRequest } from 'fastify';
 import { MACHINE_NAME, ORIGINS_FILE } from './config.ts';
 import type { Sent } from './events.ts';
-import type { PromptMark } from './transcript.ts';
+import type { SavedMessage } from './providers/types.ts';
 
 const exec = promisify(execFile);
 
@@ -69,16 +69,6 @@ export class DeviceDirectory {
 /** O que o cald guarda de cada mensagem mandada pelo app, pelo UUID dela no transcript. */
 type Origin = { uuid: string; at: number; device?: string; mobile?: boolean };
 
-// Quem gravou a mensagem, segundo o `entrypoint` do transcript. `sdk-ts` é o próprio cald (o Agent
-// SDK), e `sdk-cli` é o `claude -p`, que se roda no terminal.
-const VIA: Record<string, Sent['via']> = {
-  cli: 'terminal',
-  'sdk-cli': 'terminal',
-  'claude-vscode': 'vscode',
-  'claude-desktop': 'desktop',
-  'sdk-ts': 'cald',
-};
-
 /**
  * De que aparelho saiu cada mensagem do app. O transcript do Claude Code tem a hora e o `entrypoint`,
  * que é o mesmo para qualquer aparelho que use o cald: o resto o cald guarda aqui, uma linha por
@@ -105,13 +95,13 @@ export class OriginLog {
     void appendFile(ORIGINS_FILE, `${JSON.stringify(origin)}\n`).catch(() => {});
   }
 
-  /** Por onde, de onde e quando: o que o cald guardou ou, sem isso, o que o transcript diz. */
-  sentOf(uuid: string, mark?: PromptMark): Sent | undefined {
+  /** Por onde, de onde e quando: o que o cald guardou ou, sem isso, o que o histórico do agente diz. */
+  sentOf(uuid: string, mark?: SavedMessage['prompt']): Sent | undefined {
     const own = this.byUuid.get(uuid);
     if (own) return { via: 'cald', device: own.device, mobile: own.mobile, at: own.at };
     if (!mark) return undefined;
-    const via = mark.entrypoint ? VIA[mark.entrypoint] : undefined;
-    // O terminal e o VSCode rodam aqui mesmo, no PC dono do transcript; do app, não se sabe qual aparelho foi.
+    const via = mark.via;
+    // O terminal e o VSCode rodam aqui mesmo, no PC dono do histórico; do app, não se sabe qual aparelho foi.
     return { via, device: via && via !== 'cald' ? MACHINE_NAME : undefined, at: mark.at };
   }
 }

@@ -4,6 +4,7 @@ import { authHeader, withToken } from './pin-tokens'
 import type {
   AccessInfo,
   Activity,
+  AgentProviderInfo,
   Artefato,
   ArtefatoList,
   AttachmentPayload,
@@ -153,9 +154,15 @@ export const api = {
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
   /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
   activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),
-  /** Com `session`, as habilidades do cald desligadas nela ficam de fora. */
-  commands: (m: string, cwd: string, session?: string) =>
-    request<CommandInfo[]>('GET', `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}${session ? `&session=${encodeURIComponent(session)}` : ''}`),
+  /**
+   * Com `session`, as habilidades do cald desligadas nela ficam de fora. `provider`: os comandos desse
+   * agente (a conversa nova); sem ele, os do agente da conversa, ou do padrão.
+   */
+  commands: (m: string, cwd: string, session?: string, provider?: string) =>
+    request<CommandInfo[]>(
+      'GET',
+      `${at(m)}/commands?cwd=${encodeURIComponent(cwd)}${session ? `&session=${encodeURIComponent(session)}` : ''}${provider ? `&provider=${encodeURIComponent(provider)}` : ''}`,
+    ),
   habilidades: (m: string, cwd?: string) => request<HabilidadeList>('GET', `${at(m)}/habilidades${cwd ? `?${project(cwd)}` : ''}`),
   saveHabilidade: (m: string, h: { id?: string; name: string; description: string; body: string; project: string | null }) => post<Habilidade>(`${at(m)}/habilidades`, h),
   trashHabilidade: (m: string, id: string) => post(`${at(m)}/habilidades/trash`, { id }),
@@ -204,6 +211,8 @@ export const api = {
       teamId?: string
       workspaceId?: string
       worktree?: boolean
+      /** O agente da conversa; sem ele, o padrão da máquina. */
+      provider?: string
     },
   ) =>
     post<{ sessionId: string }>(`${at(m)}/sessions`, body),
@@ -366,7 +375,14 @@ export const api = {
   context: (id: string) => request<ContextUsage>('GET', `${sid(id)}/context`),
   /** Tokens e custo estimado da conversa inteira, lidos do transcript salvo no PC. */
   cost: (id: string) => request<SessionCost>('GET', `${sid(id)}/cost`),
-  models: (m: string) => request<ModelOption[]>('GET', `${at(m)}/models`),
+  /** Os modelos de um agente; sem `provider`, os do padrão da máquina (servidor antigo ignora e manda os do Claude). */
+  models: (m: string, provider?: string) =>
+    request<ModelOption[]>('GET', `${at(m)}/models${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+  /** Os agentes da máquina (ver lib/providers.ts); servidor de antes deles responde 404. */
+  agents: (m: string) => request<AgentProviderInfo[]>('GET', `${at(m)}/agents`),
+  /** Liga, desliga ou faz padrão um agente; devolve a lista como ficou. */
+  setAgent: (m: string, id: string, patch: { enabled?: boolean; default?: boolean }) =>
+    post<AgentProviderInfo[]>(`${at(m)}/agents/${encodeURIComponent(id)}`, patch),
   /** Tarefa em segundo plano (monitor, comando): o fim da saída e parar. */
   taskOutput: (id: string, taskId: string) =>
     request<{ output: string; totalBytes: number }>('GET', `${sid(id)}/tasks/${encodeURIComponent(taskId)}/output`),
@@ -622,6 +638,12 @@ export function errorMessage(err: unknown): string {
       return 'Esse aparelho não está mais conectado.'
     case 'device_blocked':
       return 'Este aparelho foi desconectado pelo dono do PC.'
+    case 'last_agent':
+      return 'Ao menos um agente fica ligado: ligue outro antes de desligar este.'
+    case 'unknown_agent':
+      return 'Esse agente não existe nesta máquina.'
+    case 'agent_unavailable':
+      return err.details.problem ? `Esse agente não está pronto no PC: ${String(err.details.problem)}` : 'Esse agente não está pronto no PC.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

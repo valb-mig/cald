@@ -1,11 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { childEnv } from './config.ts';
 import { HttpError } from './errors.ts';
 import { gitPending } from './git.ts';
-import { hiddenSessions } from './live.ts';
+import type { AgentProvider } from './providers/types.ts';
 
-/** O que o Claude sugere para o commit: a mensagem e um nome de branch, para quem está na main. */
+/** O que o agente sugere para o commit: a mensagem e um nome de branch, para quem está na main. */
 export type CommitSuggestion = { message: string; branch: string };
 
 const TIMEOUT_MS = 60_000;
@@ -24,11 +21,12 @@ the convention has one (e.g. "fix-terminal-home", "feat-commit-suggestion"). No 
 Answer with JSON only, no code fence: {"message": "<full commit message>", "branch": "<branch name>"}`;
 
 /**
- * Pede ao Claude (Haiku, rápido) a mensagem do próximo commit: o staged, ou tudo com `all`, no
- * jeito dos últimos commits do repositório. Roda isolado: sem ferramentas, sem as configurações e
- * hooks seus nem o CLAUDE.md (que mudariam o texto), e sem gravar conversa.
+ * Pede ao agente a mensagem do próximo commit: o staged, ou tudo com `all`, no jeito dos últimos
+ * commits do repositório. É uma resposta avulsa (`complete`, ver providers/types.ts): sem ferramentas,
+ * sem as suas configurações e sem gravar conversa.
  */
-export async function suggestCommit(cwd: string, all: boolean): Promise<CommitSuggestion> {
+export async function suggestCommit(provider: AgentProvider, cwd: string, all: boolean): Promise<CommitSuggestion> {
+  if (!provider.complete) throw new HttpError(501, 'suggest_unsupported');
   const pending = await gitPending(cwd, all);
   const prompt = [
     pending.log.length
@@ -40,41 +38,14 @@ export async function suggestCommit(cwd: string, all: boolean): Promise<CommitSu
 
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
-  // Fora da lista de conversas vivas: é só uma consulta, não um claudinho novo.
-  const sessionId = randomUUID();
-  hiddenSessions.add(sessionId);
-  const q = query({
-    prompt,
-    options: {
-      cwd,
-      env: childEnv(),
-      model: 'haiku',
-      systemPrompt: SYSTEM,
-      tools: [],
-      settingSources: [],
-      persistSession: false,
-      thinking: { type: 'disabled' },
-      maxTurns: 1,
-      abortController: abort,
-      sessionId,
-    },
-  });
-  let text = '';
+  let text: string;
   try {
-    for await (const msg of q) {
-      if (msg.type !== 'result') continue;
-      if (msg.subtype !== 'success') throw new HttpError(502, 'suggest_failed');
-      text = msg.result;
-      break;
-    }
-  } catch (err) {
+    text = await provider.complete({ cwd, system: SYSTEM, prompt, signal: abort.signal });
+  } catch {
     if (abort.signal.aborted) throw new HttpError(504, 'suggest_timeout');
-    throw err instanceof HttpError ? err : new HttpError(502, 'suggest_failed');
+    throw new HttpError(502, 'suggest_failed');
   } finally {
     clearTimeout(timer);
-    q.close();
-    // O processo leva um instante para sair da lista do `claude agents`.
-    setTimeout(() => hiddenSessions.delete(sessionId), 60_000);
   }
 
   const parsed = parse(text);
