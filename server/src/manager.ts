@@ -2,40 +2,25 @@ import { EventEmitter } from 'node:events';
 import { readdir, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import {
-  getSessionInfo,
-  deleteSession,
-  getSessionMessages,
-  listSessions,
-  renameSession,
-  type EffortLevel,
-  type McpSdkServerConfigWithInstance,
-  type PermissionMode,
-  type SDKSessionInfo,
-  type SlashCommand,
-} from '@anthropic-ai/claude-agent-sdk';
 import { PROJECT_ROOTS, UPLOADS_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
-import { fromSessionMessage, type LoggedEvent } from './events.ts';
-import { stopPcSession, type LiveRegistry } from './live.ts';
+import type { LoggedEvent } from './events.ts';
 import { type Attachment, prepareTurn } from './attachments.ts';
-import { readPlanUsage } from './claude-usage.ts';
-import { describeSetup, probeSetup, type ClaudeSetup } from './claude-config.ts';
-import { listClaudeTrash, type ClaudeTrashed } from './claude-manage.ts';
-import { PanelSession, probeCommands, withProbe, type PanelSessionOptions } from './panel-session.ts';
+import { PanelSession, type PanelSessionOptions } from './panel-session.ts';
+import type { ProviderRegistry } from './providers/registry.ts';
+import type { AgentProvider, CommandInfo, ExternalSession, ModelOption, SavedMessage, SavedSession } from './providers/types.ts';
 import { searchProjectFiles } from './project-files.ts';
 import { createProjectDir, expandHome, isDirectory, listFolders, type FolderListing } from './project-folders.ts';
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
-import { transcriptCwd, transcriptFile, transcriptMarks, transcriptTimes } from './transcript.ts';
 import type { Device, OriginLog } from './origins.ts';
-import { pcOffice, type OfficeSnapshot } from './office.ts';
+import type { OfficeSnapshot } from './office.ts';
 import { pluginDir, removePlugin, writePlugin, type Habilidade, type HabilidadeInput, type HabilidadeStore } from './habilidades.ts';
 import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
-import type { CaldMcpContext } from './cald-mcp.ts';
+import type { CaldMcpContext, McpServerSpec } from './cald-mcp.ts';
 import {
   createWorktree,
   listedWorktree,
@@ -64,6 +49,8 @@ export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'sta
 
 export type CatalogEntry = {
   sessionId: string;
+  /** O agente da conversa (ver providers/). */
+  provider: string;
   title: string;
   cwd?: string;
   gitBranch?: string;
@@ -98,34 +85,18 @@ export type CatalogEntry = {
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
 
+/** Uma conversa salva, com o agente que a guarda. */
+type SavedRow = SavedSession & { provider: AgentProvider };
+/** Uma conversa aberta fora do painel, com o agente dela. */
+type ExternalRow = ExternalSession & { provider: AgentProvider };
+
 /** Sem `at`: a leitura ainda está em andamento. */
-type SavedCache = { at?: number; rows: Promise<SDKSessionInfo[]> };
+type SavedCache = { at?: number; rows: Promise<SavedRow[]> };
 
 const SAVED_CACHE_MS = 5_000;
-const COMMANDS_CACHE_MS = 10 * 60_000;
 const DELIVERED_MAX = 500;
 // Históricos já convertidos em eventos (~300 KB cada), dos mais recentes.
 const HISTORY_CACHE_MAX = 12;
-
-export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean };
-export type ModelOption = { value: string; resolvedModel?: string; displayName: string; efforts: string[] };
-
-// Comandos internos que no terminal abrem telas interativas; pelo celular não fazem sentido.
-const HIDDEN_BUILTINS = new Set([
-  'add-dir', 'agents', 'auto-mode-setup', 'bug', 'color', 'config', 'design-consent', 'design-revoke',
-  'doctor', 'exit', 'export', 'extra-usage', 'feedback', 'focus', 'heapdump', 'hooks', 'ide', 'import',
-  'insights', 'keybindings', 'list-agents', 'login', 'logout', 'mcp', 'memory', 'output-style',
-  'permissions', 'plugin', 'plugins', 'privacy-settings', 'quit', 'release-notes', 'resume', 'statusline',
-  'tasks', 'team-onboarding', 'terminal-setup', 'theme', 'upgrade', 'usage-credits', 'vim',
-]);
-
-/** Skills do usuário e de plugins primeiro; comandos internos depois. */
-function filterCommands(list: SlashCommand[]): CommandInfo[] {
-  return list
-    .filter((c) => !c.name.startsWith('_') && !(c.builtin && HIDDEN_BUILTINS.has(c.name)))
-    .map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint, builtin: Boolean(c.builtin) }))
-    .sort((a, b) => Number(a.builtin) - Number(b.builtin) || a.name.localeCompare(b.name));
-}
 
 export class Manager extends EventEmitter {
   private readonly sessions = new Map<string, PanelSession>();
@@ -133,29 +104,41 @@ export class Manager extends EventEmitter {
   /** Em ordem de uso: a primeira é a que sai quando passa do limite. */
   private readonly historyCache = new Map<string, { version: string; events: Promise<readonly LoggedEvent[]> }>();
   private readonly imageReloads = new Map<string, Promise<unknown>>();
-  private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
-  private modelsCache?: { at: number; list: Promise<ModelOption[]> };
-  private readonly setupCache = new Map<string, { at: number; setup: Promise<ClaudeSetup> }>();
   /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
   private readonly delivered = new Set<string>();
   /** Times que o Claude pôs na própria conversa (`usar_time`, ver cald-mcp.ts): entram quando o turno acaba. */
   private readonly teamLater = new Map<PanelSession, string>();
-  private readonly live: LiveRegistry;
+  private readonly providers: ProviderRegistry;
   private readonly meta: MetaStore;
   private readonly habilidades: HabilidadeStore;
   private readonly teams: TeamStore;
   private readonly workspaces: WorkspaceStore;
   private readonly origins: OriginLog;
 
-  constructor(live: LiveRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog, habilidades: HabilidadeStore) {
+  constructor(providers: ProviderRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog, habilidades: HabilidadeStore) {
     super();
-    this.live = live;
+    this.providers = providers;
     this.meta = meta;
     this.teams = teams;
     this.workspaces = workspaces;
     this.origins = origins;
     this.habilidades = habilidades;
-    live.on('change', () => this.emit('catalog'));
+    // As conversas abertas no terminal de cada agente: a lista e os avisos do PC acompanham.
+    const externalChanged = () => {
+      this.emit('catalog');
+      this.emit('external');
+    };
+    for (const p of providers.all()) p.external?.on('change', externalChanged);
+    // Um agente ligado ou desligado: as conversas dele entram ou saem da lista, e as do terminal passam (ou
+    // deixam) de ser acompanhadas.
+    providers.on('change', (toggled?: AgentProvider) => {
+      if (toggled?.external) {
+        if (providers.isEnabled(toggled.id)) void toggled.external.start().catch(() => undefined);
+        else toggled.external.stop();
+      }
+      this.savedCache = undefined;
+      externalChanged();
+    });
     // Uma habilidade criada, editada ou para a lixeira: as conversas abertas no painel já veem.
     habilidades.on('change', () => {
       for (const s of this.sessions.values()) void this.refreshHabilidades(s);
@@ -215,15 +198,54 @@ export class Manager extends EventEmitter {
     return this.sessions.get(sessionId);
   }
 
+  // ---- agentes (ver providers/) ----
+
+  /** As conversas abertas fora do painel (terminal, VSCode), de todos os agentes ligados. */
+  externals(): ExternalRow[] {
+    return this.providers.enabled().flatMap((provider) => (provider.external?.all() ?? []).map((e) => ({ ...e, provider })));
+  }
+
+  /** A conversa aberta fora do painel, se for uma. */
+  external(sessionId: string): ExternalRow | undefined {
+    for (const provider of this.providers.enabled()) {
+      const found = provider.external?.get(sessionId);
+      if (found) return { ...found, provider };
+    }
+    return undefined;
+  }
+
+  /** Reconsulta as conversas abertas fora do painel, de todos os agentes ligados. */
+  private async refreshExternals(): Promise<void> {
+    await Promise.all(this.providers.enabled().map((p) => p.external?.refresh()));
+  }
+
+  /**
+   * O agente de uma conversa: o do processo aberto no painel, o da conversa salva, o da aberta no
+   * terminal ou, numa bifurcação ainda sem histórico próprio, o da origem; sem achar em lugar nenhum,
+   * pergunta a cada agente ligado.
+   */
+  async providerOf(sessionId: string): Promise<AgentProvider> {
+    const own = this.sessions.get(sessionId);
+    if (own) return own.provider;
+    const row = (await this.saved()).find((s) => s.sessionId === sessionId);
+    if (row) return row.provider;
+    const live = this.external(sessionId);
+    if (live) return live.provider;
+    const fork = this.meta.forkOf(sessionId);
+    if (fork) return this.providerOf(fork.from);
+    for (const p of this.providers.enabled()) if (await p.history.cwd(sessionId).catch(() => undefined)) return p;
+    throw new HttpError(404, 'session_not_found');
+  }
+
   async catalog(): Promise<CatalogEntry[]> {
     const saved = await this.saved();
     const byId = new Map<string, CatalogEntry>();
 
     for (const s of saved) {
-      const title = s.customTitle ?? s.summary;
       byId.set(s.sessionId, {
         sessionId: s.sessionId,
-        title: isDerivedName(title, s.cwd) ? (s.firstPrompt ?? title) : title,
+        provider: s.provider.id,
+        title: s.provider.history.provisional(s.title, s.cwd) ? (s.firstPrompt ?? s.title) : s.title,
         cwd: s.cwd,
         gitBranch: s.gitBranch,
         lastModified: s.lastModified,
@@ -232,10 +254,11 @@ export class Manager extends EventEmitter {
       });
     }
 
-    for (const l of this.live.all()) {
+    for (const l of this.externals()) {
       const entry = byId.get(l.sessionId) ?? {
         sessionId: l.sessionId,
-        title: l.name && !isDerivedName(l.name, l.cwd) ? l.name : '(sem título)',
+        provider: l.provider.id,
+        title: l.name && !l.provider.history.provisional(l.name, l.cwd) ? l.name : '(sem título)',
         cwd: l.cwd,
         lastModified: l.startedAt,
         owner: null,
@@ -248,23 +271,24 @@ export class Manager extends EventEmitter {
       byId.set(l.sessionId, entry);
     }
 
-    // Sessões do painel por último: o processo headless também pode aparecer em `agents --json`.
+    // Sessões do painel por último: o processo do painel também pode aparecer entre as do terminal.
     for (const s of this.sessions.values()) {
       const entry = byId.get(s.id) ?? {
         sessionId: s.id,
+        provider: s.provider.id,
         title: s.label ?? '(nova sessão)',
         cwd: s.cwd,
         lastModified: s.startedAt,
         owner: null,
         state: 'stopped' as const,
       };
-      // Até o Claude Code gerar o título, o rótulo do painel (ou o início do prompt) descreve melhor.
-      if (s.label && (entry.title === '(sem título)' || isDerivedName(entry.title, entry.cwd))) entry.title = s.label;
+      // Até o agente gerar o título, o rótulo do painel (ou o início do prompt) descreve melhor.
+      if (s.label && (entry.title === '(sem título)' || s.provider.history.provisional(entry.title, entry.cwd))) entry.title = s.label;
       entry.owner = 'panel';
       entry.state = s.state === 'starting' ? 'running' : s.state === 'exited' ? 'stopped' : s.state;
-      entry.agents = s.state === 'exited' ? undefined : s.agents.active || undefined;
+      entry.agents = s.state === 'exited' ? undefined : s.activeAgents || undefined;
       entry.thinking = s.thinking || undefined;
-      const tasks = s.state === 'exited' ? [] : s.background.list.filter((t) => t.type !== 'local_agent');
+      const tasks = s.state === 'exited' ? [] : s.tasks.filter((t) => t.type !== 'local_agent');
       entry.tasks = tasks.length ? tasks.map((t) => ({ type: t.type, description: t.description })) : undefined;
       // Turno encerrado com subagentes em segundo plano: a sessão ainda está trabalhando.
       if (entry.state === 'idle' && entry.agents) entry.state = 'running';
@@ -313,13 +337,13 @@ export class Manager extends EventEmitter {
     const open = (await this.catalog()).filter((e): e is CatalogEntry & { owner: 'panel' | 'pc' } => e.owner !== null);
     return Promise.all(
       open.map(async (e) => {
-        const live = this.live.get(e.sessionId);
+        const live = this.external(e.sessionId);
         const empty: OfficeSnapshot = { workers: [], events: [] };
         const snap =
           e.owner === 'panel'
             ? (this.sessions.get(e.sessionId)?.office() ?? empty)
-            : live
-              ? await pcOffice(e.sessionId, live).catch(() => empty)
+            : live?.provider.external
+              ? await live.provider.external.office(live).catch(() => empty)
               : empty;
         return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, team: e.team, workspace: e.workspace, ...snap };
       }),
@@ -327,8 +351,8 @@ export class Manager extends EventEmitter {
   }
 
   /** As mensagens que a bifurcação herdou: as da origem até o ponto do corte, inclusive. */
-  private async inherited(fork: Fork): Promise<Awaited<ReturnType<typeof getSessionMessages>>> {
-    const origin = await getSessionMessages(fork.from);
+  private async inherited(provider: AgentProvider, fork: Fork): Promise<SavedMessage[]> {
+    const origin = await provider.history.messages(fork.from);
     if (!fork.at) return origin;
     const cut = origin.findIndex((m) => m.uuid === fork.at);
     return cut < 0 ? origin : origin.slice(0, cut + 1);
@@ -347,7 +371,9 @@ export class Manager extends EventEmitter {
     const fork = this.meta.forkOf(sessionId);
     // O `runId`: reaberta no painel, o corte em `priorMessages` é outro.
     const key = [sessionId, limit, open?.runId ?? '', fork ? `${fork.from}@${fork.at ?? ''}` : ''].join('|');
-    const version = await this.historyVersion(sessionId, Boolean(open), fork);
+    // Conversa que nenhum agente conhece (ainda): o histórico dela é vazio, como sempre foi.
+    const provider = await this.providerOf(sessionId).catch(() => this.providers.default());
+    const version = await this.historyVersion(provider, sessionId, Boolean(open), fork);
     const hit = this.historyCache.get(key);
     this.historyCache.delete(key);
     if (hit?.version === version) {
@@ -355,7 +381,7 @@ export class Manager extends EventEmitter {
       this.historyCache.set(key, hit);
       return hit.events;
     }
-    const events = this.readHistory(sessionId, limit, open?.priorMessages, fork);
+    const events = this.readHistory(provider, sessionId, limit, open?.priorMessages, fork);
     this.historyCache.set(key, { version, events });
     if (this.historyCache.size > HISTORY_CACHE_MAX) this.historyCache.delete(this.historyCache.keys().next().value!);
     events.catch(() => {
@@ -367,36 +393,41 @@ export class Manager extends EventEmitter {
   /**
    * Quando o histórico guardado deixa de valer. Aberta no painel, ele é o que existia antes do
    * processo e não muda enquanto ele vive, embora o arquivo cresça a cada turno: vale até ela fechar
-   * (a chave leva o `runId`). Fechada ou no PC, vale enquanto o transcript tiver o mesmo tamanho e
-   * data. Numa bifurcação contam também os da origem, de onde ela tira o histórico até ter turno próprio.
+   * (a chave leva o `runId`). Fechada ou no PC, vale enquanto o agente disser que o histórico é o
+   * mesmo. Numa bifurcação contam também os da origem, de onde ela tira o histórico até ter turno próprio.
    */
-  private async historyVersion(sessionId: string, open: boolean, fork?: Fork): Promise<string> {
+  private async historyVersion(provider: AgentProvider, sessionId: string, open: boolean, fork?: Fork): Promise<string> {
     if (open && !fork) return '';
-    const files = await Promise.all([sessionId, ...(fork ? [fork.from] : [])].map(transcriptFile));
-    return files.map((f) => (f ? `${f.size}:${f.mtimeMs}` : '-')).join('|');
+    const versions = await Promise.all([sessionId, ...(fork ? [fork.from] : [])].map((id) => provider.history.version(id)));
+    return versions.join('|');
   }
 
-  /** Lê o transcript e converte em eventos; as imagens achadas vão para o cache de imagens. */
-  private async readHistory(sessionId: string, limit: number, prior?: number, fork?: Fork): Promise<LoggedEvent[]> {
-    let messages = await getSessionMessages(sessionId);
-    // De qual transcript sai o esforço de cada resposta: o da própria conversa, ou o da origem enquanto ela herda.
-    let source = sessionId;
-    // Bifurcação sem turno próprio: o Claude Code só grava o log dela na primeira mensagem, então
+  /** Lê o histórico salvo e converte em eventos; as imagens achadas vão para o cache de imagens. */
+  private async readHistory(provider: AgentProvider, sessionId: string, limit: number, prior?: number, fork?: Fork): Promise<LoggedEvent[]> {
+    let messages = await provider.history.messages(sessionId);
+    // Bifurcação sem turno próprio: o agente pode só gravar o log dela na primeira mensagem, então
     // até lá o que se mostra é o histórico herdado da origem, cortado no ponto da bifurcação. Vem
     // do meta, e não da sessão viva, para continuar valendo depois que ela é fechada.
-    if (messages.length === 0 && fork) {
-      messages = await this.inherited(fork);
-      source = fork.from;
-    } else if (prior !== undefined) messages = messages.slice(0, prior);
-    const [{ efforts, prompts }, times] = await Promise.all([transcriptMarks(source), transcriptTimes(source)]);
+    if (messages.length === 0 && fork) messages = await this.inherited(provider, fork);
+    else if (prior !== undefined) messages = messages.slice(0, prior);
     const events = messages.slice(-limit).flatMap((m) =>
-      fromSessionMessage(m, imageStore.sink(sessionId, m.uuid), efforts.get(m.uuid)).map((e) =>
+      m.events(imageStore.sink(sessionId, m.uuid)).map((e) =>
         // Cada mensagem sua leva por onde, de que máquina e quando saiu.
-        e.kind === 'user' ? { ...e, uuid: m.uuid, sent: this.origins.sentOf(m.uuid, prompts.get(m.uuid)) } : { ...e, uuid: m.uuid },
+        e.kind === 'user' ? { ...e, uuid: m.uuid, time: m.time, sent: this.origins.sentOf(m.uuid, m.prompt) } : { ...e, uuid: m.uuid, time: m.time },
       ),
     );
     // Histórico salvo não tem seq; numerado localmente só para o cliente ordenar.
-    return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0, time: times.get(e.uuid) }) as LoggedEvent);
+    return events.map((e, i) => ({ ...e, seq: i + 1, ts: 0 }) as LoggedEvent);
+  }
+
+  /** O histórico salvo de uma conversa, entrada por entrada (os avisos do PC leem o último turno). */
+  async savedMessages(sessionId: string): Promise<SavedMessage[]> {
+    return (await this.providerOf(sessionId)).history.messages(sessionId);
+  }
+
+  /** O que um subagente fez, do histórico salvo dele (agentes do histórico e de conversas abertas no PC). */
+  async subagent(sessionId: string, toolUseId: string, agentId?: string): Promise<LoggedEvent[]> {
+    return (await this.providerOf(sessionId)).history.subagent(sessionId, toolUseId, agentId);
   }
 
   /**
@@ -470,6 +501,8 @@ export class Manager extends EventEmitter {
    */
   async create(
     opts: RunOptions & {
+      /** O agente da conversa; sem ele, o padrão. */
+      provider?: string;
       cwd?: string;
       prompt: string;
       title?: string;
@@ -480,7 +513,8 @@ export class Manager extends EventEmitter {
       from?: Device;
     },
   ): Promise<PanelSession> {
-    const { prompt, attachments, teamId, workspaceId, worktree, from, ...rest } = opts;
+    const { prompt, attachments, teamId, workspaceId, worktree, from, provider: providerId, ...rest } = opts;
+    const provider = this.providers.pick(providerId);
     // O time vai copiado: editá-lo depois não muda esta conversa.
     const team = teamId ? snapshotOf(this.teams.get(teamId)) : undefined;
     const ws = workspaceId ? this.workspaces.get(workspaceId) : undefined;
@@ -504,6 +538,7 @@ export class Manager extends EventEmitter {
     const session = this.adopt(
       new PanelSession({
         ...rest,
+        provider,
         cwd,
         team,
         workspace,
@@ -593,12 +628,12 @@ export class Manager extends EventEmitter {
     const status = await worktreeStatus(ref, info);
     if (!force && unsaved(status)) throw new HttpError(409, 'worktree_unsaved', { changed: status.changed, ahead: status.ahead });
     const inside = (dir?: string) => dir !== undefined && (dir === ref.path || dir.startsWith(ref.path + sep));
-    await this.live.refresh();
-    // O processo headless do painel também aparece em `agents --json`: esse o painel fecha sozinho.
-    if (this.live.all().some((l) => inside(l.cwd) && !this.sessions.has(l.sessionId))) throw new HttpError(409, 'live_on_pc');
+    await this.refreshExternals();
+    // O processo do painel também aparece entre as do terminal: esse o painel fecha sozinho.
+    if (this.externals().some((l) => inside(l.cwd) && !this.sessions.has(l.sessionId))) throw new HttpError(409, 'live_on_pc');
     const own = [...this.sessions.values()].filter((s) => inside(s.cwd) && s.state !== 'exited');
-    const busy = own.find((s) => s.state === 'running' || s.state === 'waiting' || s.agents.active);
-    if (busy) throw new HttpError(409, 'session_busy', { state: busy.state, agents: busy.agents.active });
+    const busy = own.find((s) => s.state === 'running' || s.state === 'waiting' || s.activeAgents);
+    if (busy) throw new HttpError(409, 'session_busy', { state: busy.state, agents: busy.activeAgents });
     await Promise.all(own.map((s) => s.shutdown()));
     await removeWorktree(ref, status);
     await this.meta.setWorktree(ref.path, undefined);
@@ -616,7 +651,7 @@ export class Manager extends EventEmitter {
   private readonly memoryHook = (sessionId: string, tool: string, input: unknown) => this.suggestMemory?.(sessionId, tool, input) ?? Promise.resolve(null);
 
   /** O MCP do cald para uma conversa do painel (ver cald-mcp.ts). Posto pelo index.ts, que tem o TODO. */
-  mcpFor?: (ctx: CaldMcpContext) => McpSdkServerConfigWithInstance;
+  mcpFor?: (ctx: CaldMcpContext) => McpServerSpec;
 
   /** O MCP de uma conversa que vai abrir em `cwd`, amarrado a ela para o `usar_time`. */
   private caldMcp(cwd: string): PanelSessionOptions['mcp'] {
@@ -673,92 +708,49 @@ export class Manager extends EventEmitter {
 
   /**
    * Comandos e skills para o autocompletar do "/", por projeto. As habilidades do cald entram como
-   * `cald:nome`, tiradas daqui e não do processo (a sonda não leva o plugin), sem as desligadas na
-   * conversa `sessionId`.
+   * `cald:nome`, tiradas daqui e não do agente (a sonda não leva o plugin), sem as desligadas na
+   * conversa `sessionId`. Os do agente vêm do agente da conversa, do pedido, ou do padrão.
    */
-  async commands(cwd: string, sessionId?: string): Promise<CommandInfo[]> {
+  async commands(cwd: string, sessionId?: string, providerId?: string): Promise<CommandInfo[]> {
     const dir = await this.knownCwd(cwd);
+    const provider = sessionId ? await this.providerOf(sessionId).catch(() => this.providers.pick(providerId)) : this.providers.pick(providerId);
     const ours = this.habilidadesFor(dir, sessionId).map((h) => ({ name: `cald:${h.name}`, description: h.description, argumentHint: '', builtin: false }));
-    const theirs = (await this.claudeCommands(dir)).filter((c) => !c.name.startsWith('cald:'));
+    const theirs = (await provider.commands(dir)).filter((c) => !c.name.startsWith('cald:'));
     return [...ours, ...theirs];
   }
 
-  private async claudeCommands(dir: string): Promise<CommandInfo[]> {
-    const open = [...this.sessions.values()].find((s) => s.cwd === dir);
-    if (open) return filterCommands(await open.commands());
-    const hit = this.commandsCache.get(dir);
-    if (hit && Date.now() - hit.at < COMMANDS_CACHE_MS) return hit.list;
-    const list = probeCommands(dir).then(filterCommands);
-    this.commandsCache.set(dir, { at: Date.now(), list });
-    list.catch(() => this.commandsCache.delete(dir));
-    return list;
+  /** Modelos e níveis de esforço do agente pedido (ou do padrão). */
+  models(providerId?: string): Promise<ModelOption[]> {
+    return this.providers.pick(providerId).models();
   }
 
-  /**
-   * Skills, agentes e servidores MCP de uma pasta (sem `cwd`, os da pasta pessoal, que valem em
-   * todas): pela conversa do painel aberta ali, se houver; senão por uma sonda (cache de 10 min).
-   */
-  async claudeSetup(cwd: string | undefined, refresh = false): Promise<ClaudeSetup & { trash: ClaudeTrashed[] }> {
-    const dir = cwd ? await this.knownCwd(cwd) : homedir();
-    let hit = this.setupCache.get(dir);
-    if (refresh || !hit || Date.now() - hit.at >= COMMANDS_CACHE_MS) {
-      const open = [...this.sessions.values()].find((s) => s.cwd === dir);
-      const raw = open ? open.setup() : withProbe(dir, probeSetup);
-      const setup = Promise.all([raw, this.projects()]).then(([r, projects]) => describeSetup(dir, r, projects));
-      hit = { at: Date.now(), setup };
-      this.setupCache.set(dir, hit);
-      setup.catch(() => this.setupCache.delete(dir));
-    }
-    // A lixeira vem sempre do disco: ela muda sem o Claude Code saber.
-    const [setup, trash] = await Promise.all([hit.setup, listClaudeTrash(cwd ? dir : undefined)]);
-    return { ...setup, trash };
+  /** O agente ligado que tem limites de plano (o padrão, se tiver). */
+  private usageProvider(): AgentProvider | undefined {
+    const def = this.providers.default();
+    return def.usage ? def : this.providers.enabled().find((p) => p.usage);
   }
 
-  /** Depois de ligar, desligar ou mandar algo para a lixeira: o que vale mudou em todas as pastas. */
-  forgetSetup(): void {
-    this.setupCache.clear();
-    this.commandsCache.clear();
-  }
-
-  /**
-   * Liga ou desliga um servidor MCP numa pasta. O Claude Code grava isso por pasta (no ~/.claude.json),
-   * então vale para as próximas conversas ali; as do painel abertas nela mudam na hora.
-   */
-  async toggleMcp(cwd: string | undefined, name: string, enabled: boolean): Promise<void> {
-    const dir = cwd ? await this.knownCwd(cwd) : homedir();
-    const open = [...this.sessions.values()].filter((s) => s.cwd === dir);
-    if (open.length) for (const s of open) await s.toggleMcp(name, enabled);
-    else await withProbe(dir, (q) => q.toggleMcpServer(name, enabled));
-    this.setupCache.delete(dir);
-    this.commandsCache.delete(dir);
-  }
-
-  /** Modelos e níveis de esforço: pela sessão aberta no painel, se houver; senão por uma sonda (cache de 10 min). */
-  async models(): Promise<ModelOption[]> {
-    if (this.modelsCache && Date.now() - this.modelsCache.at < COMMANDS_CACHE_MS) return this.modelsCache.list;
-    const open = this.sessions.values().next().value;
-    const list = (open ? open.models() : withProbe(homedir(), (q) => q.supportedModels())).then((models) =>
-      models.map((m) => ({
-        value: m.value,
-        resolvedModel: m.resolvedModel,
-        displayName: m.displayName,
-        efforts: m.supportedEffortLevels ?? [],
-      })),
-    );
-    this.modelsCache = { at: Date.now(), list };
-    list.catch(() => (this.modelsCache = undefined));
-    return list;
-  }
-
-  /** Limites do plano: pela sessão aberta no painel, se houver; senão por uma sonda. */
+  /** Limites do plano, do agente que tem. */
   async planUsage(): Promise<PlanUsage> {
-    const open = this.sessions.values().next().value;
-    return open ? open.planUsage() : withProbe(homedir(), readPlanUsage);
+    const provider = this.usageProvider();
+    if (!provider?.usage) throw new HttpError(404, 'no_plan_usage');
+    return provider.usage();
   }
 
-  /** Sem conversa aberta no painel, consultar o uso do plano sobe um Claude Code inteiro (a sonda). */
+  /** Consultar o uso do plano agora sobe um processo só para isso. */
   planNeedsProbe(): boolean {
-    return this.sessions.size === 0;
+    return this.usageProvider()?.usageIsCostly?.() ?? true;
+  }
+
+  /** O agente que escreve respostas avulsas (a mensagem do commit): o padrão, se souber. */
+  completer(): AgentProvider {
+    const def = this.providers.default();
+    return def.complete ? def : (this.providers.enabled().find((p) => p.complete) ?? def);
+  }
+
+  /** Algo mudou por fora (uma skill ligada, um MCP para a lixeira): os agentes esquecem o que guardaram. */
+  forgetSetup(): void {
+    for (const p of this.providers.all()) p.forget?.();
   }
 
   /** Arquivos do projeto para o autocompletar do "@". */
@@ -772,12 +764,13 @@ export class Manager extends EventEmitter {
    */
   async delete(sessionId: string): Promise<void> {
     const own = this.sessions.get(sessionId);
+    const provider = await this.providerOf(sessionId);
     if (!own) {
-      await this.live.refresh();
-      if (this.live.get(sessionId)) throw new HttpError(409, 'live_on_pc');
+      await this.refreshExternals();
+      if (this.external(sessionId)) throw new HttpError(409, 'live_on_pc');
     }
     await own?.shutdown();
-    await deleteSession(sessionId);
+    await provider.history.delete(sessionId);
     await rm(join(UPLOADS_DIR, sessionId), { recursive: true, force: true });
     if (this.meta.isPinned(sessionId)) await this.meta.setPinned(sessionId, false);
     if (this.meta.nameOf(sessionId)) await this.meta.setName(sessionId, null);
@@ -799,9 +792,9 @@ export class Manager extends EventEmitter {
     this.emit('catalog');
   }
 
-  /** Título gravado no próprio Claude Code: aparece também no /resume do terminal. */
+  /** Título gravado no próprio agente (no Claude Code, aparece também no /resume do terminal). */
   async rename(sessionId: string, title: string): Promise<void> {
-    await renameSession(sessionId, title.trim());
+    await (await this.providerOf(sessionId)).history.rename(sessionId, title.trim());
     this.savedCache = undefined;
     this.emit('catalog');
   }
@@ -825,7 +818,8 @@ export class Manager extends EventEmitter {
     let reload = this.imageReloads.get(sessionId);
     if (!reload) {
       const open = this.sessions.get(sessionId);
-      reload = this.readHistory(sessionId, 5_000, open?.priorMessages, this.meta.forkOf(sessionId))
+      reload = this.providerOf(sessionId)
+        .then((provider) => this.readHistory(provider, sessionId, 5_000, open?.priorMessages, this.meta.forkOf(sessionId)))
         .catch(() => [])
         .finally(() => this.imageReloads.delete(sessionId));
       this.imageReloads.set(sessionId, reload);
@@ -833,10 +827,7 @@ export class Manager extends EventEmitter {
     return reload;
   }
 
-  async updateSettings(
-    sessionId: string,
-    patch: { model?: string; effort?: EffortLevel; permissionMode?: PermissionMode },
-  ): Promise<void> {
+  async updateSettings(sessionId: string, patch: { model?: string; effort?: string; permissionMode?: string }): Promise<void> {
     const session = this.get(sessionId);
     if (patch.model) await session.setModel(patch.model);
     if (patch.effort) await session.setEffort(patch.effort);
@@ -860,27 +851,29 @@ export class Manager extends EventEmitter {
     const own = this.sessions.get(sessionId);
     if (own && !opts.fork) return own;
 
-    const info = await getSessionInfo(sessionId);
-    const cwd = info && (info.cwd ?? (await transcriptCwd(sessionId)));
+    const provider = await this.providerOf(sessionId);
+    if (opts.fork && !provider.features.fork) throw new HttpError(409, 'fork_unsupported');
+    const cwd = await provider.history.cwd(sessionId);
     if (!cwd) throw new HttpError(404, 'session_not_found');
     // O worktree dela foi removido (ou a pasta sumiu): o histórico continua legível, mas não há onde rodar.
     if (!(await isDirectory(cwd))) throw new HttpError(410, worktreeOf(cwd) ? 'worktree_removed' : 'cwd_gone');
 
     if (!opts.fork) {
-      await this.live.refresh();
-      const live = this.live.get(sessionId);
+      await provider.external?.refresh();
+      const live = provider.external?.get(sessionId);
       if (live) {
         throw new HttpError(409, 'live_on_pc', { status: live.status, waitingFor: live.waitingFor, kind: live.kind });
       }
     }
-    const messages = await getSessionMessages(sessionId);
+    const uuids = await provider.history.uuids(sessionId);
     // Bifurcar no meio: o corte fica no último registro que fica de pé, e o resto é descartado.
-    const cut = opts.at ? messages.findIndex((m) => m.uuid === opts.at) : -1;
+    const cut = opts.at ? uuids.indexOf(opts.at) : -1;
     if (opts.at && cut < 0) throw new HttpError(404, 'fork_point_not_found');
-    const priorMessages = cut >= 0 ? cut + 1 : messages.length;
+    const priorMessages = cut >= 0 ? cut + 1 : uuids.length;
     const session = this.adopt(
       new PanelSession({
         ...opts,
+        provider,
         cwd,
         resume: sessionId,
         resumeAt: opts.at,
@@ -905,7 +898,7 @@ export class Manager extends EventEmitter {
   }
 
   /**
-   * Troca (ou tira, com `null`) o time de uma conversa que já começou. O SDK fixa os subagentes quando o
+   * Troca (ou tira, com `null`) o time de uma conversa que já começou. O agente fixa os subagentes quando o
    * processo sobe: aberta no painel, ela precisa estar parada, e o processo é encerrado e retomado com
    * o time novo, com os mesmos modelo, esforço e modo. Fechada (ou no PC), o time vale quando ela for
    * aberta no painel.
@@ -931,11 +924,7 @@ export class Manager extends EventEmitter {
     await change();
     if (own) {
       const { model, effort, permissionMode } = own.settings;
-      await this.open(sessionId, {
-        model,
-        effort: (effort ?? undefined) as EffortLevel | undefined,
-        permissionMode: permissionMode as PermissionMode | undefined,
-      });
+      await this.open(sessionId, { model, effort: effort ?? undefined, permissionMode });
     }
     this.emit('catalog');
   }
@@ -955,12 +944,12 @@ export class Manager extends EventEmitter {
     const own = this.sessions.get(sessionId);
     if (own) return own;
 
-    await this.live.refresh();
-    const live = this.live.get(sessionId);
-    if (live) {
-      await stopPcSession(live);
-      await this.live.refresh();
-      if (this.live.get(sessionId)) throw new HttpError(409, 'still_live_on_pc');
+    await this.refreshExternals();
+    const live = this.external(sessionId);
+    if (live?.provider.external) {
+      await live.provider.external.close(live);
+      await live.provider.external.refresh();
+      if (live.provider.external.get(sessionId)) throw new HttpError(409, 'still_live_on_pc');
     }
     return this.open(sessionId, opts);
   }
@@ -969,7 +958,7 @@ export class Manager extends EventEmitter {
   async release(sessionId: string): Promise<{ resumeCommand: string }> {
     const session = this.get(sessionId);
     await session.release();
-    return { resumeCommand: `cd ${shellQuote(session.cwd)} && claude --resume ${session.id}` };
+    return { resumeCommand: session.provider.resumeCommand(session.cwd, session.id) };
   }
 
   /** Conversas abertas no painel com os ajustes atuais, para reabrir depois de um reinício. */
@@ -982,8 +971,7 @@ export class Manager extends EventEmitter {
     const opened: string[] = [];
     for (const e of entries) {
       try {
-        const opts = { model: e.model, effort: (e.effort ?? undefined) as EffortLevel | undefined, permissionMode: e.permissionMode as PermissionMode | undefined };
-        opened.push((await this.open(e.sessionId, opts)).id);
+        opened.push((await this.open(e.sessionId, { model: e.model, effort: e.effort ?? undefined, permissionMode: e.permissionMode })).id);
       } catch {
         // Apagada, aberta no PC nesse meio-tempo…: fica fechada.
       }
@@ -1035,11 +1023,14 @@ export class Manager extends EventEmitter {
     return session;
   }
 
-  /** Conversas salvas, com cache curto; quem pede enquanto a leitura anda espera a mesma. */
-  private saved(): Promise<SDKSessionInfo[]> {
+  /** Conversas salvas de todos os agentes ligados, com cache curto; quem pede enquanto a leitura anda espera a mesma. */
+  private saved(): Promise<SavedRow[]> {
     const hit = this.savedCache;
     if (hit && (hit.at === undefined || Date.now() - hit.at < SAVED_CACHE_MS)) return hit.rows;
-    const entry: SavedCache = { rows: listSaved() };
+    const rows = Promise.all(
+      this.providers.enabled().map(async (provider) => (await provider.history.list()).map((s) => ({ ...s, provider }))),
+    ).then((lists) => lists.flat());
+    const entry: SavedCache = { rows };
     this.savedCache = entry;
     entry.rows.then(
       () => (entry.at = Date.now()),
@@ -1049,13 +1040,6 @@ export class Manager extends EventEmitter {
     );
     return entry.rows;
   }
-}
-
-async function listSaved(): Promise<SDKSessionInfo[]> {
-  const rows = await listSessions();
-  // O SDK não achou o `cwd` (primeira mensagem com imagem, ver transcriptCwd): lê do transcript.
-  await Promise.all(rows.filter((r) => !r.cwd).map(async (r) => (r.cwd = await transcriptCwd(r.sessionId))));
-  return rows;
 }
 
 function isUnderRoots(dir: string): boolean {
@@ -1071,18 +1055,4 @@ function listedByRoots(dir: string): boolean {
 function isUnderAny(dir: string, roots: string[]): boolean {
   const abs = resolve(dir);
   return roots.some((root) => abs === resolve(root) || abs.startsWith(resolve(root) + sep));
-}
-
-/**
- * Nome provisório que o Claude Code dá à sessão ("cald-86") até gerar o título;
- * nesse intervalo o primeiro prompt descreve melhor a conversa.
- */
-function isDerivedName(title: string, cwd?: string): boolean {
-  if (!cwd) return false;
-  const slug = basename(cwd).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  return new RegExp(`^${slug}-[0-9a-f]{2}$`).test(title);
-}
-
-function shellQuote(s: string): string {
-  return `'${s.replaceAll("'", `'\\''`)}'`;
 }

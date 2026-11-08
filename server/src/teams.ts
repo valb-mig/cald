@@ -1,4 +1,3 @@
-import type { AgentDefinition, EffortLevel } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -8,10 +7,14 @@ import { HttpError } from './errors.ts';
 
 /**
  * Times de agentes: subagentes seus, cada um com nome, papel, modelo, esforço e instruções, que a
- * conversa do painel recebe como `agents` do SDK. O Claude da conversa coordena e delega a eles pela
+ * conversa do painel recebe como os subagentes dela (no Claude Code, `agents` do SDK, ver
+ * providers/claude/team.ts). O Claude da conversa coordena e delega a eles pela
  * ferramenta Agent, como faz com os subagentes de sempre. Cada conversa guarda uma cópia do time de
  * quando começou (ver meta.ts): editar ou apagar um time só vale para as conversas novas.
  */
+
+/** Níveis de esforço de raciocínio que um membro pode pedir. */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type TeamMember = {
   id: string;
@@ -22,7 +25,7 @@ export type TeamMember = {
   role: string;
   /** Sem modelo, ele usa o da conversa; sem esforço, o padrão do modelo. */
   model?: string;
-  effort?: EffortLevel;
+  effort?: Effort;
   instructions: string;
 };
 
@@ -161,31 +164,6 @@ export class TeamStore extends EventEmitter {
 }
 
 export const snapshotOf = (team: Team): TeamSnapshot => ({ id: team.id, name: team.name, members: team.members });
-
-/** Os membros como subagentes do SDK: o nome e o papel dizem ao Claude quando chamar cada um. */
-export function agentsOf(team: TeamSnapshot): Record<string, AgentDefinition> {
-  return Object.fromEntries(
-    team.members.map((m) => {
-      const role = m.role ? `, ${m.role}` : '';
-      const brief = m.instructions.split('\n').find((l) => l.trim())?.trim() ?? '';
-      return [
-        m.key,
-        {
-          description: `${m.name}${role} do time "${team.name}". ${brief}`.trim().slice(0, 600),
-          prompt: [
-            `Você é ${m.name}${role} no time "${team.name}", chamado pelo Claude que coordena esta conversa.`,
-            m.instructions,
-            'Faça só o que foi delegado a você e termine com um relatório curto do que fez, do que mudou e do que ficou pendente.',
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
-          model: m.model,
-          effort: m.effort,
-        },
-      ];
-    }),
-  );
-}
 
 /** O que a conversa fica sabendo do time, no fim do prompt de sistema. */
 export function teamPrompt(team: TeamSnapshot): string {

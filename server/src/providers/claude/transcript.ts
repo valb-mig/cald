@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { CLAUDE_HOME } from './config.ts';
+import { CLAUDE_HOME } from './env.ts';
 
 // IDs viram nomes de arquivo: nada de `..` nem `/`.
 export const SAFE_ID = /^[\w-]{1,64}$/;

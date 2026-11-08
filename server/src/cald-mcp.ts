@@ -1,4 +1,3 @@
-import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MAX_BYTES, type ArtefatoStore, type Artefato } from './artefatos.ts';
 import { MAX_DETALHE_BODY, MAX_DETALHE_TITLE, type Detalhe, type DetalheStore } from './detalhes.ts';
@@ -13,8 +12,10 @@ import { worktreeOf } from './worktrees.ts';
  * O MCP do cald: ferramentas para o Claude de uma conversa do painel criar e mudar as coisas do
  * próprio cald (o TODO do projeto, os detalhes dele, times, workspaces e habilidades), que aparecem na
  * hora no app.
- * Roda no mesmo processo (`createSdkMcpServer`), um por conversa, já amarrado à pasta dela. Nada
- * aqui apaga: é a mesma regra do app de não ter ação sem volta. As abertas no terminal não o veem.
+ * Roda no mesmo processo, um por conversa, já amarrado à pasta dela. Aqui ele é só a descrição das
+ * ferramentas (`McpServerSpec`), sem amarrar a um agente: cada um monta o servidor do seu jeito (o
+ * Claude Code, com `createSdkMcpServer`, ver providers/claude/run.ts). Nada aqui apaga: é a mesma
+ * regra do app de não ter ação sem volta. As abertas no terminal não o veem.
  */
 
 export const CALD_MCP = 'cald';
@@ -26,7 +27,7 @@ export const CALD_MCP = 'cald';
  * do projeto, e um arquivo de um repositório qualquer poderia convencer o Claude a plantar ali uma
  * instrução que fica.
  */
-export const CALD_MCP_ALLOWED = [
+export const CALD_MCP_ALLOWED = new Set([
   'listar_todos',
   'criar_todos',
   'editar_todo',
@@ -41,7 +42,35 @@ export const CALD_MCP_ALLOWED = [
   // Publicar um artefato só o põe na tailnet (o link público é ligado por você, no app).
   'publicar_artefato',
   'listar_artefatos',
-].map((name) => `mcp__${CALD_MCP}__${name}`);
+]);
+
+/** O que uma ferramenta devolve: texto para o agente ler, e se foi erro. */
+export type McpToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
+
+/** Uma ferramenta do MCP do cald: a entrada descrita em zod, e o que ela faz. */
+export type McpTool = {
+  name: string;
+  description: string;
+  shape: z.ZodRawShape;
+  handler: (args: Record<string, unknown>) => Promise<McpToolResult>;
+  annotations?: { readOnlyHint?: boolean; idempotentHint?: boolean; destructiveHint?: boolean };
+  /** Passa sem pedir aprovação (ver CALD_MCP_ALLOWED). */
+  allowed: boolean;
+};
+
+/** O MCP do cald de uma conversa, para o agente montar. */
+export type McpServerSpec = { name: string; version: string; instructions: string; tools: McpTool[] };
+
+/** Uma ferramenta, com os tipos da entrada tirados do próprio esquema. */
+function tool<S extends z.ZodRawShape>(
+  name: string,
+  description: string,
+  shape: S,
+  handler: (args: z.infer<z.ZodObject<S>>) => Promise<McpToolResult>,
+  extras: Pick<McpTool, 'annotations'> = {},
+): McpTool {
+  return { name, description, shape, handler: handler as McpTool['handler'], annotations: extras.annotations, allowed: CALD_MCP_ALLOWED.has(name) };
+}
 
 export type CaldMcpDeps = {
   todos: TodoStore;
@@ -164,7 +193,7 @@ const mapMembers = (list: z.infer<typeof member>[], old?: Team) =>
   }));
 const mapCommands = (list: z.infer<typeof command>[]) => list.map((c) => ({ label: c.rotulo, command: c.comando, cwd: c.pasta }));
 
-export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerConfigWithInstance {
+export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
   const { todos, detalhes, teams, workspaces, habilidades, artefatos } = deps;
   const knownProjects = (list: string[]) => Promise.all(list.map((p) => deps.knownCwd(p)));
   const habilidade = (id: string) => {
@@ -174,7 +203,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
     return found;
   };
 
-  return createSdkMcpServer({
+  return {
     name: CALD_MCP,
     version: '1.0.0',
     instructions: instructionsFor(detalhes.index(ctx.cwd)),
@@ -431,5 +460,5 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpSdkServerCon
         { annotations: { readOnlyHint: true } },
       ),
     ],
-  });
+  };
 }

@@ -1,9 +1,8 @@
 import { homedir } from 'node:os';
 import { basename } from 'node:path';
-import { getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
-import { fromSessionMessage, parseQuestions, type LoggedEvent, type Question } from './events.ts';
-import type { LiveRegistry, LiveSession } from './live.ts';
+import { parseQuestions, type LoggedEvent, type Question } from './events.ts';
 import type { Manager } from './manager.ts';
+import type { ExternalSession } from './providers/types.ts';
 import type { PushService, SendOptions } from './push.ts';
 
 const HOUR = 3_600;
@@ -30,21 +29,19 @@ const PC_DONE_MIN_MS = 60_000;
  */
 export class Notifier {
   private readonly manager: Manager;
-  private readonly live: LiveRegistry;
   private readonly push: PushService;
   /** Última fala do Claude no turno em andamento, para o aviso de "terminou". */
   private readonly lastReply = new Map<string, string>();
   /** Último resultado de turno, até a sessão parar: com mensagem na fila, o CLI emenda outro turno. */
   private readonly lastResult = new Map<string, Extract<LoggedEvent, { kind: 'result' }>>();
   /** Estado anterior das sessões vivas no PC; `undefined` até a primeira leitura. */
-  private pc?: Map<string, { status: LiveSession['status']; since: number }>;
+  private pc?: Map<string, { status: ExternalSession['status']; since: number }>;
 
-  constructor(manager: Manager, live: LiveRegistry, push: PushService) {
+  constructor(manager: Manager, push: PushService) {
     this.manager = manager;
-    this.live = live;
     this.push = push;
     manager.on('event', (sessionId: string, ev: LoggedEvent) => void this.onPanelEvent(sessionId, ev).catch(this.fail));
-    live.on('change', () => void this.onLiveChange().catch(this.fail));
+    manager.on('external', () => void this.onLiveChange().catch(this.fail));
   }
 
   // Mesmo destino das falhas de envio: o log do serviço.
@@ -87,8 +84,8 @@ export class Notifier {
   private async onLiveChange(): Promise<void> {
     const before = this.pc;
     const now = Date.now();
-    // O processo headless do painel também aparece em `claude agents`; esse já avisa pelos eventos.
-    const rows = this.live.all().filter((l) => !this.manager.find(l.sessionId));
+    // O processo do painel também aparece entre as do terminal; esse já avisa pelos eventos.
+    const rows = this.manager.externals().filter((l) => !this.manager.find(l.sessionId));
     this.pc = new Map(
       rows.map((l) => {
         const prev = before?.get(l.sessionId);
@@ -101,10 +98,10 @@ export class Notifier {
     for (const l of rows) {
       const prev = before.get(l.sessionId);
       if (l.status === 'waiting' && prev?.status !== 'waiting') {
-        const { tool } = await savedTurn(l.sessionId);
+        const { tool } = await savedTurn(this.manager, l.sessionId);
         await this.send(l.sessionId, 'Aguardando no PC', pcWaitingText(l.waitingFor, tool), PC_WAITING);
       } else if (l.status === 'idle' && prev?.status === 'busy' && now - prev.since >= PC_DONE_MIN_MS) {
-        const { reply } = await savedTurn(l.sessionId);
+        const { reply } = await savedTurn(this.manager, l.sessionId);
         await this.send(l.sessionId, 'Terminou no PC', reply ? plain(reply) : `Turno de ${duration(now - prev.since)}`, PC_DONE);
       }
     }
@@ -129,13 +126,13 @@ export class Notifier {
 
 type ToolCall = { name: string; input: unknown };
 
-/** Última fala do Claude e última ferramenta chamada no turno atual, lidas da conversa salva. */
-async function savedTurn(sessionId: string): Promise<{ reply?: string; tool?: ToolCall }> {
-  const messages = await getSessionMessages(sessionId).catch(() => []);
+/** Última fala do agente e última ferramenta chamada no turno atual, lidas da conversa salva. */
+async function savedTurn(manager: Manager, sessionId: string): Promise<{ reply?: string; tool?: ToolCall }> {
+  const messages = await manager.savedMessages(sessionId).catch(() => []);
   let reply: string | undefined;
   let tool: ToolCall | undefined;
   for (let i = messages.length - 1; i >= 0 && !(reply && tool); i--) {
-    const events = fromSessionMessage(messages[i]!);
+    const events = messages[i]!.events();
     // Prompt do usuário: começo do turno, o que vem antes é de outro.
     if (events.some((e) => e.kind === 'user')) break;
     for (const e of events.reverse()) {

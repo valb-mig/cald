@@ -1,6 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { HttpError } from './errors.ts';
+import { HttpError } from '../../errors.ts';
 import { TranscriptTally, transcriptPath } from './transcript.ts';
 
 /**

@@ -8,8 +8,7 @@ import Fastify, { LogController, type FastifyReply, type FastifyRequest } from '
 import type { WebSocket } from 'ws';
 import { mkdir } from 'node:fs/promises';
 import { AccessMonitor, keyOf, LOCAL } from './access.ts';
-import { activity } from './activity.ts';
-import { agentTranscript } from './agents.ts';
+import { activity } from './providers/claude/activity.ts';
 import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
 import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
@@ -23,7 +22,6 @@ import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
 import { RemoteLink } from './link.ts';
-import { LiveRegistry } from './live.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
@@ -32,7 +30,7 @@ import { PinLock } from './pin.ts';
 import { clearProjectIcon, projectIcon, projectIconInfo, setProjectIcon } from './project-icon.ts';
 import { openPrototype, PROTOTYPE_CSP, prototypeFile, prototypeVersion, VIEW_ROUTE } from './prototypes.ts';
 import { PushService, type PushPayload, type PushPrefs, type PushSubscriptionInput, type SendOptions } from './push.ts';
-import { sessionCost } from './session-cost.ts';
+import { sessionCost } from './providers/claude/cost.ts';
 import { AudioMonitor } from './audio.ts';
 import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
@@ -44,10 +42,12 @@ import { DetalheStore, MAX_DETALHE_BODY, MAX_DETALHE_TITLE, MAX_DETALHES, type D
 import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } from './saved-commands.ts';
 import { MAX_INSTRUCTIONS, MAX_MEMBERS, TeamStore, type TeamInput } from './teams.ts';
 import { buildInbox, InboxState, type StateAction } from './inbox.ts';
-import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './memory.ts';
-import { MemorySuggestionStore } from './memory-suggestions.ts';
-import { claudeItemText } from './claude-config.ts';
-import { emptyClaudeTrash, restoreClaude, setPlugin, setSkill, trashItem, trashMcp, type McpScope } from './claude-manage.ts';
+import { emptyTrash, listMemory, MAX_MEMORY_DESCRIPTION, MAX_MEMORY_TEXT, restoreMemories, saveMemory, trashMemories } from './providers/claude/memory.ts';
+import { MemorySuggestionStore } from './providers/claude/memory-suggestions.ts';
+import { claudeItemText } from './providers/claude/setup.ts';
+import { emptyClaudeTrash, restoreClaude, setPlugin, setSkill, trashItem, trashMcp, type McpScope } from './providers/claude/manage.ts';
+import { ClaudeProvider } from './providers/claude/index.ts';
+import { ProviderRegistry } from './providers/registry.ts';
 import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MAX_RULES, WorkspaceStore, type WorkspaceInput } from './workspaces.ts';
 import { MAX_AUDIO_BYTES, transcribe, whisperAvailable } from './transcribe.ts';
 import { MAX_SPEAK_CHARS, piperAvailable, speak } from './speak.ts';
@@ -55,7 +55,10 @@ import { RESTART_EXIT_CODE, Updater, saveResume, takeResume } from './updater.ts
 import { DeviceDirectory, OriginLog } from './origins.ts';
 
 await mkdir(UPLOADS_DIR, { recursive: true });
-const live = new LiveRegistry();
+// Os agentes que conduzem as conversas (ver providers/types.ts). Um agente novo entra nesta lista.
+const claude = new ClaudeProvider();
+const providers = new ProviderRegistry([claude]);
+await providers.load();
 const meta = new MetaStore();
 await meta.load();
 const todos = new TodoStore();
@@ -90,7 +93,7 @@ await habilidades.load();
 const memorySuggestions = new MemorySuggestionStore();
 await memorySuggestions.load();
 await clearPlugins();
-const manager = new Manager(live, meta, teams, workspaces, origins, habilidades);
+const manager = new Manager(providers, meta, teams, workspaces, origins, habilidades);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
@@ -113,7 +116,7 @@ push.on('error', (err) => app.log.warn({ err }, 'falha ao enviar notificação')
 access.on('alert', (title: string, body: string) =>
   void push.notify({ title, body, tag: 'access', url: '/?computador=acesso', ts: Date.now() }, { needs: [], urgency: 'high', ttl: 24 * 3600, topic: 'access' }),
 );
-new Notifier(manager, live, push);
+new Notifier(manager, push);
 
 const app = Fastify({ logger: { level: 'info' }, logController: new LogController({ disableRequestLogging: true }) });
 await app.register(websocket);
@@ -129,10 +132,11 @@ app.setErrorHandler((err: unknown, _req, reply) => {
 
 // ---- REST: comandos ----
 
+// Os valores são do agente da conversa (ver `features` em providers/types.ts); quem confere é ele.
 const runOptions = {
-  model: { type: 'string' },
-  effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
-  permissionMode: { type: 'string', enum: ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk'] },
+  model: { type: 'string', maxLength: 200 },
+  effort: { type: 'string', maxLength: 40 },
+  permissionMode: { type: 'string', maxLength: 40 },
 } as const;
 
 // Anexos chegam em base64 dentro do JSON: imagens já reduzidas no celular, arquivos até 25 MB.
@@ -152,7 +156,7 @@ const attachmentsSchema = {
   },
 } as const;
 
-type RunBody = { model?: string; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' };
+type RunBody = { model?: string; effort?: string; permissionMode?: string };
 type IdParams = { id: string };
 
 const startedAt = Date.now();
@@ -340,14 +344,14 @@ app.post<{ Params: IdParams & { taskId: string } }>('/api/sessions/:id/tasks/:ta
 app.get<{ Params: IdParams & { toolUseId: string }; Querystring: { agentId?: string } }>(
   '/api/sessions/:id/agents/:toolUseId',
   { schema: { querystring: { type: 'object', properties: { agentId: { type: 'string', maxLength: 64 } } } } },
-  async (req) => agentTranscript(req.params.id, req.params.toolUseId, req.query.agentId),
+  async (req) => manager.subagent(req.params.id, req.params.toolUseId, req.query.agentId),
 );
 
 /** Tokens e custo estimado da conversa inteira, subagentes incluídos (ver session-cost.ts). */
 app.get<{ Params: IdParams }>('/api/sessions/:id/cost', async (req) => sessionCost(req.params.id));
 
 app.post<{
-  Body: RunBody & { cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string; worktree?: boolean };
+  Body: RunBody & { provider?: string; cwd?: string; prompt: string; title?: string; attachments?: Attachment[]; teamId?: string; workspaceId?: string; worktree?: boolean };
 }>(
   '/api/sessions',
   {
@@ -357,6 +361,8 @@ app.post<{
         type: 'object',
         required: ['prompt'],
         properties: {
+          // O agente da conversa (GET /api/agents); sem ele, o padrão.
+          provider: { type: 'string', maxLength: 40 },
           cwd: { type: 'string' },
           prompt: { type: 'string' },
           title: { type: 'string' },
@@ -648,7 +654,28 @@ app.post<{ Params: IdParams; Body: RunBody }>(
 
 app.get<{ Params: IdParams }>('/api/sessions/:id/context', async (req) => manager.get(req.params.id).contextUsage());
 
-app.get('/api/models', async () => manager.models());
+app.get<{ Querystring: { provider?: string } }>(
+  '/api/models',
+  { schema: { querystring: { type: 'object', properties: { provider: { type: 'string', maxLength: 40 } } } } },
+  async (req) => manager.models(req.query.provider),
+);
+
+// ---- agentes (ver providers/): quais estão ligados, o padrão das conversas novas e o que cada um oferece ----
+
+app.get('/api/agents', async () => providers.info());
+
+app.post<{ Params: IdParams; Body: { enabled?: boolean; default?: boolean } }>(
+  '/api/agents/:id',
+  {
+    schema: {
+      body: { type: 'object', additionalProperties: false, properties: { enabled: { type: 'boolean' }, default: { type: 'boolean' } } },
+    },
+  },
+  async (req) => {
+    await providers.set(req.params.id, req.body);
+    return providers.info();
+  },
+);
 
 // ---- atualizar o PC pelo celular (ver updater.ts) ----
 
@@ -952,7 +979,7 @@ app.post<{ Body: { cwd: string } }>(
 app.post<{ Body: { cwd: string; all?: boolean } }>(
   '/api/git/suggest',
   { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, all: { type: 'boolean' } } } } },
-  async (req) => suggestCommit(await manager.knownCwd(req.body.cwd), req.body.all ?? false),
+  async (req) => suggestCommit(manager.completer(), await manager.knownCwd(req.body.cwd), req.body.all ?? false),
 );
 
 app.post<{ Body: { cwd: string; name: string } }>(
@@ -1238,10 +1265,14 @@ app.post<{ Body: { cwd?: string; path?: string; category?: 'code reviewing' | 'p
   },
 );
 
-app.get<{ Querystring: { cwd: string; session?: string } }>(
+app.get<{ Querystring: { cwd: string; session?: string; provider?: string } }>(
   '/api/commands',
-  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, session: { type: 'string' } } } } },
-  async (req) => manager.commands(req.query.cwd, req.query.session),
+  {
+    schema: {
+      querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, session: { type: 'string' }, provider: { type: 'string' } } },
+    },
+  },
+  async (req) => manager.commands(req.query.cwd, req.query.session, req.query.provider),
 );
 
 // ---- Habilidades do cald (ver habilidades.ts) ----
@@ -1438,7 +1469,10 @@ app.post<{ Params: SuggestionParams }>('/api/sessions/:id/memory-suggestions/:su
 app.get<{ Querystring: { cwd?: string; refresh?: string } }>(
   '/api/claude/setup',
   { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' }, refresh: { type: 'string' } } } } },
-  async (req) => manager.claudeSetup(req.query.cwd, req.query.refresh === '1'),
+  async (req) => {
+    const cwd = req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined;
+    return claude.setup(cwd ?? homedir(), cwd !== undefined, () => manager.projects(), req.query.refresh === '1');
+  },
 );
 
 app.get<{ Querystring: { cwd?: string; path: string } }>(
@@ -1462,7 +1496,7 @@ app.post<{ Body: { cwd?: string; name: string; enabled: boolean } }>(
   '/api/claude/mcp',
   { schema: toggleBody(['name', 'enabled'], nameField) },
   async (req) => {
-    await manager.toggleMcp(req.body.cwd, req.body.name, req.body.enabled);
+    await claude.toggleMcp(req.body.cwd ? await manager.knownCwd(req.body.cwd) : homedir(), req.body.name, req.body.enabled);
     return { ok: true };
   },
 );
@@ -1893,6 +1927,7 @@ habilidades.on('change', () => broadcastAll({ type: 'changed', what: 'habilidade
 savedCommands.on('change', () => broadcastAll({ type: 'changed', what: 'saved-commands' }));
 access.on('change', () => broadcastAll({ type: 'changed', what: 'access' }));
 memorySuggestions.on('change', (session: string) => broadcastAll({ type: 'changed', what: 'memory-suggestions', session }));
+providers.on('change', () => broadcastAll({ type: 'changed', what: 'agents' }));
 
 let catalogTimer: NodeJS.Timeout | undefined;
 manager.on('catalog', () => {
@@ -1928,7 +1963,7 @@ if (existsSync(WEB_DIST)) {
 
 // ---- ciclo de vida ----
 
-await live.start();
+await Promise.all(providers.enabled().map((p) => p.external?.start()));
 await app.listen({ host: HOST, port: PORT });
 app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'cald pronto');
 
@@ -1953,7 +1988,7 @@ if (!policy.tailnetHost) {
 async function stop(code: number): Promise<void> {
   app.log.info('encerrando sessões do painel…');
   await saveResume(manager.resumable()).catch((err) => app.log.warn({ err }, 'não deu para guardar as conversas abertas'));
-  live.stop();
+  for (const p of providers.all()) p.external?.stop();
   publicServer.close();
   await manager.shutdown();
   await app.close();

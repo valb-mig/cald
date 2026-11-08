@@ -2,9 +2,9 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { DATA_DIR } from './config.ts';
-import { HttpError } from './errors.ts';
-import { readFields, setField, splitFrontmatter } from './frontmatter.ts';
+import { DATA_DIR } from '../../config.ts';
+import { HttpError } from '../../errors.ts';
+import { readFields, setField, splitFrontmatter } from '../../frontmatter.ts';
 import { addMemory, dropIndexLine, indexLinks, MEMORY_INDEX, memoryTarget, readMemoryFile } from './memory.ts';
 
 /**

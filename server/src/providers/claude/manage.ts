@@ -4,10 +4,11 @@ import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { installedPlugins, onDisk, readJson, skillOverrides, USER_SETTINGS } from './claude-config.ts';
-import { CLAUDE_BIN, CLAUDE_JSON, DATA_DIR, childEnv } from './config.ts';
-import { HttpError } from './errors.ts';
-import { readFields, splitFrontmatter } from './frontmatter.ts';
+import { installedPlugins, onDisk, readJson, skillOverrides, USER_SETTINGS } from './setup.ts';
+import { DATA_DIR } from '../../config.ts';
+import { CLAUDE_BIN, CLAUDE_JSON, childEnv } from './env.ts';
+import { HttpError } from '../../errors.ts';
+import { readFields, splitFrontmatter } from '../../frontmatter.ts';
 import { SAFE_ID } from './transcript.ts';
 
 /**

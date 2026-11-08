@@ -2,10 +2,10 @@ import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { AgentInfo, McpServerStatus, Query, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
-import { CLAUDE_HOME, CLAUDE_JSON } from './config.ts';
-import { HttpError } from './errors.ts';
-import { CALD_MCP } from './cald-mcp.ts';
-import { readFields, splitFrontmatter } from './frontmatter.ts';
+import { CLAUDE_HOME, CLAUDE_JSON } from './env.ts';
+import { HttpError } from '../../errors.ts';
+import { CALD_MCP } from '../../cald-mcp.ts';
+import { readFields, splitFrontmatter } from '../../frontmatter.ts';
 
 /**
  * O que o Claude Code carrega numa pasta: skills, comandos, subagentes e servidores MCP. A lista
