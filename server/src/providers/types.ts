@@ -267,6 +267,8 @@ export type ProviderFeatures = {
   fork: boolean;
   /** Acompanha as conversas abertas no terminal do PC. */
   pcSessions: boolean;
+  /** Faz tarefas avulsas no seu jeito (`assist`), como organizar um PR. */
+  assist: boolean;
 };
 
 export type ProviderStatus = { available: boolean; version?: string; problem?: string };
@@ -295,6 +297,21 @@ export interface AgentProvider {
   usageIsCostly?(): boolean;
   /** Uma resposta avulsa, sem ferramentas, sem as suas configurações e sem conversa salva (a mensagem do commit). */
   complete?(opts: { cwd: string; system: string; prompt: string; signal: AbortSignal }): Promise<string>;
+  /**
+   * Uma tarefa avulsa no seu jeito: com as suas configurações, o CLAUDE.md e as skills, mas só lendo o
+   * projeto (sem comandos, edições nem MCP) e sem gravar conversa. A resposta segue `schema` (organizar um PR).
+   */
+  assist?(opts: {
+    cwd: string;
+    task: string;
+    prompt: string;
+    schema: Record<string, unknown>;
+    signal: AbortSignal;
+    model?: string;
+    effort?: string;
+    /** O JSON da resposta até onde já foi escrito, a cada pedaço: a tela mostra enquanto ele escreve. */
+    onPartial?: (json: string) => void;
+  }): Promise<unknown>;
   /** O comando que continua a conversa no terminal, para o "Liberar". */
   resumeCommand(cwd: string, sessionId: string): string;
   /** Esquecer o que guardou de comandos e configurações (algo mudou por fora). */
