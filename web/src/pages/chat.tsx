@@ -37,7 +37,7 @@ import { ApprovalCard } from '@/components/chat/approval-card'
 import { Composer } from '@/components/chat/composer'
 import { liveKey, useAutoScroll, useConversation } from '@/components/chat/feed'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
-import { MessageList } from '@/components/chat/message-list'
+import { MessageList, wipeTime } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
@@ -131,46 +131,39 @@ function ForkBanner({ from }: { from: { sessionId: string; title?: string } }) {
 /** Diálogos, folhas e menus abertos: o Esc deles não sai do agente em foco nem do zen. */
 const OVERLAYS = '[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="dropdown-menu-content"]'
 
-// Os /clear cuja animação já rodou: a conversa remontada (a aba troca para o id novo) não repete.
-const fallen = new Set<string>()
+// Os /clear que apagaram a tela: quando começou e o que estava nela. A troca de aba para o id novo
+// remonta a conversa no meio; a nova segue de onde a outra parou, em vez de recomeçar.
+const wipes = new Map<string, { at: number; items: Item[] }>()
 
 /**
- * O /clear que acabou de acontecer: o que estava na tela antes dele, para cair na lixeira (ver
- * `TrashFall`) por menos de um segundo. Só o que chegou agora conta: abrir uma conversa que já foi
- * limpa não anima nada. A troca de aba para o id novo remonta a tela no meio; a nova recomeça a queda.
+ * O /clear que acabou de acontecer: o que estava na tela antes dele, que segue na lista sumindo de
+ * baixo para cima (ver `wipe` no MessageList) e sai dela no fim. Só o que chegou agora conta: abrir
+ * uma conversa que já foi limpa não anima nada. Só as últimas mensagens: as de cima já estão fora da tela.
  */
-function useTrashFall(events: Keyed[], cut: number): Item[] | null {
+function useWipe(events: Keyed[], cut: number): { items: Item[]; elapsed: number } | null {
   const marker = cut >= 0 ? events[cut] : undefined
-  const [falling, setFalling] = useState<Item[] | null>(null)
-  useEffect(() => {
-    if (!marker || fallen.has(marker.key) || !marker.ts || Date.now() - marker.ts > 2500) return
-    const before = events.slice(0, cut).findLastIndex((e) => e.kind === 'cleared')
-    setFalling(buildItems(events.slice(before + 1, cut)))
-    const done = setTimeout(() => {
-      fallen.add(marker.key)
-      setFalling(null)
-    }, 1100)
-    return () => clearTimeout(done)
-    // Só quando chega um marco novo: os eventos seguintes não reiniciam a queda.
+  // No mesmo render do marco: a lista troca para estas mensagens sem piscar vazia, e a rolagem fica.
+  // `elapsed` vale a vida toda desta tela; mudar o atraso no meio da animação a desalinharia.
+  const wipe = useMemo(() => {
+    if (!marker) return null
+    let w = wipes.get(marker.key)
+    if (!w) {
+      if (!marker.ts || Date.now() - marker.ts > 2500) return null
+      const before = events.slice(0, cut).findLastIndex((e) => e.kind === 'cleared')
+      w = { at: Date.now(), items: buildItems(events.slice(Math.max(before, 0), cut)).slice(-12) }
+      wipes.set(marker.key, w)
+    }
+    const elapsed = Date.now() - w.at
+    return elapsed < wipeTime(w.items.length) ? { key: marker.key, items: w.items, elapsed } : null
+    // Só quando chega um marco novo: os eventos seguintes não reiniciam a limpeza.
   }, [marker?.key])
-  return falling
-}
-
-/**
- * O que estava na conversa encolhendo e caindo numa lixeira que aparece no pé dela, e a lixeira dando
- * um balanço quando recebe. Por cima das mensagens e sem pegar o ponteiro; a conversa segue embaixo.
- */
-function TrashFall({ items, sessionId, cwd }: { items: Item[]; sessionId: string; cwd?: string }) {
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
-      <div className="chat-trash-fall absolute inset-x-0 bottom-28 mx-auto max-h-full w-full max-w-3xl overflow-hidden">
-        <MessageList items={items.slice(-12)} queued={[]} sessionId={sessionId} actionable={false} working={false} background={[]} uses={new Map()} cwd={cwd} />
-      </div>
-      <div className="chat-trash-can absolute bottom-24 left-1/2 flex size-14 -translate-x-1/2 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-lg ring-1 ring-foreground/10">
-        <Trash2 className="size-6" />
-      </div>
-    </div>
-  )
+  const [over, setOver] = useState<string | null>(null)
+  useEffect(() => {
+    if (!wipe) return
+    const done = setTimeout(() => setOver(wipe.key), wipeTime(wipe.items.length) - wipe.elapsed)
+    return () => clearTimeout(done)
+  }, [wipe])
+  return wipe && over !== wipe.key ? wipe : null
 }
 
 export function ChatPage({ id }: { id: string }) {
@@ -240,7 +233,7 @@ export function ChatPage({ id }: { id: string }) {
     [id],
   )
 
-  const trash = useTrashFall(events, cut)
+  const wipe = useWipe(events, cut)
   // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
   const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
   useEffect(() => publishTools(id, tools), [id, tools])
@@ -649,7 +642,6 @@ export function ChatPage({ id }: { id: string }) {
           )}
         >
           <DropOverlay show={drop.over} />
-          {trash && <TrashFall items={trash} sessionId={id} cwd={cwd} />}
           {/* Os agentes da conversa: uma aba que sai da borda esquerda (a linha do tempo fica à direita),
               por cima do chat, que fica com a largura toda. Sem nenhum agente, não aparece. */}
           {agents.all.length > 0 && (
@@ -681,7 +673,7 @@ export function ChatPage({ id }: { id: string }) {
               <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
                 <div ref={contentRef} className="mx-auto w-full max-w-3xl">
                   {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
-                  {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da queda. */}
+                  {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da limpeza. */}
                   {history.events === null && !history.error && cut < 0 ? (
                     <div className="space-y-4 p-4">
                       <Skeleton className="ml-auto h-10 w-2/3" />
@@ -695,15 +687,16 @@ export function ChatPage({ id }: { id: string }) {
                         <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
                       )}
                       <MessageList
-                        items={items}
-                        queued={queued}
+                        items={wipe?.items ?? items}
+                        wipe={wipe?.elapsed}
+                        queued={wipe ? [] : queued}
                         sessionId={id}
-                        actionable={panelOpen}
+                        actionable={panelOpen && !wipe}
                         working={working}
                         background={background}
                         uses={uses}
                         cwd={cwd}
-                        onBranch={canFork ? branch : undefined}
+                        onBranch={canFork && !wipe ? branch : undefined}
                       />
                     </>
                   )}

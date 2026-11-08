@@ -522,8 +522,15 @@ function useTyped(text: string, ms: number): string {
   return shown
 }
 
+// O /clear apaga a tela de baixo para cima: cada item some em WIPE_MS, e o de cima começa WIPE_STEP depois.
+const WIPE_STEP = 35
+const WIPE_MS = 180
+/** Quanto dura apagar `count` itens. */
+export const wipeTime = (count: number) => (count ? (count - 1) * WIPE_STEP + WIPE_MS : 0)
+
 export function MessageList({
   items,
+  wipe,
   queued,
   sessionId,
   actionable,
@@ -534,6 +541,8 @@ export function MessageList({
   onBranch,
 }: {
   items: Item[]
+  /** Um /clear apagando estes itens (ver `useWipe` em pages/chat.tsx): há quantos ms começou. */
+  wipe?: number
   /** Bifurcar a conversa numa mensagem: nasce uma conversa nova com o histórico só até ali. */
   onBranch?: (at: string, text: string) => void
   /** Mensagens na fila do celular, ainda não entregues ao PC. */
@@ -558,9 +567,18 @@ export function MessageList({
     // Tocar numa imagem abre a tela cheia passando pelas outras do mesmo lado da conversa.
     <GalleryContext value={gallery}>
       <div className="space-y-4 px-4 py-4">
-        {items.map((item) => (
+        {items.map((item, i) => (
           // `data-item`: o mapa mental leva até aqui ao tocar num nó.
-          <div key={item.key} data-item={item.key} className="scroll-mt-16 rounded-xl">
+          <div
+            key={item.key}
+            data-item={item.key}
+            className={cn('scroll-mt-16 rounded-xl', wipe !== undefined && 'chat-wipe')}
+            style={
+              wipe !== undefined
+                ? { animationDuration: `${WIPE_MS}ms`, animationDelay: `${(items.length - 1 - i) * WIPE_STEP - wipe}ms` }
+                : undefined
+            }
+          >
             {/* A mensagem do usuário substitui o balão da fila, que já entrou animado, e a resposta, o texto
                 do streaming: as duas entram paradas, para não piscar. O resto chega com animação. */}
             <Arrival fresh={item.type !== 'user' && item.type !== 'assistant' && isFresh(item.key)}>
@@ -580,9 +598,13 @@ export function MessageList({
         {queued.map((item) => (
           <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
         ))}
-        <LiveTail sessionId={sessionId} working={working} items={items} />
-        {/* Fica na tela também durante os turnos: num monitor, cada novidade acorda o Claude. */}
-        <BackgroundTasks sessionId={sessionId} tasks={background} uses={uses} actionable={actionable} />
+        {wipe === undefined && (
+          <>
+            <LiveTail sessionId={sessionId} working={working} items={items} />
+            {/* Fica na tela também durante os turnos: num monitor, cada novidade acorda o Claude. */}
+            <BackgroundTasks sessionId={sessionId} tasks={background} uses={uses} actionable={actionable} />
+          </>
+        )}
       </div>
     </GalleryContext>
   )
