@@ -10,6 +10,8 @@ import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } fro
 import { cn } from '@/lib/utils'
 import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
+import { useMachine } from '@/lib/machines'
+import { CLAUDE, currentMode, useFeatures, useProvider } from '@/lib/providers'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AddMenu, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
@@ -24,16 +26,20 @@ async function guard(action: () => Promise<void> | void) {
 }
 
 /**
- * A linha de controles da caixa (anexar, caixa grande, comandos, contexto, modelo e modo). Não depende
- * do texto, então digitar não a refaz: com os menus do Radix e os ícones, ela era a maior parte do
- * trabalho de cada tecla no celular. Por isso as funções que recebe não mudam de uma tecla para outra.
+ * A linha de controles da caixa (anexar, caixa grande, comandos, contexto, agente, modelo e modo). Não
+ * depende do texto, então digitar não a refaz: com os menus do Radix e os ícones, ela era a maior parte
+ * do trabalho de cada tecla no celular. Por isso as funções que recebe não mudam de uma tecla para outra.
+ * `effort` e `modes` são o que o agente da conversa oferece; sem modos, o seletor deles some.
  */
 const Controls = memo(function Controls({
   big,
   models,
   settings,
+  effort,
+  modes,
   context,
   working,
+  agent,
   extra,
   onAttach,
   onMention,
@@ -45,8 +51,11 @@ const Controls = memo(function Controls({
   big: boolean
   models: ReturnType<typeof useModels>
   settings: SessionSettings
+  effort: boolean
+  modes: string[]
   context: ContextUsage | null
   working: boolean
+  agent?: React.ReactNode
   extra?: React.ReactNode
   onAttach: () => void
   onMention?: () => void
@@ -72,10 +81,11 @@ const Controls = memo(function Controls({
         <Slash className="size-4" />
       </button>
       {context && onCompact && <ContextRing context={context} disabled={working} onCompact={onCompact} />}
-      <ModelPill models={models} settings={settings} onChange={onChangeSettings} />
+      {agent}
+      <ModelPill models={models} settings={settings} effort={effort} onChange={onChangeSettings} />
       {extra}
       <div className="flex-1" />
-      <ModeMenu settings={settings} onChange={onChangeSettings} />
+      {modes.length > 0 && <ModeMenu settings={settings} modes={modes} onChange={onChangeSettings} />}
     </>
   )
 })
@@ -97,6 +107,8 @@ export function Composer({
   onSend,
   onInterrupt,
   onEdit,
+  provider,
+  agent,
   extra,
 }: {
   sessionId: string
@@ -114,6 +126,13 @@ export function Composer({
   onInterrupt?: () => Promise<void>
   /** O texto mudou pela mão de quem usa (digitar, colar, mencionar): no PC, a aba de prévia vira fixa. */
   onEdit?: () => void
+  /**
+   * O agente da conversa (ver lib/providers.ts): dele vêm os modelos, o esforço e os modos. Sem ele,
+   * o padrão da máquina.
+   */
+  provider?: string
+  /** Antes do modelo, na barra de baixo: a escolha do agente, na conversa nova com mais de um ligado. */
+  agent?: React.ReactNode
   /** Ao lado do modelo, na barra de baixo: o time de agentes da conversa. */
   extra?: React.ReactNode
 }) {
@@ -132,7 +151,10 @@ export function Composer({
   useInsertTarget(sessionId, (inserted) => input.current?.insert(inserted))
   // E anexar: soltar arquivos em qualquer lugar da conversa cai aqui (ver `useFileDrop`).
   useAttachTarget(sessionId, (list) => void files.add(list))
-  const models = useModels()
+  const machine = useMachine()
+  const models = useModels(provider)
+  const info = useProvider(machine, provider)
+  const features = useFeatures(machine, provider)
 
   // Ditado: o que é ouvido entra onde estava o cursor e vai sendo corrigido enquanto se fala.
   const spot = useRef<{ before: string; after: string } | null>(null)
@@ -207,7 +229,7 @@ export function Composer({
   }, [big])
   const empty = !text.trim() && files.items.length === 0
   const showStop = working && empty && Boolean(onInterrupt)
-  const mode = settings.permissionMode ?? 'default'
+  const mode = currentMode(settings, features.permissionModes)
   const tone = MODE_TONE[mode] ?? MODE_TONE.default!
 
   async function submit() {
@@ -286,6 +308,7 @@ export function Composer({
             handleRef={input}
             cwd={cwd}
             session={sessionId}
+            provider={provider}
             value={text}
             onChange={(value) => {
               stopDictation()
@@ -303,7 +326,7 @@ export function Composer({
                   : 'Gravando… toque no microfone para transcrever'
                 : working
                   ? 'Enfileirar outra mensagem…'
-                  : 'Peça algo ao Claude…'
+                  : `Peça algo ao ${!info || info.id === CLAUDE ? 'Claude' : info.name}…`
             }
             className={cn(
               'resize-none rounded-none border-0 bg-transparent px-3.5 py-2.5 text-base shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm dark:bg-transparent',
@@ -325,8 +348,11 @@ export function Composer({
                 big={big}
                 models={models}
                 settings={settings}
+                effort={features.effort}
+                modes={features.permissionModes}
                 context={context}
                 working={working}
+                agent={agent}
                 extra={extra}
                 onAttach={attach}
                 onMention={cwd ? mention : undefined}

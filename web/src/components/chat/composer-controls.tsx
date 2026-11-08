@@ -9,6 +9,7 @@ import {
   Minimize2,
   Paperclip,
   Plus,
+  Shield,
   ShieldCheck,
   ShieldOff,
   type LucideIcon,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { api } from '@/lib/api'
 import { useMachine } from '@/lib/machines'
+import { CLAUDE_MODES, currentMode } from '@/lib/providers'
 import type { ContextUsage, ModelOption, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -53,7 +55,9 @@ export const MODES: Record<string, { label: string; short: string; description: 
   dontAsk: { label: 'Não perguntar', short: 'Não perguntar', description: 'Nega o que precisaria de aprovação.', icon: Ban },
   bypassPermissions: { label: 'Sem permissões', short: 'Sem permissões', description: 'Não pede aprovação para nada.', icon: ShieldOff },
 }
-const SELECTABLE_MODES = ['default', 'acceptEdits', 'plan', 'auto']
+
+/** Um modo que o app não conhece (de outro agente): o nome que o agente dá, sem descrição. */
+const modeInfo = (key: string) => MODES[key] ?? { label: key, short: key, description: '', icon: Shield }
 
 export const EFFORTS: Record<string, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' }
 
@@ -85,19 +89,31 @@ const tokens = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFrac
 
 const modelsRequests = new Map<string, Promise<ModelOption[]>>()
 
-/** Lista de modelos da máquina da conversa (uma consulta por máquina por carregamento do app). */
-export function useModels(): ModelOption[] | null {
+/**
+ * Lista de modelos de um agente na máquina da conversa (uma consulta por agente e máquina por
+ * carregamento do app). Sem `provider`, os do agente padrão da máquina.
+ */
+export function useModels(provider?: string): ModelOption[] | null {
   const machine = useMachine()
-  const [models, setModels] = useState<ModelOption[] | null>(null)
+  const key = `${machine}\n${provider ?? ''}`
+  const [models, setModels] = useState<{ key: string; list: ModelOption[] } | null>(null)
   useEffect(() => {
-    let request = modelsRequests.get(machine)
-    if (!request) modelsRequests.set(machine, (request = api.models(machine)))
-    request.then(setModels, () => {
-      modelsRequests.delete(machine)
-      setModels([])
-    })
-  }, [machine])
-  return models
+    let alive = true
+    let request = modelsRequests.get(key)
+    if (!request) modelsRequests.set(key, (request = api.models(machine, provider)))
+    request.then(
+      (list) => alive && setModels({ key, list }),
+      () => {
+        modelsRequests.delete(key)
+        if (alive) setModels({ key, list: [] })
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [key, machine, provider])
+  // Trocou de agente: a lista do anterior não vale enquanto a nova não chega.
+  return models?.key === key ? models.list : null
 }
 
 /** "claude-opus-5-5[1m]" → "Opus 5.5 · 1M"; aliases ("opus") só ganham maiúscula. */
@@ -210,24 +226,27 @@ export function ContextRing({ context, onCompact, disabled }: { context: Context
   )
 }
 
+/** `effort`: o agente tem níveis de esforço; sem eles, o seletor é só do modelo. */
 export function ModelPill({
   models,
   settings,
+  effort = true,
   onChange,
 }: {
   models: ModelOption[] | null
   settings: SessionSettings
+  effort?: boolean
   onChange: (patch: RunOptions) => void
 }) {
   const current = findModel(models, settings.model)
   const label = current ? modelName(current) : prettyModel(settings.model)
-  const efforts = current?.efforts ?? []
+  const efforts = effort ? (current?.efforts ?? []) : []
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button type="button" className={cn(footerButton, 'min-w-0 max-w-36 shrink')} disabled={!models?.length}>
           <span className="truncate text-foreground/80">{label}</span>
-          {settings.effort && <span className="shrink-0">{EFFORTS[settings.effort] ?? settings.effort}</span>}
+          {effort && settings.effort && <span className="shrink-0">{EFFORTS[settings.effort] ?? settings.effort}</span>}
           <ChevronDown className="size-3 shrink-0" />
         </button>
       </DropdownMenuTrigger>
@@ -259,29 +278,38 @@ export function ModelPill({
   )
 }
 
-export function ModeMenu({ settings, onChange }: { settings: SessionSettings; onChange: (patch: RunOptions) => void }) {
-  const mode = settings.permissionMode ?? 'default'
-  const info = MODES[mode] ?? MODES.default!
+/** `modes`: os que o agente aceita, na ordem dele (ver lib/providers.ts); os conhecidos levam os textos do VSCode. */
+export function ModeMenu({
+  settings,
+  modes = CLAUDE_MODES,
+  onChange,
+}: {
+  settings: SessionSettings
+  modes?: string[]
+  onChange: (patch: RunOptions) => void
+}) {
+  const mode = currentMode(settings, modes)
+  const info = modeInfo(mode)
   const Icon = info.icon
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(footerButton, 'min-w-0 max-w-32 shrink')} title={info.description}>
+        <button type="button" className={cn(footerButton, 'min-w-0 max-w-32 shrink')} title={info.description || info.label}>
           <Icon className="size-4 shrink-0" />
           <span className="truncate @max-[21rem]:hidden">{info.short}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="end" className="w-72" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DropdownMenuLabel>Modos</DropdownMenuLabel>
-        {SELECTABLE_MODES.map((key) => {
-          const m = MODES[key]!
+        {modes.map((key) => {
+          const m = modeInfo(key)
           const ItemIcon = m.icon
           return (
-            <DropdownMenuItem key={key} className="items-start" onSelect={() => onChange({ permissionMode: key as RunOptions['permissionMode'] })}>
+            <DropdownMenuItem key={key} className="items-start" onSelect={() => onChange({ permissionMode: key })}>
               <ItemIcon className="mt-0.5" />
               <div className="min-w-0 flex-1">
                 <div>{m.label}</div>
-                <div className="text-xs text-muted-foreground">{m.description}</div>
+                {m.description && <div className="text-xs text-muted-foreground">{m.description}</div>}
               </div>
               {key === mode && <Check className="mt-0.5" />}
             </DropdownMenuItem>

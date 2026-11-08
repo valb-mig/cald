@@ -87,6 +87,7 @@ import { enqueue } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
 import { useMachine, useMachines } from '@/lib/machines'
+import { CLAUDE, useFeatures } from '@/lib/providers'
 import { CHAT_DRAG, closeChat, openBeside, swapChat, useDraggingChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, subscribe, unsubscribe, useStore } from '@/lib/store'
 import type { ContextUsage, RunOptions } from '@/lib/types'
@@ -187,6 +188,9 @@ export function ChatPage({ id }: { id: string }) {
     machine,
   )
   const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
+  // O agente que conduz a conversa (servidor antigo não diz: é o Claude): dele vêm os modelos, os modos e a bifurcação.
+  const provider = entry?.provider ?? CLAUDE
+  const canFork = useFeatures(machine, provider).fork
   const rekeyed = useStore((s) => s.rekeys[id])
   // O tempo que você passa nesta conversa conta no WakaTime, como o do Claude (ver lib/wakatime.ts).
   useActivityPing(machine, cwd)
@@ -589,7 +593,7 @@ export function ChatPage({ id }: { id: string }) {
                       <LogOut /> Liberar para o PC
                     </DropdownMenuItem>
                   )}
-                  {owner !== 'panel' && (
+                  {owner !== 'panel' && canFork && (
                     <DropdownMenuItem disabled={busy} onSelect={fork}>
                       <GitFork /> Continuar numa cópia
                     </DropdownMenuItem>
@@ -699,7 +703,7 @@ export function ChatPage({ id }: { id: string }) {
                         background={background}
                         uses={uses}
                         cwd={cwd}
-                        onBranch={branch}
+                        onBranch={canFork ? branch : undefined}
                       />
                     </>
                   )}
@@ -810,6 +814,7 @@ export function ChatPage({ id }: { id: string }) {
               <Composer
                 sessionId={id}
                 cwd={cwd}
+                provider={provider}
                 branch={git.status?.branch}
                 working={working || state === 'waiting'}
                 // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
@@ -860,6 +865,7 @@ export function ChatPage({ id }: { id: string }) {
               <Composer
                 sessionId={id}
                 cwd={cwd}
+                provider={provider}
                 branch={git.status?.branch}
                 working={false}
                 // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa e no terminal) e a

@@ -1,10 +1,12 @@
 import { ChevronRight, TriangleAlert } from 'lucide-react'
 import { useSyncExternalStore } from 'react'
 import { Meter } from '@/components/pc-status'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { setComputerOpen } from '@/lib/computer'
+import { openComputerAgent, setComputerOpen } from '@/lib/computer'
 import { bytes } from '@/lib/format'
 import { HOME, useMachines } from '@/lib/machines'
+import { CLAUDE } from '@/lib/providers'
 import { useStore } from '@/lib/store'
 import type { UsageWindow } from '@/lib/types'
 import { HomeCard } from './card'
@@ -62,7 +64,10 @@ function Window({ label, window, span, now }: { label: string; window: UsageWind
   )
 }
 
-/** Limites do plano com previsão e, embaixo, o PC num relance (toque abre o painel Computador). */
+/**
+ * Limites do plano com previsão e, embaixo, o PC num relance (toque abre o painel Computador). Os
+ * detalhes do uso ficam no painel, na página do Claude Code (seção Agentes).
+ */
 export function Limits({ className }: { className?: string }) {
   const now = useSyncExternalStore(everyMinute, minute)
   const usage = useStore((s) => s.usages[HOME])
@@ -71,7 +76,16 @@ export function Limits({ className }: { className?: string }) {
   const plan = usage?.plan
 
   return (
-    <HomeCard title="Limites do plano" description="Quanto já foi usado e, no ritmo atual, até onde vai." className={className}>
+    <HomeCard
+      title="Limites do plano"
+      description="Quanto já foi usado e, no ritmo atual, até onde vai."
+      action={
+        <Button variant="ghost" size="sm" className="-mt-1 -mr-2 text-xs" onClick={() => openComputerAgent(CLAUDE, 'usage')}>
+          Detalhes
+        </Button>
+      }
+      className={className}
+    >
       {plan?.available ? (
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

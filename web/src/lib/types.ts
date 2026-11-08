@@ -118,7 +118,38 @@ export type CatalogEntry = {
   workspace?: WorkspaceTag;
   /** O worktree em que ela roda, separada das outras conversas do projeto (ver server/src/worktrees.ts). */
   worktree?: WorktreeTag;
+  /** O agente que conduz a conversa (ver AgentProviderInfo); sem ele (servidor antigo), o Claude Code. */
+  provider?: string;
 };
+
+/**
+ * Um agente que a máquina sabe conduzir (ver server/src/providers): o Claude Code hoje, outros depois.
+ * `default`: o das conversas novas, sempre um dos ligados; `available`: instalado e pronto no PC, e
+ * `problem` diz o que falta quando não está. `features` é o que ele oferece no app: as abas da página
+ * dele no Computador (uso, memória, skills, MCP) e os controles da caixa de mensagem.
+ */
+export type AgentProviderInfo = {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  default: boolean
+  available: boolean
+  problem?: string
+  version?: string
+  features: {
+    usage: boolean
+    memory: boolean
+    skills: boolean
+    mcp: boolean
+    effort: boolean
+    /** Na ordem do seletor da caixa de mensagem. */
+    permissionModes: string[]
+    fork: boolean
+    /** Acompanha as sessões abertas no terminal do PC. */
+    pcSessions: boolean
+  }
+}
 
 /** `project`: o projeto de que o worktree é cópia; branch e origem só quando foi o cald que criou. */
 export type WorktreeTag = { name: string; project: string; branch?: string; base?: string }
@@ -192,7 +223,8 @@ export type TeamInput = { id?: string; name: string; members: (Omit<TeamMember, 
 export type RunOptions = {
   model?: string;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk';
+  /** Os do Claude Code, ou um dos `permissionModes` de outro agente (ver AgentProviderInfo). */
+  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | (string & {});
 };
 
 export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean }

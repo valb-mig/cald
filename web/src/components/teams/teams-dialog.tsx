@@ -19,6 +19,7 @@ import { api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from '@/lib/api'
 import { useOnChanged } from '@/lib/changes'
 import { relativeTime } from '@/lib/format'
 import { useMediaQuery } from '@/lib/hooks'
+import { CLAUDE } from '@/lib/providers'
 import type { Effort, Team, TeamInput, TeamMember, TrashedTeam } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { memberSeed, newMember, ROLES } from './model'
@@ -424,7 +425,8 @@ function MemberItem({
   onChange: (patch: Partial<Member>) => void
   onRemove: () => void
 }) {
-  const models = useModels()
+  // Os membros do time são subagentes do Claude Code: os modelos são os dele, qualquer que seja o padrão.
+  const models = useModels(CLAUDE)
   const ref = useRef<HTMLDivElement>(null)
   // Aberto (por um toque na lista do time, ou recém-criado no fim) sem os campos à vista: sobe para o alto.
   useEffect(() => {
