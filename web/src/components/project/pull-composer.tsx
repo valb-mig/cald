@@ -27,7 +27,7 @@ import { reloadGit } from '@/lib/hooks'
 import type { AgentProviderInfo, GitFile, ModelOption, PlannedCommit, PullDraftInfo } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { openTab } from '@/lib/workbench'
-import { BranchChip, Labels } from './github-item'
+import { Avatar, BranchChip, Labels } from './github-item'
 import { ChangeChip } from './patch-list'
 import { MarkdownEditor } from './pull-view'
 import { badge, splitPath } from './status'
@@ -513,6 +513,14 @@ export function PullComposer({
               </p>
             </Section>
           )}
+
+          <Section title="Responsável">
+            <span className="flex items-center gap-2">
+              <Avatar login={info.viewer} src={info.viewerAvatar} className="size-5 text-[10px]" />
+              <span className="min-w-0 truncate">{info.viewer}</span>
+              <span className="text-xs text-muted-foreground">você</span>
+            </span>
+          </Section>
 
           <Section title="Entra em">
             <Select value={into} onValueChange={setBase}>
