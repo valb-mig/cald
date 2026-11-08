@@ -899,7 +899,8 @@ export async function githubCreatePull(cwd: string, d: PullDraft): Promise<{ num
     await gitWrite(cwd, ['commit', '-m', c.message.trim() || d.title.trim(), '--', ...c.files]);
   }
   await gitWrite(cwd, ['push', '-u', 'origin', 'HEAD']);
-  const args = ['pr', 'create', '--repo', `${at.owner}/${at.name}`, '--base', d.base, '--head', branch, '--title', d.title.trim(), '--body', d.body];
+  // Quem abre pelo cald já fica como responsável: a conta do `gh` deste PC.
+  const args = ['pr', 'create', '--repo', `${at.owner}/${at.name}`, '--base', d.base, '--head', branch, '--title', d.title.trim(), '--body', d.body, '--assignee', '@me'];
   for (const l of d.labels) args.push('--label', l);
   if (d.draft) args.push('--draft');
   const out = await run(cwd, args);
