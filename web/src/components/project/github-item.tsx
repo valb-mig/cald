@@ -28,14 +28,14 @@ import type { GithubCheck, GithubCommit, GithubComment, GithubIssueDetail, Githu
 import { cn } from '@/lib/utils'
 import { CommentBox, GithubTarget, ItemMenu, LabelsEditor, mergeBlock, mergeWarning, PullActions, QuotaNote, useGithubAct } from './github-actions'
 
-const when = (iso: string) => relativeTime(Date.parse(iso))
+export const when = (iso: string) => relativeTime(Date.parse(iso))
 
 type Item = GithubIssueDetail | GithubPullDetail
 
 // ---- peças ----
 
 /** A foto de quem é, do GitHub; sem ela (servidor antigo, conta apagada), a inicial. */
-function Avatar({ login, src, className }: { login: string | null; src?: string | null; className?: string }) {
+export function Avatar({ login, src, className }: { login: string | null; src?: string | null; className?: string }) {
   const [broken, setBroken] = useState(false)
   const size = cn('size-8 shrink-0 rounded-full', className)
   if (!src || broken)
@@ -57,7 +57,7 @@ const ROLE: Record<string, string> = {
   FIRST_TIMER: 'Primeira vez no GitHub',
 }
 
-function Role({ role, author }: { role?: string; author?: boolean }) {
+export function Role({ role, author }: { role?: string; author?: boolean }) {
   const label = role ? ROLE[role] : undefined
   if (!label && !author) return null
   return (
@@ -69,7 +69,7 @@ function Role({ role, author }: { role?: string; author?: boolean }) {
 }
 
 /** O estado na cor que o GitHub usa para ele: aberto verde, mesclado ou concluída roxo, fechado vermelho. */
-function StatePill({ item }: { item: Item }) {
+export function StatePill({ item }: { item: Item }) {
   const pr = item.kind === 'pr'
   const [text, tone, Icon] =
     pr && item.draft && item.state === 'OPEN'
@@ -92,7 +92,7 @@ function StatePill({ item }: { item: Item }) {
 }
 
 /** Um nome de branch numa pílula, com o copiar ao lado (o da branch do PR). */
-function BranchChip({ name, copy }: { name: string; copy?: boolean }) {
+export function BranchChip({ name, copy }: { name: string; copy?: boolean }) {
   return (
     <span className="inline-flex max-w-full items-center gap-0.5 rounded-md bg-sky-500/10 font-mono text-xs text-sky-700 dark:text-sky-300">
       <span className="truncate px-1.5 py-0.5">{name}</span>
@@ -112,7 +112,7 @@ function BranchChip({ name, copy }: { name: string; copy?: boolean }) {
 }
 
 /** Os cinco quadradinhos do GitHub: a proporção do que entrou (verde) e do que saiu (vermelho). */
-function DiffBar({ additions, deletions }: { additions: number; deletions: number }) {
+export function DiffBar({ additions, deletions }: { additions: number; deletions: number }) {
   const total = additions + deletions
   const green = total ? Math.round((additions / total) * 5) : 0
   const red = total ? Math.min(5 - green, Math.max(deletions ? 1 : 0, Math.round((deletions / total) * 5))) : 0
@@ -128,7 +128,7 @@ function DiffBar({ additions, deletions }: { additions: number; deletions: numbe
   )
 }
 
-function Counts({ additions, deletions }: { additions: number; deletions: number }) {
+export function Counts({ additions, deletions }: { additions: number; deletions: number }) {
   return (
     <span className="flex items-center gap-2 font-mono text-xs tabular-nums">
       <span className="text-emerald-600 dark:text-emerald-400">+{additions.toLocaleString('pt-BR')}</span>
@@ -138,7 +138,7 @@ function Counts({ additions, deletions }: { additions: number; deletions: number
   )
 }
 
-function Labels({ labels }: { labels: GithubLabel[] }) {
+export function Labels({ labels }: { labels: GithubLabel[] }) {
   return (
     <>
       {labels.map((l) => (
@@ -220,7 +220,7 @@ function Event({ icon, tone, children }: { icon: React.ReactNode; tone?: string;
   )
 }
 
-const REVIEW: Record<GithubReview['state'], string> = {
+export const REVIEW: Record<GithubReview['state'], string> = {
   APPROVED: 'aprovou estas mudanças',
   CHANGES_REQUESTED: 'pediu mudanças',
   COMMENTED: 'revisou',
@@ -336,7 +336,7 @@ function Timeline({ item }: { item: Item }) {
 
 // ---- caixa de merge ----
 
-const CHECK: Record<GithubCheck['result'], React.ReactNode> = {
+export const CHECK: Record<GithubCheck['result'], React.ReactNode> = {
   success: <Check className="size-3.5 text-emerald-500" aria-label="Passou" />,
   failure: <X className="size-3.5 text-red-500" aria-label="Falhou" />,
   pending: <span className="mx-[3px] size-2 rounded-full bg-amber-500" aria-label="Rodando" />,
@@ -587,7 +587,7 @@ function Side({ title, action, children }: { title: string; action?: React.React
 }
 
 /** Quem revisou e como ficou a última revisão de cada um. */
-function Reviewers({ pr }: { pr: GithubPullDetail }) {
+export function Reviewers({ pr }: { pr: GithubPullDetail }) {
   const last = new Map<string, GithubReview>()
   for (const r of pr.reviews) if (r.author && r.state !== 'PENDING') last.set(r.author, r)
   if (!last.size) return <p className="text-xs text-muted-foreground">Ninguém revisou ainda.</p>
@@ -610,7 +610,7 @@ function Reviewers({ pr }: { pr: GithubPullDetail }) {
   )
 }
 
-function Assignees({ item, viewer }: { item: Item; viewer: string }) {
+export function Assignees({ item, viewer }: { item: Item; viewer: string }) {
   const { busy, act } = useGithubAct()
   // O servidor de antes de reiniciar não manda os atribuídos do PR.
   const assignees = item.assignees ?? []

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
-import { query, type SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+import { query, type EffortLevel, type SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 import { HttpError } from '../../errors.ts';
 import type { PlanUsage } from '../../system.ts';
 import type { AgentProvider, CommandInfo, ModelOption, ProviderStatus, RunHost, RunOptions } from '../types.ts';
@@ -58,6 +58,7 @@ export class ClaudeProvider implements AgentProvider {
     permissionModes: ['default', 'acceptEdits', 'plan', 'auto'],
     fork: true,
     pcSessions: true,
+    assist: true,
   };
   readonly history = claudeHistory;
   /** As abertas no terminal e no VSCode, por `claude agents --json`. */
@@ -166,6 +167,87 @@ export class ClaudeProvider implements AgentProvider {
     } finally {
       q.close();
       // O processo leva um instante para sair da lista do `claude agents`.
+      setTimeout(() => hiddenSessions.delete(sessionId), 60_000);
+    }
+  }
+
+  /**
+   * Uma tarefa com o seu Claude Code: as configurações, o CLAUDE.md e as skills valem, e é por elas que
+   * o resultado sai no seu jeito (as de commit e PR, por exemplo). Mas só lê: Read, Grep, Glob e Skill,
+   * sem MCP e sem pedir nada (o resto é recusado, mesmo o que as suas configurações liberam).
+   */
+  async assist({
+    cwd,
+    task,
+    prompt,
+    schema,
+    signal,
+    model,
+    effort,
+    onPartial,
+  }: {
+    cwd: string;
+    task: string;
+    prompt: string;
+    schema: Record<string, unknown>;
+    signal: AbortSignal;
+    model?: string;
+    effort?: string;
+    onPartial?: (json: string) => void;
+  }): Promise<unknown> {
+    const abort = new AbortController();
+    signal.addEventListener('abort', () => abort.abort(), { once: true });
+    const sessionId = randomUUID();
+    hiddenSessions.add(sessionId);
+    const READ = new Set(['Read', 'Grep', 'Glob', 'Skill']);
+    const q = query({
+      prompt,
+      options: {
+        cwd,
+        env: childEnv(),
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: task },
+        settingSources: ['user', 'project', 'local'],
+        // Sem eles, o modelo e o esforço das suas configurações (que podem ser lentos demais para isto).
+        model,
+        effort: effort as EffortLevel | undefined,
+        tools: [...READ],
+        disallowedTools: ['Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Agent', 'Task'],
+        strictMcpConfig: true,
+        canUseTool: async (name, input) =>
+          READ.has(name) ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Aqui você só lê: devolva o resultado, quem faz é o usuário.' },
+        outputFormat: { type: 'json_schema', schema },
+        // A resposta sai pela ferramenta StructuredOutput, e os pedaços dela chegam aqui enquanto ele escreve.
+        includePartialMessages: Boolean(onPartial),
+        persistSession: false,
+        maxTurns: 40,
+        abortController: abort,
+        sessionId,
+      },
+    });
+    // O bloco da StructuredOutput em andamento (pelo índice) e o JSON dela até aqui.
+    let block = -1;
+    let json = '';
+    try {
+      for await (const msg of q) {
+        if (msg.type === 'stream_event' && onPartial && !msg.parent_tool_use_id) {
+          const e = msg.event;
+          if (e.type === 'content_block_start' && e.content_block.type === 'tool_use' && e.content_block.name === 'StructuredOutput') {
+            block = e.index;
+            json = '';
+          } else if (e.type === 'content_block_delta' && e.index === block && e.delta.type === 'input_json_delta') {
+            json += e.delta.partial_json;
+            onPartial(json);
+          }
+          continue;
+        }
+        if (msg.type !== 'result') continue;
+        if (msg.subtype !== 'success') throw new HttpError(502, 'assist_failed');
+        if (msg.structured_output !== undefined) return msg.structured_output;
+        return JSON.parse(msg.result) as unknown;
+      }
+      throw new HttpError(502, 'assist_failed');
+    } finally {
+      q.close();
       setTimeout(() => hiddenSessions.delete(sessionId), 60_000);
     }
   }

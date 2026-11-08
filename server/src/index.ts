@@ -16,8 +16,25 @@ import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
 import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
-import { gitBase, gitCommit, gitCreateBranch, gitDiff, gitStage, gitStatus, gitSummaries, gitSync, gitUnstage, type DiffSide } from './git.ts';
-import { githubAct, githubInfo, githubItem, type GithubAction } from './github.ts';
+import {
+  gitBase,
+  gitBranchChanges,
+  gitBranches,
+  gitCommit,
+  gitCreateBranch,
+  gitDeleteBranch,
+  gitDiff,
+  gitPull,
+  gitStage,
+  gitStatus,
+  gitSummaries,
+  gitSwitch,
+  gitSync,
+  gitUnstage,
+  type DiffSide,
+} from './git.ts';
+import { planPull, type PartialPlan } from './pull-plan.ts';
+import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
@@ -722,7 +739,7 @@ const projectQuery = {
     querystring: {
       type: 'object',
       required: ['cwd'],
-      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged'] } },
+      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged', 'head', 'base'] } },
     },
   },
 };
@@ -999,6 +1016,57 @@ app.post<{ Body: { cwd: string; name: string } }>(
   },
 );
 
+// O que a branch mudou desde que saiu da principal, para a lista "Desta branch" do painel.
+app.get<ProjectQuery>('/api/git/changes', projectQuery, async (req) => gitBranchChanges(await manager.knownCwd(req.query.cwd)));
+
+// As branches para trocar, com quantos commits cada uma tem fora da principal; `fetch=1` consulta o remoto antes.
+app.get<{ Querystring: { cwd: string; fetch?: string } }>(
+  '/api/git/branches',
+  { schema: { querystring: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' }, fetch: { type: 'string' } } } } },
+  async (req) => gitBranches(await manager.knownCwd(req.query.cwd), req.query.fetch === '1'),
+);
+
+app.post<{ Body: { cwd: string; branch: string } }>(
+  '/api/git/switch',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'branch'],
+        properties: { cwd: { type: 'string' }, branch: { type: 'string', minLength: 1, maxLength: 200 } },
+      },
+    },
+  },
+  async (req) => {
+    await gitSwitch(await manager.knownCwd(req.body.cwd), req.body.branch);
+    return { ok: true };
+  },
+);
+
+// Apagar uma branch: a daqui, a do remoto ou as duas (a tela pede a confirmação antes).
+app.post<{ Body: { cwd: string; branch: string; local: boolean; remote: boolean } }>(
+  '/api/git/branch/delete',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'branch', 'local', 'remote'],
+        properties: { cwd: { type: 'string' }, branch: { type: 'string', minLength: 1, maxLength: 200 }, local: { type: 'boolean' }, remote: { type: 'boolean' } },
+      },
+    },
+  },
+  async (req) => {
+    await gitDeleteBranch(await manager.knownCwd(req.body.cwd), req.body.branch, req.body.local, req.body.remote);
+    return { ok: true };
+  },
+);
+
+app.post<{ Body: { cwd: string } }>(
+  '/api/git/pull',
+  { schema: { body: { type: 'object', required: ['cwd'], properties: { cwd: { type: 'string' } } } } },
+  async (req) => gitPull(await manager.knownCwd(req.body.cwd)),
+);
+
 // ---- Worktrees das conversas (ver worktrees.ts) ----
 
 // Branch, origem, commits à frente e mudanças sem commit, para a barra do worktree no chat.
@@ -1064,6 +1132,120 @@ app.get<{ Querystring: { cwd: string; kind: 'issue' | 'pr'; number: number; refr
   async (req) => githubItem(await manager.knownCwd(req.query.cwd), req.query.kind, req.query.number, req.query.refresh === '1'),
 );
 
+// Os arquivos de um PR ou de um commit, com o diff de cada um (ver githubPatches).
+app.get<{ Querystring: { cwd: string; pr?: number; sha?: string } }>(
+  '/api/github/patches',
+  {
+    schema: {
+      querystring: {
+        type: 'object',
+        required: ['cwd'],
+        properties: { cwd: { type: 'string' }, pr: { type: 'integer', minimum: 1 }, sha: { type: 'string', maxLength: 40 } },
+      },
+    },
+  },
+  async (req) => {
+    const cwd = await manager.knownCwd(req.query.cwd);
+    if (req.query.pr) return githubPatches(cwd, { pr: req.query.pr });
+    if (req.query.sha) return githubPatches(cwd, { sha: req.query.sha });
+    throw new HttpError(400, 'invalid_target');
+  },
+);
+
+// Abrir um PR pelo cald: o que a tela precisa (etiquetas, principal, o que a branch tem) e o "Abrir PR".
+app.get<ProjectQuery>('/api/github/draft', projectQuery, async (req) => githubDraft(await manager.knownCwd(req.query.cwd)));
+
+app.post<{ Body: { cwd: string; title: string; body: string; base: string; branch?: string; commits: { message: string; files: string[] }[]; labels: string[]; draft: boolean } }>(
+  '/api/github/pull',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'title', 'body', 'base', 'commits', 'labels', 'draft'],
+        properties: {
+          cwd: { type: 'string' },
+          title: { type: 'string', minLength: 1, maxLength: 300 },
+          body: { type: 'string', maxLength: 65_000 },
+          base: { type: 'string', minLength: 1, maxLength: 200 },
+          branch: { type: 'string', minLength: 1, maxLength: 200 },
+          commits: {
+            type: 'array',
+            maxItems: 100,
+            items: {
+              type: 'object',
+              required: ['message', 'files'],
+              properties: { message: { type: 'string', maxLength: 20_000 }, files: { type: 'array', items: { type: 'string' }, maxItems: 5000 } },
+            },
+          },
+          labels: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+          draft: { type: 'boolean' },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { cwd, ...draft } = req.body;
+    return githubCreatePull(await manager.knownCwd(cwd), draft);
+  },
+);
+
+// O PR organizado por um agente, no seu jeito (as suas skills de commit e PR valem): a tela preenche, você abre.
+app.post<{ Body: { cwd: string; agent?: string; model?: string; effort?: string; base: string; title?: string; body?: string; labels?: string[] } }>(
+  '/api/github/draft/plan',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'base'],
+        properties: {
+          cwd: { type: 'string' },
+          agent: { type: 'string', maxLength: 40 },
+          model: { type: 'string', maxLength: 100 },
+          effort: { type: 'string', maxLength: 20 },
+          base: { type: 'string', minLength: 1, maxLength: 200 },
+          title: { type: 'string', maxLength: 300 },
+          body: { type: 'string', maxLength: 65_000 },
+          labels: { type: 'array', items: { type: 'string', maxLength: 100 }, maxItems: 200 },
+        },
+      },
+    },
+  },
+  async (req, reply) => {
+    const { cwd, agent, ...draft } = req.body;
+    const dir = await manager.knownCwd(cwd);
+    const provider = agent ? providers.get(agent) : providers.default();
+    // A resposta vem aos poucos, uma linha JSON por vez: os textos enquanto ele escreve (`partial`), no
+    // máximo a cada 80 ms, e no fim o PR inteiro (`plan`) ou o erro. Os cabeçalhos do guard (CORS) vão junto.
+    reply.hijack();
+    const headers = Object.fromEntries(Object.entries(reply.getHeaders()).filter(([, v]) => v !== undefined)) as Record<string, string | number | string[]>;
+    reply.raw.writeHead(200, { ...headers, 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+    const line = (data: unknown) => reply.raw.write(`${JSON.stringify(data)}\n`);
+    // A tela desistiu (o "Parar", ou a aba fechou): sem ninguém para receber, o agente para.
+    const cancel = new AbortController();
+    reply.raw.once('close', () => !reply.raw.writableFinished && cancel.abort());
+    let latest: PartialPlan | null = null;
+    let timer: NodeJS.Timeout | null = null;
+    const flush = () => {
+      timer = null;
+      if (latest) line({ partial: latest });
+    };
+    const partial = (p: PartialPlan) => {
+      latest = p;
+      timer ??= setTimeout(flush, 80);
+    };
+    try {
+      const plan = await planPull(provider, dir, draft, cancel.signal, partial);
+      if (timer) clearTimeout(timer);
+      line({ plan });
+    } catch (err) {
+      if (timer) clearTimeout(timer);
+      line(err instanceof HttpError ? { error: err.code, ...err.details } : { error: 'assist_failed' });
+    } finally {
+      reply.raw.end();
+    }
+  },
+);
+
 // Uma ação numa issue ou num PR (comentar, etiquetas, fechar, revisar, merge…), pelo `gh` deste PC.
 // Só no clique de quem usa: nada aqui roda sozinho, e cada uma gasta poucas chamadas da cota.
 app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: GithubAction } }>(
@@ -1081,8 +1263,9 @@ app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: Gi
             type: 'object',
             required: ['type'],
             properties: {
-              type: { type: 'string', enum: ['comment', 'labels', 'state', 'assign', 'review', 'merge', 'draft'] },
+              type: { type: 'string', enum: ['comment', 'labels', 'state', 'assign', 'review', 'merge', 'draft', 'edit'] },
               body: { type: 'string', maxLength: 65_000 },
+              title: { type: 'string', maxLength: 300 },
               add: { type: 'array', items: { type: 'string' }, maxItems: 50 },
               remove: { type: 'array', items: { type: 'string' }, maxItems: 50 },
               open: { type: 'boolean' },

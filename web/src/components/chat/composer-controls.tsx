@@ -354,7 +354,7 @@ const stop = (i: number, last: number) => `calc(${THUMB_INSET}px + (100% - ${THU
  * arrastar escolhe, e o pino desliza até a parada; pelo teclado, as setas para os lados. O menu fica
  * aberto, para dar para ir e voltar.
  */
-function EffortBar({
+export function EffortBar({
   efforts,
   value,
   model,

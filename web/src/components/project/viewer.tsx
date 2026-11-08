@@ -39,12 +39,11 @@ import { mention } from './file-menu'
 import { blocksOf, ChangeNavBar, ChangePeek, innerChange, KIND_LABEL, MARK_BAR, MarkedCode, type Block, type Mark } from './changes'
 import type { EditorHandle, EditorStatus } from './editor'
 import { CodeMinimap, type MinimapToken } from './minimap'
-import { fileIcon, splitPath } from './status'
+import { DIFF_LABEL, fileIcon, splitPath } from './status'
 
 const MAX_LINES = 5_000
 const MAX_DIFF_ROWS = 4_000
 
-const SIDE_LABEL = { staged: 'Alterações preparadas', unstaged: 'Alterações' } as const
 
 // Números da margem desenhados pelo CSS (`data-n`): fora da seleção e do que se copia. Em `em`, para
 // crescerem com a fonte do código (ver `useCodeZoom`).
@@ -745,7 +744,7 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
         <div className="min-w-0 flex-1 pl-1">
           <Title className="truncate font-mono text-sm font-normal">{name}</Title>
           <div className="truncate font-mono text-xs text-muted-foreground">
-            {diff ? `${SIDE_LABEL[diff]} · ` : ''}
+            {diff ? `${DIFF_LABEL[diff].title} · ` : ''}
             {dir || projectName(cwd)}
             {file && !diff && ` · ${formatSize((editing ? status?.size : null) ?? file.size)}`}
           </div>

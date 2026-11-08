@@ -148,6 +148,8 @@ export type AgentProviderInfo = {
     fork: boolean
     /** Acompanha as sessões abertas no terminal do PC. */
     pcSessions: boolean
+    /** Faz tarefas avulsas no seu jeito, como organizar um PR; sem isso (servidor antigo), não. */
+    assist?: boolean
   }
 }
 
@@ -386,8 +388,11 @@ export type GitFile = {
   unstaged: LineCount | null
 }
 
-/** Um lado só do diff: o que está staged ou o que ainda não está. Sem lado, contra o último commit. */
-export type DiffSide = 'staged' | 'unstaged'
+/**
+ * Que diff mostrar: o que está staged, o que ainda não está, tudo contra o último commit (`head`) ou tudo
+ * o que a branch mudou desde que saiu da principal (`base`). Sem lado, contra o último commit.
+ */
+export type DiffSide = 'staged' | 'unstaged' | 'head' | 'base'
 
 /** Atualizar o PC pelo celular (ver server/src/updater.ts). */
 export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'restart'
@@ -413,6 +418,25 @@ export type GitStatus = {
   files: GitFile[]
   /** Página do repositório no navegador (ex.: https://github.com/dono/repo). */
   remote: string | null
+}
+
+/** Um arquivo que a branch mudou desde que saiu da principal: U é novo e ainda fora do git. */
+export type BranchChange = { path: string; from?: string; letter: 'M' | 'A' | 'D' | 'R' | 'U'; additions: number | null; deletions: number | null }
+
+/** O que a branch mudou desde que saiu da principal (`base`, ex.: origin/main), commits e não commitado juntos. */
+export type BranchChanges = { base: string | null; files: BranchChange[] }
+
+/** As branches para trocar (ver server/src/git.ts). */
+export type GitBranches = {
+  current: string | null
+  base: string | null
+  /**
+   * `ahead`: commits fora da principal; `worktree`: aberta em outro worktree, sem como trocar para ela
+   * aqui; `remote`: a mesma branch no remoto (ex.: origin/feat-x), para apagar lá também.
+   */
+  local: { name: string; current: boolean; ahead: number | null; worktree: string | null; remote: string | null }[]
+  /** Só no origin: trocar para uma cria a local. */
+  remote: { name: string; branch: string }[]
 }
 
 /** Resumo do git de um projeto, para a lista de projetos (ver server/src/git.ts). */
@@ -559,6 +583,39 @@ export type GithubAction =
   | { type: 'review'; event: 'approve' | 'request-changes' | 'comment'; body?: string }
   | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
   | { type: 'draft'; draft: boolean }
+  | { type: 'edit'; title?: string; body?: string }
+
+/** Um arquivo mudado num PR ou num commit, com o trecho do diff; `patch` nulo em binário ou diff grande demais. */
+export type GithubPatch = { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null }
+
+/** O que a aba de abrir PR precisa (ver server/src/github.ts). */
+export type PullDraftInfo =
+  | {
+      ok: true
+      repo: string
+      viewer: string
+      viewerAvatar: string | null
+      labels: GithubLabel[]
+      base: string
+      bases: string[]
+      branch: string | null
+      /** Na principal: o PR precisa de uma branch nova, que sai daqui levando o que for escolhido. */
+      onBase: boolean
+      files: GitFile[]
+      commits: { sha: string; short: string; headline: string }[]
+      existing: { number: number; url: string; title: string } | null
+      fetchedAt: number
+    }
+  | Extract<GithubInfo, { ok: false }>
+
+/** Um commit a fazer antes de abrir o PR: a mensagem inteira e os arquivos dele. */
+export type PlannedCommit = { message: string; files: string[] }
+
+/** O PR a abrir: `branch`, a nova (quando está na principal); `commits`, o não commitado que entra antes. */
+export type PullDraft = { title: string; body: string; base: string; branch?: string; commits: PlannedCommit[]; labels: string[]; draft: boolean }
+
+/** O PR organizado por um agente, no jeito das suas skills: a tela preenche, você revisa e abre. */
+export type PullPlan = { title: string; body: string; branch: string; commits: PlannedCommit[]; labels?: string[] }
 
 /** Um item do TODO do projeto, a lista simples do próprio cald (ver server/src/todos.ts). */
 /** Um anexo de um item do TODO, guardado no PC (ver server/src/todos.ts). */

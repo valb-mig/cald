@@ -359,8 +359,9 @@ export function CommentBox({ kind, avatar }: { kind: 'issue' | 'pr'; avatar?: Re
   const tab = (on: boolean) =>
     cn('rounded-md px-2.5 py-1 text-xs transition-colors', on ? 'bg-background font-medium text-foreground shadow-xs dark:bg-sidebar-accent' : 'text-muted-foreground hover:text-foreground')
   return (
-    <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3">
-      <div className="pt-0.5">{avatar}</div>
+    // Sem `avatar` (na coluna estreita da direita), sem a coluna da foto.
+    <div className={cn('grid gap-3', avatar !== undefined && 'grid-cols-[2rem_minmax(0,1fr)]')}>
+      {avatar !== undefined && <div className="pt-0.5">{avatar}</div>}
       <div className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
         <div className="flex items-center gap-1 bg-foreground/[0.03] px-2 py-1.5">
           <button type="button" className={tab(!preview)} onClick={() => setPreview(false)}>

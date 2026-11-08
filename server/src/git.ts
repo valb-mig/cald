@@ -140,12 +140,15 @@ function checkPath(path: string): void {
   if (!path || isAbsolute(path) || path.split('/').includes('..')) throw new HttpError(400, 'invalid_path');
 }
 
-/** Um lado só do diff, como nas duas listas do VSCode: o que está staged ou o que ainda não está. */
-export type DiffSide = 'staged' | 'unstaged';
+/**
+ * Que diff mostrar: o que está staged, o que ainda não está, tudo contra o último commit (`head`) ou
+ * tudo o que a branch mudou desde que saiu da principal, commits e não commitado juntos (`base`).
+ */
+export type DiffSide = 'staged' | 'unstaged' | 'head' | 'base';
 
 /**
- * Diff de um arquivo. Sem `side`, contra o último commit (staged + não staged); com ele, só aquele
- * lado. Arquivo novo, ainda fora do índice, é comparado com o vazio.
+ * Diff de um arquivo. Sem `side`, contra o último commit (staged + não staged); com ele, o que ele
+ * pede. Arquivo novo, ainda fora do índice, é comparado com o vazio.
  */
 export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promise<string> {
   checkPath(path);
@@ -158,6 +161,10 @@ export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promi
     out = (await git(cwd, ['diff', '--cached', '--', path])).stdout;
   } else if (side === 'unstaged' && !file?.untracked) {
     out = (await git(cwd, ['diff', '--', path])).stdout;
+  } else if (side === 'base' && !file?.untracked) {
+    const base = await forkPoint(cwd);
+    if (!base) throw new HttpError(409, 'no_base');
+    out = (await git(cwd, ['diff', base.sha, '--', path])).stdout;
   } else if (file?.untracked) {
     // Sem histórico: compara com /dev/null (o git sai com código 1 quando há diferença).
     out = await git(cwd, ['diff', '--no-index', '--', '/dev/null', path]).then(
@@ -341,6 +348,208 @@ export async function gitSync(cwd: string): Promise<void> {
   if (after.ahead > 0) await gitWrite(cwd, ['push']);
 }
 
+/** Traz o que chegou no upstream, só avançando: nunca um merge escondido. Devolve quantos commits vieram. */
+export async function gitPull(cwd: string): Promise<{ commits: number }> {
+  const status = await requireRepo(cwd);
+  if (!status.branch) throw new HttpError(409, 'detached_head');
+  if (!status.upstream) throw new HttpError(409, 'no_upstream');
+  const head = () => git(cwd, ['rev-parse', 'HEAD']).then((r) => r.stdout.trim());
+  const before = await head();
+  await gitWrite(cwd, ['pull', '--ff-only']);
+  const commits = await git(cwd, ['rev-list', '--count', `${before}..${await head()}`]).then((r) => Number(r.stdout.trim()) || 0);
+  return { commits };
+}
+
+// ---- branches ----
+
+const exists = (cwd: string, ref: string) =>
+  git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).then(
+    () => true,
+    () => false,
+  );
+
+/** A branch principal, com que as outras se comparam: a padrão do origin, senão main ou master. */
+async function baseRef(cwd: string): Promise<string | null> {
+  const head = await git(cwd, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']).then(
+    (r) => r.stdout.trim(),
+    () => '',
+  );
+  if (head) return head;
+  for (const ref of ['origin/main', 'origin/master', 'main', 'master']) if (await exists(cwd, ref)) return ref;
+  return null;
+}
+
+/** De onde a branch atual saiu da principal: o commit em comum com ela. */
+async function forkPoint(cwd: string): Promise<{ ref: string; sha: string } | null> {
+  const ref = await baseRef(cwd);
+  if (!ref) return null;
+  const sha = await git(cwd, ['merge-base', ref, 'HEAD']).then(
+    (r) => r.stdout.trim(),
+    () => '',
+  );
+  return sha ? { ref, sha } : null;
+}
+
+/** Um arquivo que a branch mudou desde que saiu da principal: U é novo e ainda fora do git. */
+export type BranchChange = { path: string; from?: string; letter: 'M' | 'A' | 'D' | 'R' | 'U'; additions: number | null; deletions: number | null };
+
+/** O que a branch mudou desde que saiu da principal (`base`), commits e não commitado juntos. */
+export type BranchChanges = { base: string | null; files: BranchChange[] };
+
+export async function gitBranchChanges(cwd: string): Promise<BranchChanges> {
+  const status = await requireRepo(cwd);
+  const base = await forkPoint(cwd);
+  if (!base) return { base: null, files: [] };
+  // Contra a árvore de trabalho: entra o que já tem commit e o que ainda não tem.
+  const [names, nums] = await Promise.all([
+    git(cwd, ['diff', '--name-status', '-z', '-M', base.sha]).then((r) => r.stdout),
+    git(cwd, ['diff', '--numstat', '-z', '-M', base.sha]).then((r) => r.stdout),
+  ]);
+  const counts = parseNumstat(nums);
+  const files: BranchChange[] = [];
+  // "M\0caminho\0", ou, em renomeação e cópia, "R100\0antigo\0novo\0".
+  const tokens = names.split('\0');
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const code = tokens[i]![0];
+    const moved = code === 'R' || code === 'C';
+    const from = moved ? tokens[++i] : undefined;
+    const path = tokens[++i];
+    if (!code || !path) continue;
+    const letter = moved ? 'R' : code === 'A' || code === 'D' ? code : 'M';
+    const n = counts.get(path);
+    files.push({ path, from, letter, additions: n?.additions ?? null, deletions: n?.deletions ?? null });
+  }
+  for (const f of status.files) if (f.untracked) files.push({ path: f.path, letter: 'U', additions: null, deletions: null });
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return { base: base.ref, files };
+}
+
+export type GitBranch = {
+  name: string;
+  current: boolean;
+  /** Commits que ainda não estão na principal; `null` se não deu para contar. */
+  ahead: number | null;
+  /** Aberta em outro worktree: o git não deixa trocar para ela aqui. */
+  worktree: string | null;
+  /** A mesma branch no remoto (ex.: origin/feat-x), para apagar lá também; `null` se não está em nenhum. */
+  remote: string | null;
+};
+
+/** Do origin, sem branch local com o mesmo nome: trocar para ela cria a local, seguindo a do origin. */
+export type RemoteBranch = { name: string; branch: string };
+
+export type GitBranches = { current: string | null; base: string | null; local: GitBranch[]; remote: RemoteBranch[] };
+
+const MAX_LOCAL = 40;
+const MAX_REMOTE = 20;
+
+/**
+ * As branches para trocar, das mais recentes para as mais antigas, cada local com quantos commits tem
+ * fora da principal. Com `fetch`, consulta o remoto antes (no máximo a cada 10 min).
+ */
+export async function gitBranches(cwd: string, fetch: boolean): Promise<GitBranches> {
+  await requireRepo(cwd);
+  if (fetch) await fetchRemote(cwd);
+  const [status, base, top] = await Promise.all([
+    readStatus(cwd),
+    baseRef(cwd),
+    git(cwd, ['rev-parse', '--show-toplevel']).then((r) => r.stdout.trim()),
+  ]);
+  const list = (ahead: boolean) =>
+    git(cwd, [
+      'for-each-ref',
+      '--sort=-committerdate',
+      `--format=%(refname)%00%(refname:short)%00%(worktreepath)%00%(upstream:short)%00%(upstream:track)${ahead ? `%00%(ahead-behind:${base})` : ''}`,
+      'refs/heads',
+      'refs/remotes',
+    ]).then((r) => r.stdout.split('\n').filter(Boolean).map((l) => l.split('\0')));
+  // O `ahead-behind` conta tudo numa passada só, mas é do git 2.41 em diante; antes, um rev-list por branch.
+  const rows = base ? await list(true).catch(() => null) : null;
+  const refs = rows ?? (await list(false));
+
+  const local: GitBranch[] = [];
+  const remote: RemoteBranch[] = [];
+  const remotes = new Set<string>();
+  for (const [ref = '', name = '', worktree = '', upstream = '', track = '', counts] of refs) {
+    if (ref.startsWith('refs/heads/')) {
+      if (local.length >= MAX_LOCAL && name !== status?.branch) continue;
+      const ahead = counts ? Number(counts.split(' ')[0]) : null;
+      local.push({
+        name,
+        current: name === status?.branch,
+        ahead: Number.isFinite(ahead) ? ahead : null,
+        worktree: worktree && worktree !== top ? worktree : null,
+        // Upstream apagado lá ("[gone]") não conta: não há o que apagar.
+        remote: upstream && track !== '[gone]' ? upstream : null,
+      });
+    } else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) {
+      remotes.add(name);
+      if (name !== base) remote.push({ name, branch: name.slice(name.indexOf('/') + 1) });
+    }
+  }
+  // Sem upstream, mas com uma de mesmo nome no origin (criada por outro caminho): é ela.
+  for (const b of local) if (!b.remote && remotes.has(`origin/${b.name}`)) b.remote = `origin/${b.name}`;
+  if (base && !rows) {
+    await Promise.all(
+      local.map(async (b) => {
+        b.ahead = await git(cwd, ['rev-list', '--count', `${base}..refs/heads/${b.name}`]).then(
+          (r) => Number(r.stdout.trim()),
+          () => null,
+        );
+      }),
+    );
+  }
+  const names = new Set(local.map((b) => b.name));
+  return {
+    current: status?.branch ?? null,
+    base,
+    local,
+    remote: remote.filter((r) => !names.has(r.branch)).slice(0, MAX_REMOTE),
+  };
+}
+
+/**
+ * Apaga uma branch: com `remote`, primeiro a do remoto (é onde costuma falhar, e aí nada some), depois,
+ * com `local`, a daqui, mesmo com commits fora da principal: a tela avisa disso antes de confirmar. A
+ * atual e a aberta em outro worktree o git não deixa apagar.
+ */
+export async function gitDeleteBranch(cwd: string, branch: string, local: boolean, remote: boolean): Promise<void> {
+  await requireRepo(cwd);
+  const valid = await git(cwd, ['check-ref-format', '--branch', branch]).then(
+    () => true,
+    () => false,
+  );
+  if (!valid || branch.startsWith('-')) throw new HttpError(400, 'invalid_branch');
+  if (remote) {
+    // Onde ela está: o upstream da local ou, sem ele, a de mesmo nome no origin.
+    const upstream = local
+      ? await git(cwd, ['rev-parse', '--abbrev-ref', `${branch}@{upstream}`]).then(
+          (r) => r.stdout.trim(),
+          () => '',
+        )
+      : '';
+    const target = upstream && (await exists(cwd, `refs/remotes/${upstream}`)) ? upstream : (await exists(cwd, `refs/remotes/origin/${branch}`)) ? `origin/${branch}` : null;
+    if (!target) throw new HttpError(409, 'no_remote_branch');
+    const slash = target.indexOf('/');
+    await gitWrite(cwd, ['push', target.slice(0, slash), '--delete', target.slice(slash + 1)]);
+  }
+  if (local) await gitWrite(cwd, ['branch', '-D', branch]);
+}
+
+/**
+ * Troca de branch neste checkout, levando o não commitado (o git recusa se ele bater com a outra). Uma
+ * que só existe no origin vira local, seguindo a de lá.
+ */
+export async function gitSwitch(cwd: string, branch: string): Promise<void> {
+  await requireRepo(cwd);
+  const valid = await git(cwd, ['check-ref-format', '--branch', branch]).then(
+    () => true,
+    () => false,
+  );
+  if (!valid || branch.startsWith('-')) throw new HttpError(400, 'invalid_branch');
+  await gitWrite(cwd, ['switch', branch]);
+}
+
 /** O que a lista de projetos mostra de cada repositório. */
 export type GitSummary = {
   branch: string | null;
@@ -358,13 +567,14 @@ const FETCH_PARALLEL = 6;
 const fetches = new Map<string, { at: number; run: Promise<void> }>();
 
 /**
- * `git fetch` do upstream, no máximo a cada 10 min por projeto. Nunca pede senha: sem chave ou
- * credencial que funcione sozinha, falha calado e o projeto fica com o que já se sabia do remoto.
+ * `git fetch` do upstream, no máximo a cada 10 min por projeto, tirando as branches que sumiram de lá.
+ * Nunca pede senha: sem chave ou credencial que funcione sozinha, falha calado e o projeto fica com o
+ * que já se sabia do remoto.
  */
 function fetchRemote(cwd: string): Promise<void> {
   const last = fetches.get(cwd);
   if (last && Date.now() - last.at < FETCH_EVERY_MS) return last.run;
-  const run = exec('git', ['fetch', '--quiet'], {
+  const run = exec('git', ['fetch', '--quiet', '--prune'], {
     cwd,
     timeout: 20_000,
     env: {

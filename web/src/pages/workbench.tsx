@@ -1,4 +1,4 @@
-import { AppWindow, CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
+import { AppWindow, CircleDot, Columns2, FileDiff, FolderGit2, GitPullRequest, GitPullRequestCreate, Inbox, MessageSquarePlus, PencilLine, Pin, X } from 'lucide-react'
 import { createElement, Fragment, useEffect, useLayoutEffect, useState } from 'react'
 import { useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
@@ -7,6 +7,8 @@ import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { Crash, ErrorBoundary } from '@/components/error-boundary'
 import { GithubItemView } from '@/components/project/github-item'
+import { PullComposer } from '@/components/project/pull-composer'
+import { PullView } from '@/components/project/pull-view'
 import { ProjectHub } from '@/components/project/hub'
 import { WorkspacePage } from '@/pages/workspace'
 import { InboxView } from '@/components/inbox/inbox-view'
@@ -15,7 +17,7 @@ import { ArtefatoView } from '@/components/artefatos/artefato-view'
 import { ArtefatoIcon, useArtefatos } from '@/lib/artefatos'
 import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
-import { fileIcon, splitPath } from '@/components/project/status'
+import { DIFF_LABEL, fileIcon, splitPath } from '@/components/project/status'
 import { UnsavedDialog } from '@/components/project/unsaved-dialog'
 import { ViewerBody } from '@/components/project/viewer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -131,7 +133,7 @@ function FileTabLabel({ tab }: { tab: Extract<Tab, { kind: 'file' }> }) {
     <>
       {createElement(tab.diff ? FileDiff : fileIcon(name), { className: 'size-3.5 shrink-0 text-muted-foreground' })}
       <span className="truncate">{name}</span>
-      {tab.diff && <span className="shrink-0 text-[11px] text-muted-foreground">{tab.diff === 'staged' ? 'preparado' : 'alterações'}</span>}
+      {tab.diff && <span className="shrink-0 text-[11px] text-muted-foreground">{DIFF_LABEL[tab.diff].short}</span>}
     </>
   )
 }
@@ -150,20 +152,22 @@ const tabTitle = (tab: Tab, chatTitle?: string) =>
   tab.kind === 'chat'
     ? (chatTitle ?? 'Conversa')
     : tab.kind === 'file'
-      ? `${tab.path}${tab.diff ? ` (${tab.diff === 'staged' ? 'alterações preparadas' : 'alterações'})` : ''}`
+      ? `${tab.path}${tab.diff ? ` (${DIFF_LABEL[tab.diff].long})` : ''}`
       : tab.kind === 'github'
         ? `${tab.item === 'pr' ? 'PR' : 'Issue'} #${tab.number}${tab.title ? `: ${tab.title}` : ''}`
-        : tab.kind === 'new'
-          ? `Nova conversa em ${tab.cwd ? projectName(tab.cwd) : 'sem projeto (~)'}`
-          : tab.kind === 'workspace'
-            ? 'Workspace'
-            : tab.kind === 'inbox'
-              ? 'Inbox'
-              : tab.kind === 'prototype'
-                ? `${tab.title ? `${tab.title}\n` : ''}${shortPath(tab.path)}`
-                : tab.kind === 'artefato'
-                  ? `${tab.title ?? 'Artefato'}${tab.n ? ` · v${tab.n}` : ''}`
-                  : `Projeto ${projectName(tab.cwd)}`
+        : tab.kind === 'pr-new'
+          ? `Novo PR em ${projectName(tab.cwd)}`
+          : tab.kind === 'new'
+            ? `Nova conversa em ${tab.cwd ? projectName(tab.cwd) : 'sem projeto (~)'}`
+            : tab.kind === 'workspace'
+              ? 'Workspace'
+              : tab.kind === 'inbox'
+                ? 'Inbox'
+                : tab.kind === 'prototype'
+                  ? `${tab.title ? `${tab.title}\n` : ''}${shortPath(tab.path)}`
+                  : tab.kind === 'artefato'
+                    ? `${tab.title ?? 'Artefato'}${tab.n ? ` · v${tab.n}` : ''}`
+                    : `Projeto ${projectName(tab.cwd)}`
 
 /** `alone`: a aba é a única do grupo, e abrir ao lado só trocaria o grupo por outro igual. */
 type TabMenuAt = { group: string; tab: Tab; alone: boolean; x: number; y: number }
@@ -252,6 +256,12 @@ function TabItem({
           <FileTabLabel tab={tab} />
         ) : tab.kind === 'github' ? (
           <GithubTabLabel tab={tab} />
+        ) : tab.kind === 'pr-new' ? (
+          <>
+            <GitPullRequestCreate className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">Novo PR</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{projectName(tab.cwd)}</span>
+          </>
         ) : tab.kind === 'new' ? (
           <>
             <MessageSquarePlus className="size-3.5 shrink-0 text-muted-foreground" />
@@ -423,7 +433,21 @@ function FileTabContent({ tab, active }: { tab: Extract<Tab, { kind: 'file' }>; 
  */
 function GithubTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind: 'github' }>; visible: boolean; focused: boolean }) {
   useShowProject(tab.machine, tab.cwd, null, focused)
+  // O PR no desenho do cald (ver project/pull-view.tsx); a issue segue no de antes.
+  if (tab.item === 'pr') return <PullView machine={tab.machine} cwd={tab.cwd} number={tab.number} title={tab.title} active={visible} />
   return <GithubItemView machine={tab.machine} cwd={tab.cwd} kind={tab.item} number={tab.number} title={tab.title} active={visible} />
+}
+
+/** Abrir um PR: aberto, a aba vira a dele, no mesmo lugar. */
+function PullComposerTabContent({ tab, focused }: { tab: Extract<Tab, { kind: 'pr-new' }>; focused: boolean }) {
+  useShowProject(tab.machine, tab.cwd, null, focused)
+  return (
+    <PullComposer
+      machine={tab.machine}
+      cwd={tab.cwd}
+      onCreated={(pr) => replaceTab(tab.key, { kind: 'github', machine: tab.machine, cwd: tab.cwd, item: 'pr', number: pr.number, title: pr.title })}
+    />
+  )
 }
 
 /**
@@ -649,6 +673,8 @@ function GroupView({
                   <FileTabContent tab={tab} active={focused && active} />
                 ) : tab.kind === 'github' ? (
                   <GithubTabContent tab={tab} visible={active} focused={focused && active} />
+                ) : tab.kind === 'pr-new' ? (
+                  <PullComposerTabContent tab={tab} focused={focused && active} />
                 ) : tab.kind === 'new' ? (
                   <NewTabContent tab={tab} focused={focused && active} />
                 ) : tab.kind === 'workspace' ? (

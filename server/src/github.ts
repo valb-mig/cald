@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { HttpError } from './errors.ts';
-import { gitStatus } from './git.ts';
+import { git, gitCreateBranch, gitStage, gitStatus, gitWrite, requireRepo, type GitFile } from './git.ts';
 
 const exec = promisify(execFile);
 
@@ -650,7 +650,8 @@ export type GithubAction =
   | { type: 'assign'; me: boolean }
   | { type: 'review'; event: 'approve' | 'request-changes' | 'comment'; body?: string }
   | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
-  | { type: 'draft'; draft: boolean };
+  | { type: 'draft'; draft: boolean }
+  | { type: 'edit'; title?: string; body?: string };
 
 const PR_ONLY = new Set<GithubAction['type']>(['review', 'merge', 'draft']);
 
@@ -720,9 +721,191 @@ export async function githubAct(cwd: string, kind: 'issue' | 'pr', number: numbe
     case 'draft':
       await run(cwd, ['pr', 'ready', String(number), '--repo', repo, ...(action.draft ? ['--undo'] : [])]);
       break;
+    case 'edit': {
+      if (action.title !== undefined && !action.title.trim()) throw new HttpError(400, 'github_action_failed', { message: 'O título não pode ficar vazio.' });
+      const args = [cmd, 'edit', String(number), '--repo', repo];
+      if (action.title !== undefined) args.push('--title', action.title.trim());
+      if (action.body !== undefined) args.push('--body', action.body);
+      await run(cwd, args);
+      break;
+    }
   }
   // O que estava guardado ficou velho: a lista da barra do projeto e o próprio item.
   cache.delete(`list\n${cwd}`);
   cache.delete(`${kind}\n${number}\n${cwd}`);
   return githubItem(cwd, kind, number, false);
+}
+
+// ---- os diffs de um PR ou de um commit ----
+
+/** Um arquivo mudado, com o trecho do diff (`patch`); `null` em binário ou diff grande demais para a API. */
+export type GithubPatch = { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null };
+
+const PATCH_TTL_MS = 2 * 60_000;
+const patches = new Map<string, { at: number; value: Promise<GithubPatch[]> }>();
+const PATCH_FIELDS = '{path: .filename, previous: .previous_filename, status, additions, deletions, patch}';
+
+/**
+ * Os arquivos de um PR (`pr`) ou de um commit (`sha`), com o diff de cada um, pela API REST: um commit
+ * não muda, e a lista do PR vale 2 min, como o resto do GitHub daqui.
+ */
+export async function githubPatches(cwd: string, target: { pr: number } | { sha: string }): Promise<{ files: GithubPatch[] }> {
+  const at = await repoOf(cwd, Date.now());
+  if ('ok' in at) throw new HttpError(422, 'github_action_failed', { message: 'Este projeto não está no GitHub.' });
+  const repo = `${at.owner}/${at.name}`;
+  if ('sha' in target && !/^[0-9a-f]{7,40}$/i.test(target.sha)) throw new HttpError(400, 'invalid_sha');
+  const key = 'pr' in target ? `pr\n${target.pr}\n${cwd}` : `sha\n${target.sha}\n${cwd}`;
+  const hit = patches.get(key);
+  if (hit && ('sha' in target || Date.now() - hit.at < PATCH_TTL_MS)) return { files: await hit.value };
+  const args =
+    'pr' in target
+      ? ['api', '--paginate', `repos/${repo}/pulls/${target.pr}/files?per_page=100`, '--jq', `.[] | ${PATCH_FIELDS}`]
+      : ['api', `repos/${repo}/commits/${target.sha}`, '--jq', `.files[] | ${PATCH_FIELDS}`];
+  const value = run(cwd, args).then((out) =>
+    out
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as GithubPatch),
+  );
+  patches.set(key, { at: Date.now(), value });
+  value.catch(() => patches.delete(key));
+  return { files: await value };
+}
+
+// ---- abrir um PR pelo cald ----
+
+/** Um commit da branch que ainda não está na principal: vai junto no PR. */
+export type DraftCommit = { sha: string; short: string; headline: string };
+
+/** O que a tela de abrir PR precisa: o repositório, as etiquetas, a principal e o que a branch tem de novo. */
+export type PullDraftInfo =
+  | {
+      ok: true;
+      repo: string;
+      viewer: string;
+      viewerAvatar: string | null;
+      labels: GithubLabel[];
+      /** A principal do repositório, onde o PR entra por padrão, e as outras branches do origin. */
+      base: string;
+      bases: string[];
+      branch: string | null;
+      /** Na principal: o PR precisa de uma branch nova, que sai daqui levando o que for escolhido. */
+      onBase: boolean;
+      files: GitFile[];
+      commits: DraftCommit[];
+      /** Um PR já aberto desta branch: em vez de outro, a tela leva até ele. */
+      existing: { number: number; url: string; title: string } | null;
+      fetchedAt: number;
+    }
+  | Failure;
+
+export async function githubDraft(cwd: string): Promise<PullDraftInfo> {
+  const fetchedAt = Date.now();
+  const at = await repoOf(cwd, fetchedAt);
+  if ('ok' in at) return at;
+  const status = await gitStatus(cwd);
+  if (!status) return { ok: false, reason: 'no_remote', fetchedAt };
+  try {
+    const res = await graphql<{
+      data?: {
+        viewer: { login: string; avatarUrl?: string };
+        repository: {
+          defaultBranchRef: { name: string } | null;
+          labels: { nodes: GithubLabel[] };
+          pullRequests: { nodes: { number: number; url: string; title: string }[] };
+        } | null;
+      };
+    }>(
+      cwd,
+      `query($owner: String!, $name: String!, $head: String!) {
+        rateLimit { remaining limit resetAt }
+        viewer { login avatarUrl }
+        repository(owner: $owner, name: $name) {
+          defaultBranchRef { name }
+          labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name color } }
+          pullRequests(headRefName: $head, states: OPEN, first: 1) { nodes { number url title } }
+        }
+      }`,
+      { owner: at.owner, name: at.name, head: status.branch ?? '' },
+    );
+    const repo = res.data?.repository;
+    if (!res.data || !repo) return { ok: false, reason: 'error', message: 'O GitHub não achou o repositório.', fetchedAt };
+    const base = repo.defaultBranchRef?.name ?? 'main';
+    const onBase = status.branch === base;
+    // O que sai no PR além do não commitado: os commits que a origin/<principal> ainda não tem.
+    const [log, refs] = await Promise.all([
+      git(cwd, ['log', '--format=%H%x00%h%x00%s', '-n', '100', `origin/${base}..HEAD`]).then(
+        (r) => r.stdout,
+        () => '',
+      ),
+      git(cwd, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', '--count=40', 'refs/remotes/origin']).then(
+        (r) => r.stdout,
+        () => '',
+      ),
+    ]);
+    const commits = log
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        const [sha = '', short = '', headline = ''] = l.split('\0');
+        return { sha, short, headline };
+      });
+    const bases = refs
+      .split('\n')
+      .filter((r) => r && r !== 'origin' && r !== 'origin/HEAD')
+      .map((r) => r.slice('origin/'.length))
+      .filter((b) => b !== status.branch);
+    return {
+      ok: true,
+      repo: `${at.owner}/${at.name}`,
+      viewer: res.data.viewer.login,
+      viewerAvatar: res.data.viewer.avatarUrl ?? null,
+      labels: repo.labels.nodes,
+      base,
+      bases: [base, ...bases.filter((b) => b !== base)],
+      branch: status.branch,
+      onBase,
+      files: status.files,
+      commits,
+      existing: onBase ? null : (repo.pullRequests.nodes[0] ?? null),
+      fetchedAt,
+    };
+  } catch (err) {
+    return failure(err, fetchedAt);
+  }
+}
+
+/** O PR a abrir: `branch`, a nova (quando está na principal); `commits`, o não commitado que entra antes, em commits. */
+export type PullDraft = { title: string; body: string; base: string; branch?: string; commits: { message: string; files: string[] }[]; labels: string[]; draft: boolean };
+
+/**
+ * Abre o PR do jeito que se faria no terminal: cria a branch (se pediu), faz os commits dos arquivos
+ * escolhidos, publica a branch no origin e abre o PR pelo `gh`. Se algo falhar no meio, o que já foi
+ * feito fica (a branch, o commit), e a tela relida mostra de onde continuar.
+ */
+export async function githubCreatePull(cwd: string, d: PullDraft): Promise<{ number: number; url: string }> {
+  const at = await repoOf(cwd, Date.now());
+  if ('ok' in at) throw new HttpError(422, 'github_action_failed', { message: 'Este projeto não está no GitHub.' });
+  if (!d.title.trim()) throw new HttpError(400, 'github_action_failed', { message: 'Escreva o título do PR.' });
+  const status = await requireRepo(cwd);
+  if (d.branch && d.branch !== status.branch) await gitCreateBranch(cwd, d.branch);
+  const branch = (await requireRepo(cwd)).branch;
+  if (!branch) throw new HttpError(409, 'detached_head');
+  if (branch === d.base) throw new HttpError(409, 'github_action_failed', { message: `O PR precisa sair de outra branch, não da ${d.base}.` });
+  for (const c of d.commits) {
+    if (!c.files.length) continue;
+    await gitStage(cwd, c.files);
+    // Só os deste commit: o que já estava preparado de outros arquivos fica para os próximos (ou de fora).
+    await gitWrite(cwd, ['commit', '-m', c.message.trim() || d.title.trim(), '--', ...c.files]);
+  }
+  await gitWrite(cwd, ['push', '-u', 'origin', 'HEAD']);
+  const args = ['pr', 'create', '--repo', `${at.owner}/${at.name}`, '--base', d.base, '--head', branch, '--title', d.title.trim(), '--body', d.body];
+  for (const l of d.labels) args.push('--label', l);
+  if (d.draft) args.push('--draft');
+  const out = await run(cwd, args);
+  const url = out.trim().split('\n').findLast((l) => l.includes('/pull/')) ?? '';
+  const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+  cache.delete(`list\n${cwd}`);
+  if (!number) throw new HttpError(422, 'github_action_failed', { message: 'O PR foi aberto, mas não entendi a resposta do gh.' });
+  return { number, url };
 }
