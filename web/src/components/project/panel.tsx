@@ -192,7 +192,7 @@ function ProjectRail({ project }: { project: PanelProject }) {
   const shown = useProjectPanel(isPanelShown)
   const tab = useProjectPanel((s) => s.tab)
   const changes = useGitStatus(project.machine, project.cwd, null).status?.files.length ?? 0
-  // PRs e issues: só o que as abas já buscaram (a alça não consulta o GitHub). O TODO é local e leve.
+  // PRs e issues: a alça busca sozinha, com o mesmo cache das abas. O TODO é local e leve.
   const github = useGithubCounts(project.machine, project.cwd)
   const todo = useTodos(project.machine, project.cwd)?.filter((t) => !t.done).length ?? 0
   const counts: Record<PanelTab, { n: number; badge: string; tip: (n: number) => string } | null> = {

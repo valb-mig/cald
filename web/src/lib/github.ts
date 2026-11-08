@@ -5,8 +5,8 @@ import type { GithubAction, GithubInfo, GithubItem } from './types'
 
 /**
  * PRs e issues do GitHub por projeto: uma busca só para as duas abas da barra do projeto e para os
- * contadores da alça dela. Busca apenas com uma das abas aberta — nada fica consultando em segundo
- * plano —, e o servidor ainda guarda a resposta por 2 minutos (ver server/src/github.ts).
+ * contadores da alça dela. Busca com a alça ou uma das abas à vista, nunca com a página escondida, e o
+ * servidor ainda guarda a resposta por 2 minutos (ver server/src/github.ts).
  */
 /** Por que não deu para buscar, com o que fazer (ver server/src/github.ts). */
 export const GITHUB_REASON: Record<Extract<GithubInfo, { ok: false }>['reason'], string> = {
@@ -68,9 +68,24 @@ export function useGithub(machine: string, cwd: string, active: boolean) {
   }
 }
 
-/** Os totais do que já foi buscado: os contadores da alça não fazem busca nenhuma por conta própria. */
+/**
+ * Os totais de PRs e issues, para os contadores da alça: busca ao aparecer e, com a página à vista, de
+ * novo quando a resposta vence (ou ao voltar para ela). Cada consulta custa 1 ponto dos 5.000 por hora.
+ */
 export function useGithubCounts(machine: string, cwd: string): { pulls: number; issues: number } | null {
   const info = useGithubCache((s) => s[keyOf(machine, cwd)]?.info)
+  useEffect(() => {
+    const load = () => {
+      if (document.visibilityState === 'visible') void loadGithub(machine, cwd)
+    }
+    load()
+    const timer = setInterval(load, FRESH_MS)
+    document.addEventListener('visibilitychange', load)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [machine, cwd])
   return info?.ok ? { pulls: info.pullCount, issues: info.issueCount } : null
 }
 
