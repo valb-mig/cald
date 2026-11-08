@@ -23,6 +23,8 @@ export type TabRef =
   | { kind: 'file'; machine: string; cwd: string; path: string; diff?: DiffSide }
   /** `title`: o da lista, para a aba ter nome antes de o detalhe chegar; não faz parte da chave. */
   | { kind: 'github'; machine: string; cwd: string; item: 'issue' | 'pr'; number: number; title?: string }
+  /** Abrir um PR do projeto (ver project/pull-composer.tsx): ao abrir, a aba vira a do PR. Uma por projeto. */
+  | { kind: 'pr-new'; machine: string; cwd: string }
   /** O hub do projeto: a conversa nova, a equipe de claudinhos, as pendências e o uso (ver project/hub.tsx). */
   | { kind: 'project'; machine: string; cwd: string }
   /**
@@ -75,17 +77,19 @@ export const keyOf = (ref: TabRef) =>
       ? `f:${ref.machine}\n${ref.cwd}\n${ref.path}\n${ref.diff ?? ''}`
       : ref.kind === 'github'
         ? `g:${ref.machine}\n${ref.cwd}\n${ref.item}\n${ref.number}`
-        : ref.kind === 'new'
-          ? `n:${ref.machine}\n${ref.cwd ?? ''}${ref.workspace ? `\n${ref.workspace}` : ''}`
-          : ref.kind === 'workspace'
-            ? `w:${ref.machine}\n${ref.id}`
-            : ref.kind === 'inbox'
-              ? 'i:'
-              : ref.kind === 'prototype'
-                ? `pt:${ref.machine}\n${ref.path}`
-                : ref.kind === 'artefato'
-                  ? `ar:${ref.machine}\n${ref.id}`
-                  : `p:${ref.machine}\n${ref.cwd}`
+        : ref.kind === 'pr-new'
+          ? `pr:${ref.machine}\n${ref.cwd}`
+          : ref.kind === 'new'
+            ? `n:${ref.machine}\n${ref.cwd ?? ''}${ref.workspace ? `\n${ref.workspace}` : ''}`
+            : ref.kind === 'workspace'
+              ? `w:${ref.machine}\n${ref.id}`
+              : ref.kind === 'inbox'
+                ? 'i:'
+                : ref.kind === 'prototype'
+                  ? `pt:${ref.machine}\n${ref.path}`
+                  : ref.kind === 'artefato'
+                    ? `ar:${ref.machine}\n${ref.id}`
+                    : `p:${ref.machine}\n${ref.cwd}`
 
 const KEY = 'cr:workbench'
 let counter = 0

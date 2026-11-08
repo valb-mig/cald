@@ -19,7 +19,15 @@ export function splitPath(path: string): { name: string; dir: string } {
 
 export type Badge = { letter: string; className: string; label: string }
 
-const BADGES = {
+/** Como cada diff se chama: o rótulo curto, ao lado do nome na aba, o do título dela e o do visualizador. */
+export const DIFF_LABEL: Record<DiffSide, { short: string; long: string; title: string }> = {
+  staged: { short: 'preparado', long: 'alterações preparadas', title: 'Alterações preparadas' },
+  unstaged: { short: 'alterações', long: 'alterações', title: 'Alterações' },
+  head: { short: 'alterações', long: 'alterações', title: 'Alterações' },
+  base: { short: 'da branch', long: 'alterações da branch', title: 'Alterações da branch' },
+}
+
+export const BADGES = {
   U: { letter: 'U', className: 'text-emerald-600 dark:text-emerald-400', label: 'novo' },
   M: { letter: 'M', className: 'text-amber-600 dark:text-amber-400', label: 'modificado' },
   A: { letter: 'A', className: 'text-emerald-600 dark:text-emerald-400', label: 'adicionado' },

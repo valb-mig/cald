@@ -24,6 +24,12 @@ import type {
   InboxPayload,
   GithubItem,
   GitStatus,
+  GithubPatch,
+  PullDraft,
+  PullDraftInfo,
+  PullPlan,
+  GitBranches,
+  BranchChanges,
   GitSummary,
   LinkCheck,
   LoggedEvent,
@@ -90,6 +96,43 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
 }
 
 const post = <T = { ok: true }>(path: string, body: unknown = {}, signal?: AbortSignal) => request<T>('POST', path, body, signal)
+
+/**
+ * O PR organizado por um agente, lido aos poucos: o servidor manda uma linha JSON por vez, os textos
+ * enquanto ele escreve (`partial`) e, no fim, o PR inteiro (`plan`) ou o erro.
+ */
+async function planPull(
+  url: string,
+  body: unknown,
+  onPartial: (partial: { title?: string; body?: string; branch?: string }) => void,
+  signal?: AbortSignal,
+): Promise<PullPlan> {
+  const res = await send(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal })
+  if (!res.ok || !res.body) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as Record<string, unknown>)
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += value
+    for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
+      const line = buffer.slice(0, nl).trim()
+      buffer = buffer.slice(nl + 1)
+      if (!line) continue
+      let msg: { partial?: Parameters<typeof onPartial>[0]; plan?: PullPlan; error?: string }
+      try {
+        msg = JSON.parse(line) as typeof msg
+      } catch {
+        // Uma linha que não é JSON (servidor de outra versão, proxy no meio): conta como falha do agente.
+        throw new ApiError(502, { error: 'assist_failed' })
+      }
+      if (msg.plan) return msg.plan
+      if (msg.error) throw new ApiError(502, msg as Record<string, unknown>)
+      if (msg.partial) onPartial(msg.partial)
+    }
+  }
+  throw new ApiError(502, { error: 'assist_failed' })
+}
 // Cada conversa vai para a máquina dela; o resto, para a máquina pedida (ver machines.ts).
 const sid = (id: string) => `${baseOf(machineOf(id))}/api/sessions/${encodeURIComponent(id)}`
 const at = (machine: string) => `${baseOf(machine)}/api`
@@ -335,8 +378,20 @@ export const api = {
   wakatimeToday: (m: string) => request<{ today: WakaToday | null }>('GET', `${at(m)}/wakatime`),
   /** Avisa que você está mexendo no painel, para o tempo contar no WakaTime (ver lib/wakatime.ts). */
   wakatime: (m: string, body: { cwd: string; path?: string; category?: 'code reviewing' | 'planning' }) => post(`${at(m)}/wakatime`, body),
+  // `head` é o mesmo que sem lado: assim o servidor ainda não reiniciado também responde.
   gitDiff: (m: string, cwd: string, path: string, side?: DiffSide) =>
-    request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}${side ? `&side=${side}` : ''}`),
+    request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}${side && side !== 'head' ? `&side=${side}` : ''}`),
+  /** O que a branch mudou desde que saiu da principal, commits e não commitado juntos. */
+  gitChanges: (m: string, cwd: string) => request<BranchChanges>('GET', `${at(m)}/git/changes?${project(cwd)}`),
+  /** As branches para trocar; `fetch` consulta o remoto antes (no máximo a cada 10 min). */
+  gitBranches: (m: string, cwd: string, fetch = false) =>
+    request<GitBranches>('GET', `${at(m)}/git/branches?${project(cwd)}${fetch ? '&fetch=1' : ''}`),
+  gitSwitch: (m: string, cwd: string, branch: string) => post(`${at(m)}/git/switch`, { cwd, branch }),
+  /** Apaga a branch daqui (`local`), a do remoto (`remote`) ou as duas. */
+  gitDeleteBranch: (m: string, cwd: string, branch: string, local: boolean, remote: boolean) =>
+    post(`${at(m)}/git/branch/delete`, { cwd, branch, local, remote }),
+  /** Traz o que chegou no upstream, só avançando. */
+  gitPull: (m: string, cwd: string) => post<{ commits: number }>(`${at(m)}/git/pull`, { cwd }),
   gitStage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/stage`, { cwd, paths }),
   gitUnstage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/unstage`, { cwd, paths }),
   /** Commit do que está staged; `all` prepara tudo antes. */
@@ -353,6 +408,21 @@ export const api = {
   /** Uma issue ou um PR inteiro, com o mesmo cache das listas. */
   githubItem: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, refresh = false) =>
     request<GithubItem>('GET', `${at(m)}/github/item?${project(cwd)}&kind=${kind}&number=${number}${refresh ? '&refresh=1' : ''}`),
+  /** Os arquivos de um PR ou de um commit, com o diff de cada um. */
+  githubPatches: (m: string, cwd: string, target: { pr: number } | { sha: string }) =>
+    request<{ files: GithubPatch[] }>('GET', `${at(m)}/github/patches?${project(cwd)}&${'pr' in target ? `pr=${target.pr}` : `sha=${target.sha}`}`),
+  /** O que a aba de abrir PR precisa: etiquetas, a principal e o que a branch tem de novo. */
+  githubDraft: (m: string, cwd: string) => request<PullDraftInfo>('GET', `${at(m)}/github/draft?${project(cwd)}`),
+  /** Pede a um agente o PR organizado (título, descrição, branch e commits), no jeito das suas skills. */
+  githubPlanPull: (
+    m: string,
+    cwd: string,
+    draft: { agent?: string; model?: string; effort?: string; base: string; title?: string; body?: string; labels?: string[] },
+    onPartial: (partial: { title?: string; body?: string; branch?: string }) => void,
+    signal?: AbortSignal,
+  ) => planPull(`${at(m)}/github/draft/plan`, { cwd, ...draft }, onPartial, signal),
+  /** Cria a branch (se pediu), faz os commits, publica e abre o PR. */
+  githubCreatePull: (m: string, cwd: string, draft: PullDraft) => post<{ number: number; url: string }>(`${at(m)}/github/pull`, { cwd, ...draft }),
   /** Faz a ação e devolve o item como ficou (ver server/src/github.ts). */
   githubAct: (m: string, cwd: string, kind: 'issue' | 'pr', number: number, action: GithubAction) =>
     request<GithubItem>('POST', `${at(m)}/github/action`, { cwd, kind, number, action }),
@@ -598,6 +668,18 @@ export function errorMessage(err: unknown): string {
       return 'Esse nome não serve para branch.'
     case 'detached_head':
       return 'Sem branch (HEAD destacado): não há para onde sincronizar.'
+    case 'no_upstream':
+      return 'Esta branch ainda não está no origin: não há de onde trazer.'
+    case 'no_base':
+      return 'Não achei a main (nem a master) para comparar.'
+    case 'assist_unsupported':
+      return 'Este agente não organiza PRs.'
+    case 'assist_timeout':
+      return 'O agente demorou demais. Tente de novo.'
+    case 'assist_failed':
+      return 'O agente não conseguiu organizar o PR.'
+    case 'no_remote_branch':
+      return 'A branch não está mais no origin.'
     case 'not_a_repository':
       return 'Esse projeto não usa git.'
     case 'memory_changed':
