@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    // Sem isso o `tsc -b` confere tudo de novo a cada vez: com o noEmit não há saída para comparar.
+    "incremental": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
