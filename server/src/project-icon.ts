@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { DATA_DIR } from './config.ts';
 import { HttpError } from './errors.ts';
 import { resolveInside } from './explorer.ts';
+import { toWebp } from './sharp.ts';
 
 /**
  * A marca de um projeto para o app (lista de conversas, Projetos, hub): a logo que você escolheu para
@@ -64,12 +65,6 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 // create-next-app. Achar um desses é o mesmo que não ter marca.
 const SKELETON = new Set(['2b8ad2d33455a8f736fc3a8ebf8f0bdea8848ad4c0db48a2833bd0f9cd775932']);
 
-type Sharp = typeof import('sharp').default;
-
-// Sob demanda, como nas miniaturas (ver thumbs.ts); sem o sharp, nenhum projeto tem marca.
-let loading: Promise<Sharp | null> | undefined;
-const loadSharp = () => (loading ??= import('sharp').then((m) => m.default, () => null));
-
 const cache = new Map<string, { at: number; icon: Promise<ProjectIcon | null> }>();
 
 /** Do .ico, a maior imagem guardada como PNG: o sharp não lê ICO, e as em BMP ficam de fora. */
@@ -114,27 +109,19 @@ const isIco = (buf: Buffer) => buf.length >= 4 && buf.readUInt16LE(0) === 0 && b
 
 /**
  * A imagem no quadrado da marca, em WebP. SVG desenhado com densidade alta, para sair nítido mesmo
- * pequeno; tudo vira bitmap, então nenhum script de um SVG chega a rodar no app. `null`: não é imagem.
+ * pequeno; tudo vira bitmap, então nenhum script de um SVG chega a rodar no app. `null`: sem o sharp,
+ * e nenhum projeto tem marca; `undefined`: não é imagem.
  */
-async function toMark(sharp: Sharp, buf: Buffer): Promise<Buffer | null> {
+async function toMark(buf: Buffer): Promise<Buffer | null | undefined> {
   const input = isIco(buf) ? pngInIco(buf) : buf;
-  if (!input) return null;
-  try {
-    return await sharp(input, { density: 300 })
-      .resize(SIDE, SIDE, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-      .webp({ quality: 85 })
-      .toBuffer();
-  } catch {
-    return null;
-  }
+  if (!input) return undefined;
+  return toWebp(input, { width: SIDE, height: SIDE, fit: 'contain', density: 300, quality: 85 }).catch(() => undefined);
 }
 
 /** A achada no repositório, sem olhar a escolhida no app. */
 async function fromRepo(cwd: string): Promise<ProjectIcon | null> {
-  const sharp = await loadSharp();
-  if (!sharp) return null;
   const found = await findIcon(cwd);
-  const data = found ? await toMark(sharp, found.data) : null;
+  const data = found && (await toMark(found.data));
   return data ? { mediaType: 'image/webp', data, source: 'repo' } : null;
 }
 
@@ -160,9 +147,8 @@ export async function projectIconInfo(cwd: string): Promise<{ source: ProjectIco
 
 /** Guarda a logo escolhida no app para o projeto; ela passa na frente da do repositório. */
 export async function setProjectIcon(cwd: string, image: Buffer): Promise<void> {
-  const sharp = await loadSharp();
-  if (!sharp) throw new HttpError(503, 'sharp_unavailable');
-  const data = await toMark(sharp, image);
+  const data = await toMark(image);
+  if (data === null) throw new HttpError(503, 'sharp_unavailable');
   if (!data) throw new HttpError(400, 'invalid_image');
   await mkdir(CUSTOM_DIR, { recursive: true });
   await writeFile(customPath(cwd), data);
