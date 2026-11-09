@@ -27,7 +27,7 @@ type Meta = {
   projects: string[];
   /** Worktrees criados para conversas, pela pasta: a branch dele e a de origem (ver worktrees.ts). */
   worktrees: Record<string, WorktreeInfo>;
-  /** As habilidades do cald desligadas em cada conversa, pelo id (ver habilidades.ts); o resto vale. */
+  /** As habilidades do edit.r desligadas em cada conversa, pelo id (ver habilidades.ts); o resto vale. */
   habilidadesOff: Record<string, string[]>;
 };
 
@@ -157,7 +157,7 @@ export class MetaStore {
     await this.save();
   }
 
-  /** O worktree criado aqui nesta pasta, se foi o cald que criou. */
+  /** O worktree criado aqui nesta pasta, se foi o edit.r que criou. */
   worktreeInfo(path: string): WorktreeInfo | undefined {
     return this.meta.worktrees[path];
   }
@@ -169,7 +169,7 @@ export class MetaStore {
     await this.save();
   }
 
-  /** As habilidades do cald desligadas nesta conversa. */
+  /** As habilidades do edit.r desligadas nesta conversa. */
   habilidadesOff(sessionId: string): string[] {
     return this.meta.habilidadesOff[sessionId] ?? [];
   }

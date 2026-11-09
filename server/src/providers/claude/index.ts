@@ -41,7 +41,7 @@ function shellQuote(s: string): string {
 }
 
 /**
- * O Claude Code como agente do cald (ver providers/types.ts), pelo Agent SDK e pelo que ele guarda em
+ * O Claude Code como agente do edit.r (ver providers/types.ts), pelo Agent SDK e pelo que ele guarda em
  * ~/.claude. O que dá para perguntar a uma conversa aberta (modelos, comandos, uso do plano, skills e
  * MCPs) vai para ela; sem nenhuma aberta na pasta, sobe uma sonda, e o resultado fica guardado por 10 min.
  */
@@ -70,7 +70,7 @@ export class ClaudeProvider implements AgentProvider {
   private readonly commandsCache = new Map<string, { at: number; list: Promise<CommandInfo[]> }>();
   private readonly setupCache = new Map<string, { at: number; setup: Promise<ClaudeSetup> }>();
 
-  /** O binário do SDK responde: a versão dele (perguntada uma vez, ela só muda com o cald). */
+  /** O binário do SDK responde: a versão dele (perguntada uma vez, ela só muda com o edit.r). */
   status(): Promise<ProviderStatus> {
     this.version ??= exec(CLAUDE_BIN, ['--version'], { timeout: 10_000, env: childEnv() }).then(
       ({ stdout }) => ({ available: true, version: stdout.trim().split(/\s/)[0] }),

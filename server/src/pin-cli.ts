@@ -1,7 +1,7 @@
 import { PIN_FILE, PIN_MAX, PIN_MIN, removePin, validPin, writePin } from './pin.ts';
 
 /**
- * Define ou remove o PIN do painel (chamado por `cald -pin`, ver deploy/cald.sh). O PIN chega pela
+ * Define ou remove o PIN do painel (chamado por `editr -pin`, ver deploy/editr.sh). O PIN chega pela
  * entrada padrão, e não como argumento, para não aparecer na lista de processos.
  */
 

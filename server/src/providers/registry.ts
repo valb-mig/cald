@@ -12,7 +12,7 @@ type Prefs = AgentPrefs;
 const FILE = process.env.AGENTS_FILE ?? join(STATE_DIR, 'agents.json');
 
 /**
- * Os agentes que o cald conhece (ver providers/types.ts) e o que você escolheu na seção Agentes do
+ * Os agentes que o edit.r conhece (ver providers/types.ts) e o que você escolheu na seção Agentes do
  * painel Computador. Desligado, um agente sai de tudo: não abre conversa, as conversas dele saem da
  * lista e as abertas no terminal deixam de ser acompanhadas. Sempre fica pelo menos um ligado, e o
  * padrão é um dos ligados. O primeiro da lista (o Claude Code) nasce ligado; os outros, desligados.
@@ -53,7 +53,7 @@ export class ProviderRegistry extends EventEmitter {
 
   enabled(): AgentProvider[] {
     const on = this.providers.filter((p) => this.isEnabled(p.id));
-    // Um arquivo editado à mão que desliga todos não deixa o cald sem agente.
+    // Um arquivo editado à mão que desliga todos não deixa o edit.r sem agente.
     return on.length ? on : [this.providers[0]!];
   }
 

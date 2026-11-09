@@ -5,7 +5,7 @@ import type { AccessPolicy } from './guard.ts';
 
 const exec = promisify(execFile);
 
-/** Outra máquina sua com o cald: o app do celular fala direto com ela. */
+/** Outra máquina sua com o edit.r: o app do celular fala direto com ela. */
 export type Machine = { id: string; name: string; base: string };
 
 type Node = { DNSName?: string; HostName?: string; UserID?: number; Online?: boolean };
@@ -26,7 +26,7 @@ async function tailnetPeers(): Promise<{ host: string; name: string; online: boo
   }
 }
 
-/** Nome da máquina se ela responde como cald; `null` se não (desligada, outro serviço, celular). */
+/** Nome da máquina se ela responde como edit.r; `null` se não (desligada, outro serviço, celular). */
 async function probe(base: string): Promise<{ name?: string } | null> {
   try {
     const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(3_000) });
@@ -43,7 +43,7 @@ const FRESH_MS = 60_000;
 const EMPTY_FRESH_MS = 15_000;
 
 /**
- * Outras máquinas suas no Tailscale com o cald, para o app juntar as conversas de todas.
+ * Outras máquinas suas no Tailscale com o edit.r, para o app juntar as conversas de todas.
  * Também libera, no guard, o app servido por qualquer máquina sua (ver guard.ts).
  */
 export class MachineDirectory {

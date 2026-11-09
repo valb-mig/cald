@@ -67,7 +67,7 @@ function safeName(name: string): string {
 
 const unique = (list: string[]) => [...new Set(list.map((s) => s.trim()).filter(Boolean))];
 
-/** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
+/** Avisa `change` a cada gravação, venha do app ou do Claude (ver editr-mcp.ts). */
 export class WorkspaceStore extends EventEmitter {
   private workspaces: Workspace[] = [];
   private writing = Promise.resolve();
@@ -250,7 +250,7 @@ export class WorkspaceStore extends EventEmitter {
     // Num worktree, o projeto de que ele é cópia não entra como pasta extra: é o checkout de outras conversas.
     const mirrored = worktreeOf(cwd)?.project;
     const others = ws.projects.filter((p) => p !== cwd && p !== mirrored);
-    const parts = [`# Workspace: ${ws.name}`, 'Esta conversa faz parte de um workspace do cald, com o contexto abaixo, que vale para todas as conversas dele.'];
+    const parts = [`# Workspace: ${ws.name}`, 'Esta conversa faz parte de um workspace do edit.r, com o contexto abaixo, que vale para todas as conversas dele.'];
     parts.push(
       `Projeto desta conversa: ${cwd}` + (others.length ? `\nOutros projetos do workspace (você também pode ler e editar): ${others.join(', ')}` : ''),
     );

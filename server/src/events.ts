@@ -23,11 +23,11 @@ export type Question = {
 };
 
 /**
- * Por onde, de que máquina e quando uma mensagem sua saiu. `via`: o app (`cald`), o terminal, o VSCode
+ * Por onde, de que máquina e quando uma mensagem sua saiu. `via`: o app (`editr`), o terminal, o VSCode
  * ou o app de desktop do Claude; `mobile`: o aparelho é um celular ou tablet. Cada campo falta quando
- * não se sabe (mensagens do app de antes de o cald guardar o aparelho, por exemplo).
+ * não se sabe (mensagens do app de antes de o edit.r guardar o aparelho, por exemplo).
  */
-export type Sent = { via?: 'cald' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
+export type Sent = { via?: 'editr' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
 
 /** Evento normalizado enviado ao celular; o mesmo formato serve para histórico e tempo real. */
 export type PanelEvent =

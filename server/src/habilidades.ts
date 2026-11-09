@@ -7,15 +7,15 @@ import { HttpError } from './errors.ts';
 import { worktreeOf } from './worktrees.ts';
 
 /**
- * As habilidades do cald: skills que são do cald, e não do Claude Code. Cada uma é global (vale em
+ * As habilidades do edit.r: skills que são do edit.r, e não do Claude Code. Cada uma é global (vale em
  * todo projeto) ou de um projeto, e nas conversas do painel vira uma skill de verdade para o Claude:
- * o cald monta um plugin "cald" só com as que valem ali (ver `writePlugin`) e o passa ao abrir a
- * conversa. O Claude carrega cada uma pela descrição, quando ela serve, e responde a `/cald:nome`.
+ * o edit.r monta um plugin "editr" só com as que valem ali (ver `writePlugin`) e o passa ao abrir a
+ * conversa. O Claude carrega cada uma pela descrição, quando ela serve, e responde a `/editr:nome`.
  * Em cada conversa dá para desligar uma ou outra (ver meta.ts). As abertas no terminal não as veem.
  */
 export type Habilidade = {
   id: string;
-  /** O nome dela para o Claude: minúsculas, números e hífen. Vira o `/cald:nome`. */
+  /** O nome dela para o Claude: minúsculas, números e hífen. Vira o `/editr:nome`. */
   name: string;
   /** Quando usar: é por ela que o Claude decide carregar a habilidade. */
   description: string;
@@ -173,7 +173,7 @@ export class HabilidadeStore extends EventEmitter {
 export const pluginDir = () => join(PLUGINS_DIR, randomUUID());
 
 /**
- * Monta (ou refaz) o plugin "cald" de uma conversa em `dir`, só com `items`: um `SKILL.md` por
+ * Monta (ou refaz) o plugin "editr" de uma conversa em `dir`, só com `items`: um `SKILL.md` por
  * habilidade, no formato das skills do Claude Code. Sempre existe, mesmo vazio: o Claude Code só
  * recarrega um plugin que já veio na abertura.
  */
@@ -182,7 +182,7 @@ export async function writePlugin(dir: string, items: Habilidade[]): Promise<voi
   await mkdir(join(dir, '.claude-plugin'), { recursive: true });
   await writeFile(
     join(dir, '.claude-plugin', 'plugin.json'),
-    JSON.stringify({ name: 'cald', description: 'Habilidades do cald, ligadas nesta conversa pelo painel.', version: '1.0.0' }),
+    JSON.stringify({ name: 'editr', description: 'Habilidades do edit.r, ligadas nesta conversa pelo painel.', version: '1.0.0' }),
   );
   for (const h of items) {
     const skill = join(dir, 'skills', h.name);

@@ -161,7 +161,7 @@ export class AccessMonitor extends EventEmitter {
       const now = Date.now();
       if (!known) {
         this.note({ kind: 'new_device', key, name: visit.name, mobile: visit.mobile });
-        this.emit('alert', 'Aparelho novo no cald', `${visit.name} abriu o painel pela primeira vez.`);
+        this.emit('alert', 'Aparelho novo no edit.r', `${visit.name} abriu o painel pela primeira vez.`);
       } else if (!here && now - known.lastAt > RETURN_MS) {
         this.note({ kind: 'connect', key, name: visit.name, mobile: visit.mobile });
       }
@@ -189,7 +189,7 @@ export class AccessMonitor extends EventEmitter {
     const device = await this.devices.of(req);
     const login = String(req.headers['tailscale-user-login'] ?? '') || undefined;
     const fresh = this.note({ kind: 'denied_login', key, name: device?.name ?? key, mobile: device?.mobile, login }, false);
-    if (fresh) this.emit('alert', 'Acesso barrado no cald', `${login ?? 'Uma conta sem login'} tentou abrir o painel${device ? ` de ${device.name}` : ''}.`);
+    if (fresh) this.emit('alert', 'Acesso barrado no edit.r', `${login ?? 'Uma conta sem login'} tentou abrir o painel${device ? ` de ${device.name}` : ''}.`);
   }
 
   /** PIN errado na tela de bloqueio; `blocked`: errou tanto que o servidor passou a fazer esperar. */
@@ -198,7 +198,7 @@ export class AccessMonitor extends EventEmitter {
     const device = await this.devices.of(req);
     const name = device?.name ?? key;
     const fresh = this.note({ kind: blocked ? 'pin_blocked' : 'pin_wrong', key, name, mobile: device?.mobile });
-    if (blocked && fresh) this.emit('alert', 'PIN errado demais no cald', `Erraram o PIN várias vezes em ${name}. O painel está fazendo esperar.`);
+    if (blocked && fresh) this.emit('alert', 'PIN errado demais no edit.r', `Erraram o PIN várias vezes em ${name}. O painel está fazendo esperar.`);
   }
 
   /** Ligou ou desligou o link remoto (ver link.ts), de que aparelho. */

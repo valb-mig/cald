@@ -16,14 +16,14 @@ import { addMemory, dropIndexLine, indexLinks, MEMORY_INDEX, memoryTarget, readM
 
 /** O recado que o Claude recebe no lugar do "arquivo gravado"; o app reconhece a ferramenta por ele. */
 export const MEMORY_SUGGESTED =
-  '[cald] Memória não gravada: ela virou uma sugestão no painel do cald, e o usuário decide lá se salva (talvez editada) ou recusa. ' +
-  'Siga com o trabalho normalmente, sem tentar gravá-la por outro caminho e sem mexer no MEMORY.md por causa dela: salva, o cald põe a linha no índice. ' +
+  '[edit.r] Memória não gravada: ela virou uma sugestão no painel do edit.r, e o usuário decide lá se salva (talvez editada) ou recusa. ' +
+  'Siga com o trabalho normalmente, sem tentar gravá-la por outro caminho e sem mexer no MEMORY.md por causa dela: salva, o edit.r põe a linha no índice. ' +
   'Se o usuário pedir uma mudança nela, grave de novo o mesmo arquivo, e a sugestão é trocada.';
 
 /** O recado quando o Claude põe no índice a linha de uma memória que ainda é sugestão. */
 export const INDEX_HELD =
-  '[cald] MEMORY.md não mudado: ele passaria a citar uma memória que não existe (a que virou sugestão no painel). ' +
-  'Se o usuário salvar a sugestão, o cald põe a linha no índice; não tente de novo.';
+  '[edit.r] MEMORY.md não mudado: ele passaria a citar uma memória que não existe (a que virou sugestão no painel). ' +
+  'Se o usuário salvar a sugestão, o edit.r põe a linha no índice; não tente de novo.';
 
 type Suggestion = {
   id: string;

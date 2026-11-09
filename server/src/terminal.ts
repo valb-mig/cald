@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { WebSocket } from 'ws';
 
 const BRIDGE = fileURLToPath(new URL('./terminal-pty.py', import.meta.url));
-// O prompt e os blocos do painel no zsh (ver shell/cald.zsh).
+// O prompt e os blocos do painel no zsh (ver shell/editr.zsh).
 const SHELL_DIR = fileURLToPath(new URL('./shell', import.meta.url));
 
 /** Quanto da saída fica guardado para quem reanexa: recarregar a página, travar e destravar, a rede voltar. */
@@ -44,7 +44,7 @@ class Pty {
     this.ephemeral = ephemeral;
     this.child = spawn('python3', [BRIDGE], {
       cwd,
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', CALD_SHELL_DIR: SHELL_DIR },
+      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', EDITR_SHELL_DIR: SHELL_DIR },
       stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     });
     this.control = this.child.stdio[3] as Writable;

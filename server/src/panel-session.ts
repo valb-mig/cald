@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import type { McpServerSpec } from './cald-mcp.ts';
+import type { McpServerSpec } from './editr-mcp.ts';
 import { HttpError } from './errors.ts';
 import { imageStore } from './images.ts';
 import { AGENT_TOOLS, OfficeLog, workersFrom, type OfficeSnapshot, type OpenTool } from './office.ts';
@@ -61,9 +61,9 @@ export type PanelSessionOptions = {
    * ele é cópia, de onde vêm as configurações do projeto (permissões locais, skills, hooks).
    */
   worktree?: { prompt: string; configRoot: string };
-  /** A pasta com as habilidades do cald que valem nesta conversa (ver habilidades.ts). */
+  /** A pasta com as habilidades do edit.r que valem nesta conversa (ver habilidades.ts). */
   habilidades?: string;
-  /** O MCP do cald (ver cald-mcp.ts), montado para esta conversa: recebe ela, para saber a quem pôr o time. */
+  /** O MCP do edit.r (ver editr-mcp.ts), montado para esta conversa: recebe ela, para saber a quem pôr o time. */
   mcp?: (session: PanelSession) => McpServerSpec;
   /**
    * Antes de cada Write ou Edit: se ele grava uma memória, vira sugestão para você decidir no painel
@@ -78,7 +78,7 @@ const append = (opts: PanelSessionOptions) =>
 
 /**
  * Sessão cujo único dono é o painel. O agente (ver providers/) conduz o processo; aqui fica o que é do
- * cald: o log de eventos com `seq`, o estado, as aprovações e perguntas esperando você, os subagentes e
+ * edit.r: o log de eventos com `seq`, o estado, as aprovações e perguntas esperando você, os subagentes e
  * tarefas em segundo plano, e o que a salinha mostra.
  */
 export class PanelSession extends EventEmitter {
@@ -176,7 +176,7 @@ export class PanelSession extends EventEmitter {
    * Envia um turno; `blocks` (imagens) vão antes do texto, `images` são as miniaturas para o chat.
    * `context` vai depois, num bloco à parte, para o agente e não para a tela (o conteúdo dos TODOs).
    * `sent`: por onde e de que aparelho ela saiu. Devolve o UUID dela no histórico, que é dado aqui
-   * (o agente grava com o que recebe): é por ele que o cald acha depois de onde ela veio, e que
+   * (o agente grava com o que recebe): é por ele que o edit.r acha depois de onde ela veio, e que
    * dá para bifurcar nela sem esperar o histórico ser relido.
    */
   send(text: string, extra: { blocks?: TurnBlock[]; images?: string[]; clientId?: string; context?: string; sent?: Sent } = {}): string {

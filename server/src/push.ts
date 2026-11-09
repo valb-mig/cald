@@ -50,7 +50,7 @@ export class PushService extends EventEmitter {
   private writing = Promise.resolve();
 
   /**
-   * `peers`: endereços das outras máquinas suas com o cald (ver machines.ts). O celular só
+   * `peers`: endereços das outras máquinas suas com o edit.r (ver machines.ts). O celular só
    * se inscreve na máquina de onde o app foi instalado; os avisos daqui vão também para elas, e a
    * que tiver a inscrição entrega.
    */

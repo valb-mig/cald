@@ -7,7 +7,7 @@ import { agentTranscript } from './subagents.ts';
 import { transcriptCwd, transcriptFile, transcriptMarks, transcriptTimes } from './transcript.ts';
 
 /**
- * Nome provisório que o Claude Code dá à sessão ("cald-86") até gerar o título;
+ * Nome provisório que o Claude Code dá à sessão ("editr-86") até gerar o título;
  * nesse intervalo o primeiro prompt descreve melhor a conversa.
  */
 function isDerivedName(title: string, cwd?: string): boolean {
@@ -16,14 +16,14 @@ function isDerivedName(title: string, cwd?: string): boolean {
   return new RegExp(`^${slug}-[0-9a-f]{2}$`).test(title);
 }
 
-// Quem gravou a mensagem, segundo o `entrypoint` do transcript. `sdk-ts` é o próprio cald (o Agent
+// Quem gravou a mensagem, segundo o `entrypoint` do transcript. `sdk-ts` é o próprio edit.r (o Agent
 // SDK), e `sdk-cli` é o `claude -p`, que se roda no terminal.
 const VIA: Record<string, Sent['via']> = {
   cli: 'terminal',
   'sdk-cli': 'terminal',
   'claude-vscode': 'vscode',
   'claude-desktop': 'desktop',
-  'sdk-ts': 'cald',
+  'sdk-ts': 'editr',
 };
 
 /** As conversas que o Claude Code guarda em ~/.claude, pelo Agent SDK e pelo próprio transcript. */

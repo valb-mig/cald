@@ -83,7 +83,7 @@ function clean(input: TeamInput, id: string): Team {
   return { id, name, members, updatedAt: Date.now() };
 }
 
-/** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
+/** Avisa `change` a cada gravação, venha do app ou do Claude (ver editr-mcp.ts). */
 export class TeamStore extends EventEmitter {
   private teams: Team[] = [];
   private trash: TrashedTeam[] = [];

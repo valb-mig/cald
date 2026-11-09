@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, renameSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, renameSync, rmdirSync, symlinkSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,20 +13,32 @@ export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();
 export const HOST = '127.0.0.1';
 
 // Pastas do painel no PC: o que dura (listas, histórico), o estado (fixadas, avisos) e o cache.
-export const DATA_DIR = join(homedir(), '.local', 'share', 'cald');
-export const STATE_DIR = join(homedir(), '.local', 'state', 'cald');
-export const CACHE_DIR = join(homedir(), '.cache', 'cald');
+export const DATA_DIR = join(homedir(), '.local', 'share', 'editr');
+export const STATE_DIR = join(homedir(), '.local', 'state', 'editr');
+export const CACHE_DIR = join(homedir(), '.cache', 'editr');
 
-// O projeto se chamava claude-remote: na primeira subida, as pastas antigas mudam de nome e ficam
-// como atalho para as novas, porque conversas e listas guardadas apontam para os caminhos antigos.
+// O projeto se chamou claude-remote e depois cald: na primeira subida, a pasta antiga (a de verdade;
+// a outra já é atalho para ela) muda de nome e fica como atalho para a nova, porque conversas e
+// listas guardadas apontam para os caminhos antigos. Se a nova já existe (criada antes, pelo
+// instalador do Whisper, por exemplo), o que só a antiga tem passa para ela; com algo nas duas, a
+// antiga fica como está.
+const LEGACY_NAMES = ['cald', 'claude-remote'];
 for (const dir of [DATA_DIR, STATE_DIR, CACHE_DIR]) {
-  const legacy = join(dirname(dir), 'claude-remote');
-  try {
-    if (existsSync(dir) || !lstatSync(legacy).isDirectory()) continue;
-    renameSync(legacy, dir);
-    symlinkSync(basename(dir), legacy);
-  } catch {
-    // Instalação nova, sem pasta antiga.
+  for (const name of LEGACY_NAMES) {
+    const legacy = join(dirname(dir), name);
+    try {
+      if (!lstatSync(legacy).isDirectory()) continue;
+      if (!existsSync(dir)) renameSync(legacy, dir);
+      else {
+        for (const entry of readdirSync(legacy)) if (!existsSync(join(dir, entry))) renameSync(join(legacy, entry), join(dir, entry));
+        if (readdirSync(legacy).length) continue;
+        rmdirSync(legacy);
+      }
+      symlinkSync(basename(dir), legacy);
+      break;
+    } catch {
+      // Sem essa pasta antiga.
+    }
   }
 }
 
@@ -41,7 +53,7 @@ export const WEB_DIST = env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', 
 export const ACTIVITY_FILE = env.ACTIVITY_FILE ?? join(DATA_DIR, 'activity.json');
 
 // De que aparelho saiu cada mensagem mandada pelo app (ver origins.ts). Dura como os transcripts:
-// o Claude Code não grava isso, e sem o arquivo o histórico só diria "pelo cald".
+// o Claude Code não grava isso, e sem o arquivo o histórico só diria "pelo edit.r".
 export const ORIGINS_FILE = env.ORIGINS_FILE ?? join(DATA_DIR, 'origins.jsonl');
 
 // Quem usa o painel (ver access.ts): os aparelhos que já entraram, os acessos e tentativas barradas
@@ -54,7 +66,7 @@ export const PROJECT_ROOTS = (env.PROJECT_ROOTS ?? join(homedir(), 'Projects')).
 // Origens extras aceitas pelo guard (ex.: Vite em dev), separadas por ','.
 export const EXTRA_ORIGINS = (env.EXTRA_ORIGINS ?? '').split(',').filter(Boolean);
 
-// Máquinas extras com o cald, além das achadas no Tailscale (ex.: outra instância em
+// Máquinas extras com o edit.r, além das achadas no Tailscale (ex.: outra instância em
 // teste: `http://127.0.0.1:7338`), separadas por ','.
 export const EXTRA_MACHINES = (env.EXTRA_MACHINES ?? '').split(',').filter(Boolean);
 

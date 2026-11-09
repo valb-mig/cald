@@ -55,7 +55,7 @@ export type SyncDeps = {
   knownCwd: (cwd: string) => Promise<string>;
 };
 
-// ---- o índice do repositório (cald.json) ----
+// ---- o índice do repositório (editr.json) ----
 
 /** Um projeto no repositório: achado em outra máquina pelo remoto do git (e a subpasta) ou por um dos caminhos. */
 export type ProjectRef = { name: string; remote: string | null; sub: string; paths: string[] };
@@ -215,7 +215,7 @@ export async function readContent(abs: string): Promise<Content | null> {
 async function writeBlob(abs: string, blob: Blob, mtime?: number): Promise<void> {
   await mkdir(dirname(abs), { recursive: true });
   // Gravação atômica, como nos stores: um temporário renomeado por cima.
-  const tmp = `${abs}.cald-tmp`;
+  const tmp = `${abs}.editr-tmp`;
   await writeFile(tmp, blob.data, { mode: blob.mode & 0o111 ? 0o755 : 0o644 });
   await rename(tmp, abs);
   if (mtime) await utimes(abs, new Date(mtime), new Date(mtime));
@@ -402,7 +402,7 @@ export class Ctx {
       agents: deps.providers.prefsSnapshot(),
     };
     await mkdir(this.backupDir(), { recursive: true });
-    await writeFile(join(this.backupDir(), 'cald.json'), JSON.stringify(snapshot, null, 2));
+    await writeFile(join(this.backupDir(), 'editr.json'), JSON.stringify(snapshot, null, 2));
     const all = (await readdir(BACKUP_DIR).catch(() => [] as string[])).sort();
     await Promise.all(all.slice(0, -KEEP_BACKUPS).map((d) => rm(join(BACKUP_DIR, d), { recursive: true, force: true })));
   }
@@ -510,7 +510,7 @@ const habilidades: Kind = {
       const key = h.project ? await ctx.keyOf(h.project) : null;
       units.push({
         id: h.id,
-        label: h.project ? `${projectName(ctx, key, h.project)}: /cald:${h.name}` : `/cald:${h.name}`,
+        label: h.project ? `${projectName(ctx, key, h.project)}: /editr:${h.name}` : `/editr:${h.name}`,
         path: key ? `projetos/${key}/habilidades/${h.name}.md` : `habilidades/${h.name}.md`,
         updatedAt: h.updatedAt,
         project: key ?? undefined,
@@ -901,7 +901,7 @@ const agents: Kind = {
     const prefs = ctx.deps.providers.prefsSnapshot();
     // Nunca mexido aqui: não há escolha para levar.
     if (!prefs.updatedAt) return [];
-    return [{ id: 'agents', label: 'Agentes ligados e o padrão', path: 'cald/agentes.json', updatedAt: prefs.updatedAt, read: async () => json(prefs) }];
+    return [{ id: 'agents', label: 'Agentes ligados e o padrão', path: 'editr/agentes.json', updatedAt: prefs.updatedAt, read: async () => json(prefs) }];
   },
   async apply(ctx, items) {
     for (const i of items) await ctx.deps.providers.adopt({ ...parse<AgentPrefs>(i.content), updatedAt: i.entry.updatedAt });
