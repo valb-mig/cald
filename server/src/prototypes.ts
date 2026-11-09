@@ -14,7 +14,7 @@ import { MEDIA_TYPES, resolveInside } from './explorer.ts';
  * Abrir dá um id aleatório para a pasta do HTML, e a página e o que ela carrega (CSS, scripts,
  * imagens) vêm de `/api/prototype/view/<id>/…`, sem o PIN: a URL do iframe não leva o token, e o id é
  * a credencial. A resposta sai com a CSP `sandbox`, sem `allow-same-origin`: mesmo aberta direto numa
- * aba do navegador, a página roda com origem opaca e não alcança a API do cald.
+ * aba do navegador, a página roda com origem opaca e não alcança a API do edit.r.
  */
 
 export const VIEW_ROUTE = '/api/prototype/view/:id/*';

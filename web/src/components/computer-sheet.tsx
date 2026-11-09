@@ -639,14 +639,14 @@ function AboutSection() {
   )
 }
 
-/** O PIN (ver lib/lock.ts): definido no PC, com `cald -pin`; aqui, quando o app trava sozinho. Vale para este aparelho. */
+/** O PIN (ver lib/lock.ts): definido no PC, com `editr -pin`; aqui, quando o app trava sozinho. Vale para este aparelho. */
 function PinSettings() {
   const enabled = useLock((s) => s.enabled)
   const { on, minutes } = useAutoLock()
-  if (!enabled) return <SettingRow label="PIN desligado" hint={<>Para pedir um PIN ao abrir, rode <code>cald -pin</code> no PC.</>} />
+  if (!enabled) return <SettingRow label="PIN desligado" hint={<>Para pedir um PIN ao abrir, rode <code>editr -pin</code> no PC.</>} />
   return (
     <>
-      <SettingRow label="PIN ao abrir" hint={<>Troque com <code>cald -pin</code> no PC.</>}>
+      <SettingRow label="PIN ao abrir" hint={<>Troque com <code>editr -pin</code> no PC.</>}>
         <Button variant="ghost" size="sm" onClick={lockNow}>
           <Lock />
           Travar agora

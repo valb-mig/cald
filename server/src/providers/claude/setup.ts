@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import type { AgentInfo, McpServerStatus, Query, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 import { CLAUDE_HOME, CLAUDE_JSON } from './env.ts';
 import { HttpError } from '../../errors.ts';
-import { CALD_MCP } from '../../cald-mcp.ts';
+import { EDITR_MCP } from '../../editr-mcp.ts';
 import { readFields, splitFrontmatter } from '../../frontmatter.ts';
 
 /**
@@ -32,7 +32,7 @@ export type ClaudeItem = {
   enabled: boolean;
   /** Liga e desliga pelo `skillOverrides`: skills e comandos que não são de plugin (esses vão pelo plugin). */
   canToggle: boolean;
-  /** Pode ir para a lixeira do cald: só os arquivos seus e os do projeto. */
+  /** Pode ir para a lixeira do edit.r: só os arquivos seus e os do projeto. */
   canTrash: boolean;
 };
 
@@ -275,8 +275,8 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Junta o que o Claude listou com a origem e o texto de cada um, e os servidores que valem só em outras pastas. */
 export async function describeSetup(cwd: string, raw: RawSetup, projects: string[]): Promise<ClaudeSetup> {
   const [disk, others, overrides, installed] = await Promise.all([onDisk(cwd), configuredElsewhere(projects), skillOverrides(cwd), installedPlugins()]);
-  // O MCP do próprio cald (ver cald-mcp.ts) vem em toda conversa do painel e não é configuração sua.
-  const mcp = raw.mcp.filter((s) => !(s.name === CALD_MCP && s.source === 'sdk')).map((s) => describeMcp(s, installed));
+  // O MCP do próprio edit.r (ver editr-mcp.ts) vem em toda conversa do painel e não é configuração sua.
+  const mcp = raw.mcp.filter((s) => !(s.name === EDITR_MCP && s.source === 'sdk')).map((s) => describeMcp(s, installed));
   // Plugin desligado some da lista do Claude: o servidor dele aparece desligado, para dar para religar.
   for (const p of installed) {
     if (p.enabled || !p.mcp || mcp.some((m) => m.plugin === p.key)) continue;

@@ -464,7 +464,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { day: 'n
 
 function CommitsTab({ pr }: { pr: GithubPullDetail }) {
   const commits = [...(pr.commits ?? [])].reverse()
-  if (!commits.length) return <p className="text-sm text-muted-foreground">Reinicie o serviço cald no PC para ver os commits aqui.</p>
+  if (!commits.length) return <p className="text-sm text-muted-foreground">Reinicie o serviço edit.r no PC para ver os commits aqui.</p>
   const days = commits.reduce<[string, GithubCommit[]][]>((acc, c) => {
     const d = day(c.date)
     const last = acc[acc.length - 1]

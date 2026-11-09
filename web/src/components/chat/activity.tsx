@@ -70,7 +70,7 @@ const ICONS: Record<string, LucideIcon> = {
 }
 
 export function toolIcon(name: string): LucideIcon {
-  // As do MCP do cald com artefatos (publicar e listar) levam o ícone deles.
+  // As do MCP do edit.r com artefatos (publicar e listar) levam o ícone deles.
   if (isPublishTool(name) || (name.startsWith('mcp__') && name.endsWith('__listar_artefatos'))) return ArtefatoIcon
   return ICONS[name] ?? (name.startsWith('mcp__') ? Plug : Wrench)
 }
@@ -272,7 +272,7 @@ function ToolRow({
           ))}
         </div>
       )}
-      {/* A página publicada pela Artifact (ou o artefato do cald) também: o abrir fica à mão. */}
+      {/* A página publicada pela Artifact (ou o artefato do edit.r) também: o abrir fica à mão. */}
       {published && (
         <div className="px-2 pb-1.5">
           <PublishedCard sessionId={sessionId} published={published} />
@@ -323,7 +323,7 @@ function ThinkingRow({ text }: { text: string }) {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
-/** O que uma ferramenta publicou: a página no claude.ai (a Artifact) ou um artefato do cald (`publicar_artefato`). */
+/** O que uma ferramenta publicou: a página no claude.ai (a Artifact) ou um artefato do edit.r (`publicar_artefato`). */
 type Published = { kind: 'page'; page: PublishedPage } | { kind: 'artefato'; pub: Publicacao }
 
 const publishedKey = (p: Published) => (p.kind === 'page' ? `p:${p.page.path}` : `a:${p.pub.id}`)

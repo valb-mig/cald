@@ -1,6 +1,6 @@
 import { Delete } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { CaldMark } from '@/components/claudinho'
+import { EditrMark } from '@/components/claudinho'
 import { unlock, useLock } from '@/lib/lock'
 import { cn } from '@/lib/utils'
 
@@ -84,7 +84,7 @@ export function LockScreen() {
       className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background px-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none select-none"
     >
       <div className="flex flex-col items-center gap-3">
-        <CaldMark className="size-10 text-foreground" />
+        <EditrMark className="size-10 text-foreground" />
         <p className="text-sm text-muted-foreground">Digite o PIN para abrir o painel</p>
       </div>
 

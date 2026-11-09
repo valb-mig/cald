@@ -1,0 +1,37 @@
+# O app do PC empacotado (pnpm desktop:dist → desktop/release). O servidor e o app web vão fora do
+# asar, em resources/, porque o servidor roda os arquivos dele com o Node do Electron e chama o
+# python3 e o binário do Claude Code de dentro da pasta (ver desktop/src/paths.ts e scripts/stage.mjs).
+appId: io.github.valb-mig.editr
+productName: edit.r
+# O nome do pacote no .deb e no pacman.
+extraMetadata:
+  name: editr
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: stage/server
+    to: server
+  - from: ../web/dist
+    to: web
+linux:
+  executableName: editr
+  # O WM_CLASS da janela igual ao nome do .desktop: a barra de tarefas junta a janela ao ícone do app.
+  syncDesktopName: true
+  icon: ../web/public/pwa-512.png
+  category: Development
+  synopsis: O Claude Code do seu PC, no PC e no celular
+  description: Painel pessoal para conduzir as sessões do Claude Code que rodam no PC, pela janela do app ou pelo celular, na sua tailnet.
+  target:
+    - AppImage
+    - deb
+    - pacman
+  desktop:
+    entry:
+      Name: edit.r
+      Comment: O Claude Code do seu PC, no PC e no celular
+artifactName: ${name}-${version}-${arch}.${ext}
+# As node_modules do servidor (ver scripts/after-pack.cjs).
+afterPack: scripts/after-pack.cjs

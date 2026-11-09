@@ -11,7 +11,7 @@ import { AccessMonitor, keyOf, LOCAL } from './access.ts';
 import { activity } from './providers/claude/activity.ts';
 import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
-import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
+import { HOST, MACHINE_NAME, PACKAGED, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
@@ -38,7 +38,7 @@ import { planReview, type PartialReview } from './pull-review-plan.ts';
 import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
-import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
+import { accessGuard, loadAccessPolicy, localOnly, pinToken, refreshTailnet } from './guard.ts';
 import { RemoteLink } from './link.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
@@ -54,7 +54,7 @@ import { SystemMonitor } from './system.ts';
 import { thumbnail } from './thumbs.ts';
 import { attachTerminal, openTerminal } from './terminal.ts';
 import { ARTEFATO_VIEW_ROUTE, ArtefatoStore, SHELL_CSP, shellHtml, startPublicServer } from './artefatos.ts';
-import { caldMcp } from './cald-mcp.ts';
+import { editrMcp } from './editr-mcp.ts';
 import { ConfigSync, type Appearance, type Direction } from './config-sync.ts';
 import { KIND_IDS, type KindId } from './config-sync-kinds.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
@@ -106,7 +106,7 @@ const devices = new DeviceDirectory();
 const access = new AccessMonitor(devices);
 await access.load();
 const link = new RemoteLink();
-// As habilidades do cald (ver habilidades.ts); os plugins de conversas de antes de subir saem.
+// As habilidades do edit.r (ver habilidades.ts); os plugins de conversas de antes de subir saem.
 const habilidades = new HabilidadeStore();
 await habilidades.load();
 // As memórias que o Claude quis guardar e viraram sugestão (ver memory-suggestions.ts).
@@ -117,8 +117,8 @@ const manager = new Manager(providers, meta, teams, workspaces, origins, habilid
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
-// O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
-manager.mcpFor = (ctx) => caldMcp({ todos, detalhes, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
+// O MCP do edit.r em cada conversa do painel (ver editr-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
+manager.mcpFor = (ctx) => editrMcp({ todos, detalhes, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
 // A sua configuração num repositório git seu, para levar a outra máquina (ver config-sync.ts).
 const configSync = new ConfigSync({
   teams,
@@ -138,7 +138,7 @@ monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'
 const policy = await loadAccessPolicy();
 const pin = new PinLock();
 await pin.load();
-// Outras máquinas suas com o cald: o app junta as conversas, e os avisos daqui vão para elas.
+// Outras máquinas suas com o edit.r: o app junta as conversas, e os avisos daqui vão para elas.
 const machines = new MachineDirectory(policy);
 void machines.refresh();
 setInterval(() => void machines.list(), 15_000).unref();
@@ -201,7 +201,7 @@ app.get('/api/health', async () => ({
   home: homedir(),
 }));
 
-/** As outras máquinas suas com o cald, para o app conectar em todas. */
+/** As outras máquinas suas com o edit.r, para o app conectar em todas. */
 // ---- PIN (ver pin.ts): a tela de bloqueio do app ----
 
 // `unlocked`: o token que veio ainda vale (o app recarregado não precisa pedir o PIN de novo).
@@ -765,12 +765,15 @@ const updater = new Updater(
   },
 );
 
-app.get('/api/update', async () => updater.status());
-app.post('/api/update', async () => updater.start());
-app.post('/api/update/restart', async () => {
-  await updater.restartNow();
-  return { ok: true };
-});
+// Empacotado no app do PC não há repositório para puxar: sem as rotas, o app esconde o cartão.
+if (!PACKAGED) {
+  app.get('/api/update', async () => updater.status());
+  app.post('/api/update', async () => updater.start());
+  app.post('/api/update/restart', async () => {
+    await updater.restartNow();
+    return { ok: true };
+  });
+}
 
 app.get<{ Params: IdParams & { key: string }; Querystring: { thumb?: string } }>(
   '/api/sessions/:id/images/:key',
@@ -911,7 +914,7 @@ app.get<{ Params: IdParams & { '*': string } }>(VIEW_ROUTE, async (req, reply) =
     .send(createReadStream(file.path));
 });
 
-// ---- artefatos (as páginas que o Claude publica pelo MCP do cald; ver artefatos.ts) ----
+// ---- artefatos (as páginas que o Claude publica pelo MCP do edit.r; ver artefatos.ts) ----
 
 app.get('/api/artefatos', async () => ({ artefatos: artefatos.list(), lixeira: artefatos.trashed() }));
 app.get<{ Params: IdParams }>('/api/artefatos/:id', async (req) => artefatos.get(req.params.id));
@@ -942,7 +945,7 @@ app.get<{ Params: IdParams & { n: string; '*': string } }>(ARTEFATO_VIEW_ROUTE, 
     .send(createReadStream(file.path));
 });
 
-/** O link fixo na tailnet: a casca no jeito do cald, com a versão `n` (sem ela, a mais nova). */
+/** O link fixo na tailnet: a casca no jeito do edit.r, com a versão `n` (sem ela, a mais nova). */
 function artefatoShell(reply: FastifyReply, id: string, n?: number) {
   const a = artefatos.get(id);
   const v = n === undefined ? a.versions.at(-1)! : a.versions.find((x) => x.n === n);
@@ -1135,7 +1138,7 @@ const worktreeBody = { schema: { body: { type: 'object', required: ['cwd'], prop
 // "Trazer": merge da branch do worktree na de origem, no checkout principal.
 app.post<{ Body: { cwd: string } }>('/api/worktree/merge', worktreeBody, async (req) => manager.mergeWorktree(req.body.cwd));
 
-// Remove o worktree (e a branch, se foi o cald que criou); `force` aceita perder o que não voltou.
+// Remove o worktree (e a branch, se foi o edit.r que criou); `force` aceita perder o que não voltou.
 app.post<{ Body: { cwd: string; force?: boolean } }>('/api/worktree/remove', worktreeBody, async (req) => {
   await manager.removeWorktree(req.body.cwd, req.body.force ?? false);
   return { ok: true };
@@ -1210,7 +1213,7 @@ app.get<{ Querystring: { cwd: string; pr?: number; sha?: string } }>(
   },
 );
 
-// Abrir um PR pelo cald: o que a tela precisa (etiquetas, principal, o que a branch tem) e o "Abrir PR".
+// Abrir um PR pelo edit.r: o que a tela precisa (etiquetas, principal, o que a branch tem) e o "Abrir PR".
 app.get<ProjectQuery>('/api/github/draft', projectQuery, async (req) => githubDraft(await manager.knownCwd(req.query.cwd)));
 
 app.post<{ Body: { cwd: string; title: string; body: string; base: string; branch?: string; commits: { message: string; files: string[] }[]; labels: string[]; draft: boolean } }>(
@@ -1578,7 +1581,7 @@ app.get<{ Querystring: { cwd: string; session?: string; provider?: string } }>(
   async (req) => manager.commands(req.query.cwd, req.query.session, req.query.provider),
 );
 
-// ---- Habilidades do cald (ver habilidades.ts) ----
+// ---- Habilidades do edit.r (ver habilidades.ts) ----
 
 // As globais, as do projeto de `cwd` (se veio) e a lixeira delas.
 app.get<{ Querystring: { cwd?: string } }>(
@@ -1824,7 +1827,7 @@ app.post<{ Body: { key: string; enabled: boolean } }>(
   },
 );
 
-// Para a lixeira do cald: uma skill, comando ou agente (pelo caminho) ou a configuração de um servidor MCP.
+// Para a lixeira do edit.r: uma skill, comando ou agente (pelo caminho) ou a configuração de um servidor MCP.
 app.post<{ Body: { cwd?: string; path?: string; mcp?: { name: string; scope: McpScope; project?: string } } }>(
   '/api/claude/trash',
   {
@@ -2025,6 +2028,23 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
   },
 );
 
+// Os avisos para o app do PC (ver desktop/src/notifications.ts): o Electron não tem Web Push, então
+// ele ouve aqui, em Server-Sent Events, e mostra cada um como notificação do sistema. Só pela porta local.
+app.get('/api/push/local', (req, reply) => {
+  if (!localOnly(policy, req)) return reply.code(403).send({ error: 'local_only' });
+  reply.hijack();
+  reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+  reply.raw.write(': edit.r\n\n');
+  const send = (payload: PushPayload, opts: SendOptions) => reply.raw.write(`data: ${JSON.stringify({ payload, opts })}\n\n`);
+  // Comentário de tempos em tempos: a conexão parada não cai por inatividade.
+  const ping = setInterval(() => reply.raw.write(': ping\n\n'), 30_000);
+  push.on('local', send);
+  req.raw.on('close', () => {
+    clearInterval(ping);
+    push.off('local', send);
+  });
+});
+
 // ---- WebSocket: catálogo e eventos em tempo real ----
 
 /**
@@ -2220,7 +2240,7 @@ monitor.on('system', (system) => broadcastAll({ type: 'system', system }));
 audio.on('spectrum', (spectrum: unknown) => sendEach(listening, { type: 'audio', spectrum }));
 monitor.on('usage', (usage) => broadcastAll({ type: 'usage', usage }));
 // Mudou o TODO de um projeto, um time, um workspace ou uma habilidade (pelo app ou pelo Claude, ver
-// cald-mcp.ts): cada aparelho recarrega o que tiver aberto disso.
+// editr-mcp.ts): cada aparelho recarrega o que tiver aberto disso.
 todos.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'todos', cwd, rev: todos.rev(cwd) }));
 detalhes.on('change', (cwd: string) => broadcastAll({ type: 'changed', what: 'detalhes', cwd, rev: detalhes.rev(cwd) }));
 teams.on('change', () => broadcastAll({ type: 'changed', what: 'teams' }));
@@ -2268,7 +2288,7 @@ if (existsSync(WEB_DIST)) {
 
 await Promise.all(providers.enabled().map((p) => p.external?.start()));
 await app.listen({ host: HOST, port: PORT });
-app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'cald pronto');
+app.log.info({ tailnetHost: policy.tailnetHost, logins: [...policy.logins] }, 'edit.r pronto');
 
 // O link público dos artefatos: um servidor à parte, que só serve os públicos (ver artefatos.ts).
 const publicServer = startPublicServer(artefatos, (msg, err) => app.log.warn({ err }, msg));

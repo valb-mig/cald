@@ -10,7 +10,7 @@ import { worktreeOf } from './worktrees.ts';
 export type TodoFile = { id: string; name: string; mediaType: string; size: number };
 
 /**
- * Um item do TODO de um projeto, a lista do próprio cald, sem nada do GitHub. `n` é o número
+ * Um item do TODO de um projeto, a lista do próprio edit.r, sem nada do GitHub. `n` é o número
  * dele no projeto, que não se repete (como o de uma issue): é o que o chat menciona, `TODO:3`. A
  * descrição é Markdown, com menções `@caminho` a arquivos do projeto.
  */
@@ -61,7 +61,7 @@ function safeName(name: string): string {
 
 /**
  * O TODO de cada projeto, pela pasta. A lista vai inteira a cada mudança: é pequena e só sua. Avisa
- * `change` (com a pasta) a cada gravação, venha do app ou do Claude (ver cald-mcp.ts).
+ * `change` (com a pasta) a cada gravação, venha do app ou do Claude (ver editr-mcp.ts).
  */
 export class TodoStore extends EventEmitter {
   private projects: Record<string, Project> = {};
@@ -208,7 +208,7 @@ export class TodoStore extends EventEmitter {
    * O que o Claude precisa saber dos `TODO:n` mencionados numa mensagem: título, se está feito, a
    * descrição (com as menções a arquivos como estão) e o caminho de cada anexo no PC, que ele consegue
    * abrir. Vai num bloco à parte, que a tela do chat não mostra (ver `userTextEvents`). Só as conversas
-   * do painel recebem, e elas têm o MCP do cald (ver cald-mcp.ts) para marcar o item quando terminar.
+   * do painel recebem, e elas têm o MCP do edit.r (ver editr-mcp.ts) para marcar o item quando terminar.
    */
   async context(cwd: string, text: string): Promise<string | null> {
     const wanted = [...new Set([...text.matchAll(/\bTODO:(\d+)\b/gi)].map((m) => Number(m[1])))];
@@ -226,13 +226,13 @@ export class TodoStore extends EventEmitter {
       );
       parts.push(
         [
-          `<cald-todo n="${t.n}">`,
-          `TODO:${t.n} da lista de tarefas deste projeto no cald (${t.done ? 'já feito' : 'a fazer'}).`,
+          `<editr-todo n="${t.n}">`,
+          `TODO:${t.n} da lista de tarefas deste projeto no edit.r (${t.done ? 'já feito' : 'a fazer'}).`,
           `Título: ${t.title}`,
           t.body.trim() ? `Descrição:\n${t.body.trim()}` : 'Sem descrição.',
           files.some(Boolean) ? `Anexos, no PC:\n${files.filter(Boolean).join('\n')}` : '',
-          t.done ? '' : 'Quando terminar, marque como feito pela ferramenta `editar_todo` do MCP cald.',
-          '</cald-todo>',
+          t.done ? '' : 'Quando terminar, marque como feito pela ferramenta `editar_todo` do MCP editr.',
+          '</editr-todo>',
         ]
           .filter(Boolean)
           .join('\n'),

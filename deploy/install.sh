@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — instala o cald de ponta a ponta:
-#   compila o app, sobe o serviço systemd, publica na tailnet e instala o alias `cald`.
+# install.sh — instala o edit.r de ponta a ponta:
+#   compila o app, sobe o serviço systemd, publica na tailnet e instala o alias `editr`.
 # No fim, imprime o link que o celular vai acessar.
 #
 # Uso:  ./deploy/install.sh        (de dentro do projeto clonado)
@@ -12,9 +12,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PORT="${PORT:-7337}"
-SERVICE_NAME="cald"
-# Nome de antes da troca para cald: o serviço e o alias antigos saem na reinstalação.
-LEGACY_SERVICE="claude-remote"
+SERVICE_NAME="editr"
+# Nomes de antes (claude-remote, depois cald): os serviços e o alias antigos saem na reinstalação.
+LEGACY_SERVICES=(cald claude-remote)
 
 # --- saída ------------------------------------------------------------------
 if [ -t 1 ]; then
@@ -79,20 +79,22 @@ mkdir -p "$SERVICE_DIR"
 
 # Instalação de antes da troca de nome: desliga o serviço antigo, que ocupa a mesma porta. As pastas
 # de dados mudam de nome sozinhas na primeira subida do servidor (ver server/src/config.ts).
-# O -L pega a unit instalada como symlink para deploy/claude-remote.service: o pull que trouxe o cald
-# a deixa quebrada, o -e dá falso e o 'disable' falha, então o link em default.target.wants sai à mão.
-LEGACY_FILE="$SERVICE_DIR/$LEGACY_SERVICE.service"
-if [ -e "$LEGACY_FILE" ] || [ -L "$LEGACY_FILE" ]; then
-  systemctl --user disable --now "$LEGACY_SERVICE" >/dev/null 2>&1 || true
-  rm -f "$LEGACY_FILE" "$SERVICE_DIR/default.target.wants/$LEGACY_SERVICE.service"
-  info "Serviço antigo ($LEGACY_SERVICE) desligado e removido."
-fi
+# O -L pega a unit instalada como symlink para o arquivo antigo do deploy: o pull que trouxe o nome
+# novo a deixa quebrada, o -e dá falso e o 'disable' falha, então o link em default.target.wants sai à mão.
+for legacy in "${LEGACY_SERVICES[@]}"; do
+  legacy_file="$SERVICE_DIR/$legacy.service"
+  if [ -e "$legacy_file" ] || [ -L "$legacy_file" ]; then
+    systemctl --user disable --now "$legacy" >/dev/null 2>&1 || true
+    rm -f "$legacy_file" "$SERVICE_DIR/default.target.wants/$legacy.service"
+    info "Serviço antigo ($legacy) desligado e removido."
+  fi
+done
 # Remove qualquer arquivo/symlink anterior (ex.: de um 'systemctl --user link'),
 # senão o '>' escreveria através do symlink e alteraria o arquivo do repo.
 rm -f "$SERVICE_FILE"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=cald (painel mobile do Claude Code)
+Description=edit.r (painel mobile do Claude Code)
 
 [Service]
 Type=simple
@@ -146,22 +148,23 @@ if have tailscale; then
   fi
 fi
 
-# --- 5. alias `cald` no shell -----------------------------------------------
-step "Instalando o comando 'cald' (alias)"
-chmod +x "$SCRIPT_DIR/cald.sh"
+# --- 5. alias `editr` no shell -----------------------------------------------
+step "Instalando o comando 'editr' (alias)"
+chmod +x "$SCRIPT_DIR/editr.sh"
 
-BEGIN_MARK="# >>> cald >>>"
-END_MARK="# <<< cald <<<"
-LEGACY_BEGIN="# >>> claude.remote (cr) >>>"
-LEGACY_END="# <<< claude.remote (cr) <<<"
+BEGIN_MARK="# >>> editr >>>"
+END_MARK="# <<< editr <<<"
 install_alias() {
   local rc="$1"
   [ -e "$rc" ] || return 0
-  # Remove bloco anterior (idempotente; também o do alias antigo `cr`) e reescreve com o caminho atual.
-  sed -i -e "\|$BEGIN_MARK|,\|$END_MARK|d" -e "\|$LEGACY_BEGIN|,\|$LEGACY_END|d" "$rc"
+  # Remove o bloco anterior (idempotente; também os dos aliases antigos `cald` e `cr`) e reescreve com
+  # o caminho atual.
+  sed -i -e "\|$BEGIN_MARK|,\|$END_MARK|d" \
+    -e "\|# >>> cald >>>|,\|# <<< cald <<<|d" \
+    -e "\|# >>> claude.remote (cr) >>>|,\|# <<< claude.remote (cr) <<<|d" "$rc"
   {
     printf '%s\n' "$BEGIN_MARK"
-    printf 'alias cald="%s"\n' "$SCRIPT_DIR/cald.sh"
+    printf 'alias editr="%s"\n' "$SCRIPT_DIR/editr.sh"
     printf '%s\n' "$END_MARK"
   } >> "$rc"
   info "Alias adicionado em $rc"
@@ -172,8 +175,8 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
   if [ -e "$rc" ]; then install_alias "$rc"; installed_in_any=1; fi
 done
 if [ "$installed_in_any" -eq 0 ]; then
-  warn "Não achei ~/.zshrc nem ~/.bashrc. Para usar 'cald', adicione à mão:"
-  warn "  alias cald=\"$SCRIPT_DIR/cald.sh\""
+  warn "Não achei ~/.zshrc nem ~/.bashrc. Para usar 'editr', adicione à mão:"
+  warn "  alias editr=\"$SCRIPT_DIR/editr.sh\""
 fi
 
 # --- fim --------------------------------------------------------------------
@@ -185,4 +188,4 @@ else
   printf '\n    %sO link ainda não está disponível.%s Depois de configurar o tailscale serve, pegue com:\n' "$YELLOW" "$RESET"
 fi
 printf '\n    %sAbra um novo terminal (ou rode:  source ~/.zshrc) e consulte o link quando quiser:%s\n' "$DIM" "$RESET"
-printf '      %scald -link%s\n\n' "$BOLD" "$RESET"
+printf '      %seditr -link%s\n\n' "$BOLD" "$RESET"

@@ -252,10 +252,10 @@ export function Claudinho({
 }
 
 /**
- * A marca do cald, o claudinho gota do ícone do app só com o corpo e os olhos (vazados), na cor do
+ * A marca do edit.r, o claudinho gota do ícone do app só com o corpo e os olhos (vazados), na cor do
  * texto. O contorno é o da gota de `Body` (o triângulo com o traço grosso arredondando as pontas).
  */
-export function CaldMark({ className }: { className?: string }) {
+export function EditrMark({ className }: { className?: string }) {
   return (
     <svg viewBox="1 1.5 30 30" className={cn('shrink-0 fill-current', className)} aria-hidden>
       <path

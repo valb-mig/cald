@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do cald, uma gota branca dando oi no meio de um pulinho">
+<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do edit.r, uma gota branca dando oi no meio de um pulinho">
 
-# cald
+# edit.r
 
 </div>
 
 Painel pessoal para controlar pelo celular as sessões do Claude Code que rodam no PC. O PC executa tudo; o celular é o controle remoto, acessado pela rede Tailscale.
+
+O nome é uma homenagem ao edit.r, o primeiro editor de código do autor. Onde o nome é técnico (o comando, o serviço, as pastas de dados, o MCP e o prefixo das habilidades), ele é `editr`.
 
 Estado atual: backend e frontend funcionando; o PWA é React + Vite + shadcn/ui.
 
@@ -28,32 +30,48 @@ O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela s
 Com os requisitos acima prontos (e o Tailscale com **MagicDNS** e **HTTPS Certificates** ligados no [painel de DNS](https://login.tailscale.com/admin/dns)):
 
 ```sh
-git clone https://github.com/valb-mig/cald.git ~/Projects/cald
-cd ~/Projects/cald
+git clone https://github.com/valb-mig/cald.git ~/Projects/editr
+cd ~/Projects/editr
 ./deploy/install.sh
 ```
 
-O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `cald`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
+O script compila o app, sobe o serviço systemd (ajustando o caminho, o shell e o Node à sua máquina), publica na tailnet com `tailscale serve` e instala o comando `editr`. No fim, ele imprime o **link de acesso remoto** que o celular vai abrir. Depois, de qualquer terminal:
 
 ```sh
-cald -link      # mostra o link de acesso remoto da tailnet; `cald -link off` desliga, `cald -link on` liga de novo
-cald -pin       # define (ou troca) o PIN pedido ao abrir o painel; `cald -pin off` remove
+editr -link      # mostra o link de acesso remoto da tailnet; `editr -link off` desliga, `editr -link on` liga de novo
+editr -pin       # define (ou troca) o PIN pedido ao abrir o painel; `editr -pin off` remove
 ```
 
 Para não decorar o link: de qualquer aparelho da tailnet, digitar só o nome da máquina no navegador (`valb`, que vira `http://valb` pelo MagicDNS) leva ao endereço completo. O instalador publica esse atalho em http, na porta 80 (`tailscale serve --bg --http=80 7337`), e o servidor só redireciona dali para o https, sem servir nada: sem https, o navegador não deixa instalar o app, notificar nem usar o microfone. No próprio PC o atalho pode não valer: lá o nome da máquina resolve para os endereços locais dela, e o que estiver na porta 80 da rede local (um nginx de outro projeto, por exemplo) responde antes; no PC, use `http://localhost:7337` ou o app instalado.
 
 O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
 
+### App do PC
+
+No PC, o edit.r também roda como app (Electron), fora do navegador e sem endereço para lembrar: a janela, o ícone na bandeja e o servidor, tudo junto.
+
+- **Instalar:** baixe o `editr-<versão>-x86_64.AppImage` (ou o `.deb`, ou o `.pacman` do Arch) e abra. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
+- **O servidor vem junto.** Se já há um edit.r na porta 7337 (o serviço do instalador acima), o app só abre a janela nele; senão, sobe o que vem dentro dele, com o ambiente do seu shell de login, como o serviço. Se o serviço sai do ar, o app assume a porta.
+- **Fechar a janela deixa o edit.r na bandeja**, com o servidor de pé para o celular. Ctrl+Q ou **Sair**, na bandeja, encerram de verdade; com o servidor do próprio app, o celular perde o acesso até você abrir de novo. Na primeira abertura, o app liga **Iniciar com o sistema** (desliga na bandeja) e, daí em diante, sobe só na bandeja a cada login.
+- **Notificações do sistema:** o Electron não tem Web Push, então o app recebe os avisos direto do servidor (os mesmos do celular, inclusive os das suas outras máquinas) e mostra como notificação do PC. **Computador → Notificações** escolhe o que avisa; com a janela na frente, não avisa.
+- **Ditado:** no app, é sempre o do Whisper (ver [Ditado no Firefox](#ditado-no-firefox-whisper)).
+- **Link do celular**, na bandeja, abre o **Computador → Acesso**, com o QR.
+- **Atualizar:** instalado pelo pacote, o app não tem o cartão **Atualização do PC** (não há repositório ao lado); baixe a versão nova. Ligado ao serviço do git, o cartão segue valendo.
+- O PIN ainda é definido pelo `editr -pin`, da instalação pelo git.
+- O que é do app fica em `~/.config/edit.r`: o tamanho da janela, os avisos e, em `logs/server.log`, o log do servidor que ele sobe.
+
+Do repositório, sem empacotar: `pnpm desktop` compila e abre (`EDITR_PORT=7338 pnpm desktop` testa noutra porta, sem mexer no serviço).
+
 ### 1. Baixar e compilar
 
 ```sh
-git clone https://github.com/valb-mig/cald.git ~/Projects/cald
-cd ~/Projects/cald
+git clone https://github.com/valb-mig/cald.git ~/Projects/editr
+cd ~/Projects/editr
 pnpm install
 pnpm build        # gera web/dist, o app que o servidor entrega ao celular
 ```
 
-O serviço do passo 3 espera o projeto em `~/Projects/cald`. Se clonar em outro lugar, ajuste o `WorkingDirectory` dele.
+O serviço do passo 3 espera o projeto em `~/Projects/editr`. Se clonar em outro lugar, ajuste o `WorkingDirectory` dele.
 
 ### 2. Testar à mão
 
@@ -66,16 +84,16 @@ Abrir http://127.0.0.1:7337 no navegador do PC já mostra o painel. Pare com Ctr
 
 ### 3. Deixar rodando como serviço
 
-O arquivo [`deploy/cald.service`](deploy/cald.service) sobe o servidor pelo shell interativo (`zsh -lic`) para herdar o PATH e as variáveis do seu `~/.zshrc`. Assim, o Claude aberto pelo celular enxerga as mesmas ferramentas do terminal (git, node, java…). Antes de instalar, confira o `ExecStart`:
+O arquivo [`deploy/editr.service`](deploy/editr.service) sobe o servidor pelo shell interativo (`zsh -lic`) para herdar o PATH e as variáveis do seu `~/.zshrc`. Assim, o Claude aberto pelo celular enxerga as mesmas ferramentas do terminal (git, node, java…). Antes de instalar, confira o `ExecStart`:
 
 - usa **bash** em vez de zsh? Troque `/usr/bin/zsh -lic` por `/bin/bash -lic`;
 - o Node veio do nvm, fnm, mise ou asdf? Troque `/usr/bin/node` só por `node`, que o shell encontra no PATH.
 
 ```sh
-systemctl --user link ~/Projects/cald/deploy/cald.service
-systemctl --user enable --now cald
+systemctl --user link ~/Projects/editr/deploy/editr.service
+systemctl --user enable --now editr
 loginctl enable-linger "$USER"             # sobe no boot, mesmo sem login no PC
-systemctl --user status cald
+systemctl --user status editr
 ```
 
 Se editar o arquivo depois de instalado, rode `systemctl --user daemon-reload` e reinicie o serviço.
@@ -110,28 +128,28 @@ O servidor confere o login do Tailscale de quem acessa (o `tailscale serve` info
 Em **Computador → Acesso** ficam os aparelhos com o app aberto agora (com o nome do Tailscale, quantas janelas e desde quando), os acessos recentes e as tentativas barradas: uma conta do Tailscale que não é a sua e o PIN errado. Um aparelho que entra pela primeira vez, uma conta barrada ou o PIN errado demais avisam no celular, mesmo com o app fechado.
 
 - **Desconectar** um aparelho fecha as janelas dele, invalida o token do PIN e o deixa de fora (sem API nem WebSocket) até você tocar em **Liberar**. O próprio PC e o aparelho em que você está não têm o botão.
-- **Desligar o link** tira o painel da tailnet (`tailscale serve` desligado só nas portas que levam ao cald) e derruba quem estiver conectado por ela, inclusive o celular de onde você desligou. Para religar: no PC, pelo mesmo botão em `http://localhost:7337`, ou com `cald -link on`. O app religa nas mesmas portas que estavam publicadas.
+- **Desligar o link** tira o painel da tailnet (`tailscale serve` desligado só nas portas que levam ao edit.r) e derruba quem estiver conectado por ela, inclusive o celular de onde você desligou. Para religar: no PC, pelo mesmo botão em `http://localhost:7337`, ou com `editr -link on`. O app religa nas mesmas portas que estavam publicadas.
 
-O histórico fica em `~/.local/state/cald/access.json` (os 100 acontecimentos mais recentes).
+O histórico fica em `~/.local/state/editr/access.json` (os 100 acontecimentos mais recentes).
 
 ### PIN
 
 O Tailscale garante que só aparelhos seus chegam ao painel, mas não protege do celular desbloqueado na mão de outra pessoa. Para isso, defina um PIN de 4 a 8 dígitos no PC:
 
 ```sh
-cald -pin       # pede o PIN duas vezes, sem mostrar
-cald -pin off   # remove
+editr -pin       # pede o PIN duas vezes, sem mostrar
+editr -pin off   # remove
 ```
 
-Vale na hora, sem reiniciar o serviço. Daí em diante, o app abre numa tela de bloqueio, no celular e no navegador do PC (o acesso local também pede). Quem confere é o servidor: só o hash do PIN fica no PC (`~/.local/state/cald/pin.json`), e acertar dá um token que toda chamada da API e o WebSocket precisam levar, então abrir a API direto, sem o app, também esbarra no PIN. Depois de 5 erros seguidos, o servidor faz esperar 30 s, e a espera dobra a cada erro até 15 min. Trocar o PIN derruba todos os aparelhos destravados.
+Vale na hora, sem reiniciar o serviço. Daí em diante, o app abre numa tela de bloqueio, no celular e no navegador do PC (o acesso local também pede). Quem confere é o servidor: só o hash do PIN fica no PC (`~/.local/state/editr/pin.json`), e acertar dá um token que toda chamada da API e o WebSocket precisam levar, então abrir a API direto, sem o app, também esbarra no PIN. Depois de 5 erros seguidos, o servidor faz esperar 30 s, e a espera dobra a cada erro até 15 min. Trocar o PIN derruba todos os aparelhos destravados.
 
 O app trava sozinho depois de 5 min sem uso ou no fundo. Em **Computador → Sobre → Segurança** dá para mudar o tempo (1, 5, 15 ou 30 min, ou **Ao sair**, que trava assim que o app vai para o fundo), desligar o travamento automático ou **Travar agora**. Esses ajustes valem para o aparelho. Fechar o app também trava; recarregar a página não.
 
-Com várias máquinas, rode `cald -pin` em cada uma com o mesmo PIN: você digita uma vez e o app destrava todas. Uma máquina com PIN diferente fica sem conexão no app até você acertar o dela.
+Com várias máquinas, rode `editr -pin` em cada uma com o mesmo PIN: você digita uma vez e o app destrava todas. Uma máquina com PIN diferente fica sem conexão no app até você acertar o dela.
 
 ### Várias máquinas
 
-Instale o cald em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como cald. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
+Instale o edit.r em outra máquina sua da mesma tailnet (o mesmo login do Tailscale) e ela aparece sozinha no app, em até um minuto: cada servidor pergunta ao Tailscale quais máquinas do dono respondem como edit.r. Não há central: o app, instalado a partir de qualquer uma, fala direto com todas, e cada servidor aceita o app vindo de outra máquina sua (só do mesmo dono, nunca de outro endereço). Com uma máquina desligada, as outras seguem funcionando.
 
 As notificações passam pela máquina de onde o app foi instalado: o celular só se inscreve nela, e as outras repassam os avisos para ela. Com ela desligada, os avisos das outras não chegam.
 
@@ -139,20 +157,20 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 
 Em **Computador → Sincronizar**, a configuração de uma máquina vai para um repositório privado seu no GitHub, e outra máquina (o PC do trabalho, o de casa) traz de lá. Vale também entre máquinas fora da mesma tailnet: o caminho é o GitHub, pelo login do `gh` de cada uma.
 
-1. Na primeira máquina, escreva o nome do repositório (`cald-config`, ou `dono/nome`) e toque em **Criar privado**; um que já existe entra por **Usar existente** (também aceita um endereço git qualquer). Repositório público é recusado: a memória e os TODOs são seus.
+1. Na primeira máquina, escreva o nome do repositório (`editr-config`, ou `dono/nome`) e toque em **Criar privado**; um que já existe entra por **Usar existente** (também aceita um endereço git qualquer). Repositório público é recusado: a memória e os TODOs são seus.
 2. Escolha o que vai junto e toque em **Enviar daqui**.
 3. Na outra máquina, ligue o mesmo repositório e toque em **Trazer para cá**.
 
-O que vai: times, workspaces (com os arquivos de contexto), habilidades do cald, comandos salvos, os agentes ligados; de cada projeto, TODOs (sem os anexos), detalhes e a memória do Claude; do Claude Code, o `settings.json`, o `CLAUDE.md`, os scripts soltos em `~/.claude` (como o da linha de status), os hooks, os seus agentes, skills e comandos; e a aparência do aparelho de onde você envia (tema, fundo, sons, fonte do código e outras preferências do app).
+O que vai: times, workspaces (com os arquivos de contexto), habilidades do edit.r, comandos salvos, os agentes ligados; de cada projeto, TODOs (sem os anexos), detalhes e a memória do Claude; do Claude Code, o `settings.json`, o `CLAUDE.md`, os scripts soltos em `~/.claude` (como o da linha de status), os hooks, os seus agentes, skills e comandos; e a aparência do aparelho de onde você envia (tema, fundo, sons, fonte do código e outras preferências do app).
 
 - **Fica o mais novo.** Cada item leva a data da última edição, e enviar ou trazer só troca o que é mais velho do outro lado. Antes de fazer, o app mostra a prévia: o que entra, o que muda e o que fica como está, e por quê (o do repositório é mais novo, você apagou aqui, o projeto não existe aqui).
 - **Nada é apagado.** Apagar numa máquina não apaga no repositório nem nas outras; e o que você apagou aqui depois de ele passar por esta máquina não volta no próximo "Trazer".
-- **Os projetos são achados pelo remoto do git**, então podem estar em pastas diferentes em cada máquina (`~/Projects/cald` aqui, `~/work/cald` lá). Sem remoto, pelo caminho ou pelo nome da pasta. Projeto que não existe na máquina fica de fora, com o nome dele na prévia: clone e traga de novo.
+- **Os projetos são achados pelo remoto do git**, então podem estar em pastas diferentes em cada máquina (`~/Projects/editr` aqui, `~/work/editr` lá). Sem remoto, pelo caminho ou pelo nome da pasta. Projeto que não existe na máquina fica de fora, com o nome dele na prévia: clone e traga de novo.
 - **Os números dos TODOs são de cada máquina:** dois itens criados em máquinas diferentes com o mesmo número ficam com números diferentes quando se encontram.
 - **Segredos ficam no PC:** nada de PIN, chaves das notificações ou credenciais do Claude Code; do `settings.json`, as variáveis de ambiente com cara de segredo (`*_TOKEN`, `*_KEY`, `*_SECRET`…) não vão, e as da máquina que traz continuam. Os servidores MCP (`~/.claude.json`) também não vão, porque costumam levar tokens. Caminhos da pasta pessoal viram `{{HOME}}` no repositório e voltam como a pasta pessoal da outra máquina.
-- **O que um "Trazer" troca fica copiado antes** em `~/.local/share/cald/config-backup` (as últimas 10 vezes). O histórico do git no repositório guarda o resto.
+- **O que um "Trazer" troca fica copiado antes** em `~/.local/share/editr/config-backup` (as últimas 10 vezes). O histórico do git no repositório guarda o resto.
 
-O repositório é legível no GitHub: `times/`, `workspaces/`, `habilidades/` e `comandos/` com o que vale em todo projeto, `projetos/<nome>/` com o de cada projeto, `claude/` com o de `~/.claude`, e o `cald.json`, o índice que o cald segue. O clone fica em `~/.local/share/cald/config-repo`.
+O repositório é legível no GitHub: `times/`, `workspaces/`, `habilidades/` e `comandos/` com o que vale em todo projeto, `projetos/<nome>/` com o de cada projeto, `claude/` com o de `~/.claude`, e o `editr.json`, o índice que o edit.r segue. O clone fica em `~/.local/share/editr/config-repo`.
 
 Cuidado com quem pode escrever no repositório: o `settings.json` e os hooks que vêm de lá rodam comandos na máquina que traz.
 
@@ -164,30 +182,30 @@ Cuidado com quem pode escrever no repositório: o `settings.json` e os hooks que
 | `PROJECT_ROOTS` | `~/Projects` | Pastas onde o celular pode abrir projetos, separadas por `:` (pasta nova de projeto vai na primeira; outras pastas podem ser adicionadas pela tela de Projetos) |
 | `ALLOWED_LOGINS` | o dono do PC | Logins do Tailscale com acesso, separados por `,` |
 | `EXTRA_ORIGINS` | (nenhuma) | Origens extras aceitas do navegador, separadas por `,` |
-| `UPLOADS_DIR` | `~/.cache/cald/uploads` | Onde ficam os anexos enviados pelo celular |
+| `UPLOADS_DIR` | `~/.cache/editr/uploads` | Onde ficam os anexos enviados pelo celular |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Configuração e histórico do Claude Code, se você usa outra pasta |
 | `MACHINE_NAME` | o nome do sistema | Nome desta máquina no app, quando há várias |
-| `WHISPER_CLI` | `~/.local/share/cald/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
-| `WHISPER_MODEL` | `~/.local/share/cald/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
-| `PIPER_BIN` | `~/.local/share/cald/piper/piper/piper` | Binário do Piper para a leitura em voz alta no PC (ver [Voz natural no PC](#voz-natural-no-pc-piper)) |
-| `PIPER_VOICE` | `~/.local/share/cald/piper/voices/pt_BR-faber-medium.onnx` | Voz do Piper, com o `.onnx.json` ao lado |
-| `ACTIVITY_FILE` | `~/.local/share/cald/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
-| `ACCESS_FILE` | `~/.local/state/cald/access.json` | Quem já usou o painel, os acessos recentes e os aparelhos desconectados (ver [Quem está usando](#quem-está-usando)) |
-| `ORIGINS_FILE` | `~/.local/share/cald/origins.jsonl` | De que aparelho saiu cada mensagem mandada pelo app (ver [Usar pelo celular](#usar-pelo-celular)) |
-| `MEMORY_TRASH_DIR` | `~/.local/share/cald/memory-trash` | Lixeira das memórias do Claude apagadas pelo app (ver **O que o Claude carrega**) |
-| `MEMORY_SUGGESTIONS_FILE` | `~/.local/share/cald/memory-suggestions.json` | As memórias que o Claude quis guardar e esperam você (ver **Sugestões de memória**) |
-| `CLAUDE_TRASH_DIR` | `~/.local/share/cald/claude-trash` | Lixeira das skills, comandos, agentes e configurações de servidores MCP tirados pelo app |
-| `CONFIG_REPO_DIR` | `~/.local/share/cald/config-repo` | O clone do repositório de configuração (ver [Levar a configuração a outra máquina](#levar-a-configuração-a-outra-máquina)) |
-| `CONFIG_SYNC_FILE` | `~/.local/share/cald/config-sync.json` | Que repositório é, quando você enviou e trouxe por último e o que esta máquina já viu dele |
+| `WHISPER_CLI` | `~/.local/share/editr/whisper/whisper.cpp/build/bin/whisper-cli` | Binário do Whisper para o ditado no Firefox (ver [Ditado no Firefox](#ditado-no-firefox-whisper)) |
+| `WHISPER_MODEL` | `~/.local/share/editr/whisper/models/ggml-small-q5_1.bin` | Modelo do Whisper |
+| `PIPER_BIN` | `~/.local/share/editr/piper/piper/piper` | Binário do Piper para a leitura em voz alta no PC (ver [Voz natural no PC](#voz-natural-no-pc-piper)) |
+| `PIPER_VOICE` | `~/.local/share/editr/piper/voices/pt_BR-faber-medium.onnx` | Voz do Piper, com o `.onnx.json` ao lado |
+| `ACTIVITY_FILE` | `~/.local/share/editr/activity.json` | Resumo do uso por dia, para o Início (sobrevive à limpeza dos registros pelo Claude Code) |
+| `ACCESS_FILE` | `~/.local/state/editr/access.json` | Quem já usou o painel, os acessos recentes e os aparelhos desconectados (ver [Quem está usando](#quem-está-usando)) |
+| `ORIGINS_FILE` | `~/.local/share/editr/origins.jsonl` | De que aparelho saiu cada mensagem mandada pelo app (ver [Usar pelo celular](#usar-pelo-celular)) |
+| `MEMORY_TRASH_DIR` | `~/.local/share/editr/memory-trash` | Lixeira das memórias do Claude apagadas pelo app (ver **O que o Claude carrega**) |
+| `MEMORY_SUGGESTIONS_FILE` | `~/.local/share/editr/memory-suggestions.json` | As memórias que o Claude quis guardar e esperam você (ver **Sugestões de memória**) |
+| `CLAUDE_TRASH_DIR` | `~/.local/share/editr/claude-trash` | Lixeira das skills, comandos, agentes e configurações de servidores MCP tirados pelo app |
+| `CONFIG_REPO_DIR` | `~/.local/share/editr/config-repo` | O clone do repositório de configuração (ver [Levar a configuração a outra máquina](#levar-a-configuração-a-outra-máquina)) |
+| `CONFIG_SYNC_FILE` | `~/.local/share/editr/config-sync.json` | Que repositório é, quando você enviou e trouxe por último e o que esta máquina já viu dele |
 | `WAKATIME_CLI` | `~/.wakatime/wakatime-cli` | Binário do WakaTime, para o seu tempo no painel contar lá (ver [WakaTime](#wakatime)); `WAKATIME=0` desliga |
 | `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem a medida do WakaTime no PC |
 | `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
-| `ARTEFATOS_FILE` | `~/.local/share/cald/artefatos.json` | Os artefatos e a lixeira deles (ver **Artefatos**); as versões ficam em `ARTEFATOS_DIR` (`~/.local/share/cald/artefatos/`) |
+| `ARTEFATOS_FILE` | `~/.local/share/editr/artefatos.json` | Os artefatos e a lixeira deles (ver **Artefatos**); as versões ficam em `ARTEFATOS_DIR` (`~/.local/share/editr/artefatos/`) |
 | `ARTEFATOS_PUBLIC_PORT` | `PORT + 2` | Porta local do servidor do link público dos artefatos, só em `127.0.0.1` |
-| `ARTEFATOS_FUNNEL_PORT` | `8443` | Porta do Tailscale Funnel do link público (`8443` ou `10000`; a `443` é a do próprio cald e é recusada) |
-| `CALD_URL` | `https://<máquina>.ts.net` | Endereço do app, para o link que o Claude recebe ao publicar um artefato (numa instância de teste, o da porta dela) |
+| `ARTEFATOS_FUNNEL_PORT` | `8443` | Porta do Tailscale Funnel do link público (`8443` ou `10000`; a `443` é a do próprio edit.r e é recusada) |
+| `EDITR_URL` | `https://<máquina>.ts.net` | Endereço do app, para o link que o Claude recebe ao publicar um artefato (numa instância de teste, o da porta dela) |
 
-No serviço, defina com `systemctl --user edit cald` e depois `systemctl --user restart cald`:
+No serviço, defina com `systemctl --user edit editr` e depois `systemctl --user restart editr`:
 
 ```ini
 [Service]
@@ -254,19 +272,19 @@ Sem o `wakatime-cli` instalado, nada disso acontece: a medida não aparece e o p
 - **Pelo celular, o Claude não acha ferramentas que existem no terminal:** o serviço não carregou o seu shell. Revise o `ExecStart` (passo 3).
 - **Logo depois de ligar o PC, só o acesso local funciona:** o serviço pode subir antes do Tailscale; ele tenta de novo a cada 15 s.
 - **As notificações não chegam:** use **Enviar teste** no painel Computador. Se aparecer erro, ele vem do serviço de push; se não der erro e nada chegar, libere as notificações do app e tire o Chrome da otimização de bateria nas configurações do Android. Falhas de envio aparecem nos logs como `falha ao enviar notificação`.
-- **Qualquer outra coisa:** `journalctl --user -u cald -f` mostra os logs.
+- **Qualquer outra coisa:** `journalctl --user -u editr -f` mostra os logs.
 
 ### Atualizar
 
 ```sh
-cd ~/Projects/cald
+cd ~/Projects/editr
 git pull
 pnpm install
 pnpm build
-systemctl --user restart cald
+systemctl --user restart editr
 ```
 
-Vindo de antes da troca de nome (quando o projeto se chamava claude-remote): rode `./deploy/install.sh` de novo. Ele desliga o serviço `claude-remote`, sobe o `cald` e troca o comando `cr` por `cald`. As pastas de dados (`~/.local/share/claude-remote` e as outras) mudam de nome sozinhas na primeira subida e ficam como atalho para as novas.
+Vindo de antes da troca de nome (quando o projeto se chamava cald, ou claude-remote): rode `./deploy/install.sh` de novo, de um terminal fora do painel (ele troca o serviço, e as conversas do painel caem). Ele desliga o serviço antigo (`cald` ou `claude-remote`), sobe o `editr` e troca o comando antigo (`cald` ou `cr`) por `editr`. As pastas de dados (`~/.local/share/cald` e as outras) mudam de nome sozinhas na primeira subida e ficam como atalho para as novas. As habilidades passam a ser chamadas com `/editr:nome`.
 
 Ou pelo celular, no painel **Computador**, cartão **Atualização do PC**: ele mostra as novidades da `main` do GitHub, e **Atualizar e reiniciar** faz os passos acima (trocando para a `main`, se o PC estiver noutra branch). A atualização recusa se o repositório no PC tiver mudanças não commitadas, se a `main` do PC tiver commits que não estão no GitHub ou se alguma conversa do painel estiver trabalhando ou esperando resposta. O painel fica fora do ar por alguns segundos, e as conversas que estavam abertas nele são reabertas sozinhas, com o mesmo modelo e modo.
 
@@ -278,10 +296,10 @@ O que dá para fazer:
 - **Início:** o app abre aqui (no PC, ao lado da lista de conversas, quando nenhuma está aberta). Uma saudação com a data e, numa linha, o que está acontecendo (quantas conversas pedem você, quantas trabalham, quanto do limite de 5 h foi usado). Abaixo:
   - **Pedindo você / Agora**: aprovações e perguntas de todas as conversas do painel, com os mesmos cartões do chat para responder ali mesmo; as abertas no PC que esperam você levam até elas; e as que estão trabalhando ou com algo em segundo plano.
   - **Limites do plano** (5 h, semana e por modelo) com previsão pelo ritmo desde o começo da janela: até onde vai ou, se for acabar antes de renovar, quando (em laranja). Embaixo, CPU, memória e processos do Claude no PC.
-  - **Dias com o cald**: o ano em quadradinhos, como o grid de contribuições do GitHub, com a cor mais forte nos dias com mais sessões pelo cald (**Tudo** conta também as do terminal e do VSCode). Mostra os dias de uso, a sequência atual e o recorde; tocar num dia mostra as sessões, as mensagens e o custo.
+  - **Dias com o edit.r**: o ano em quadradinhos, como o grid de contribuições do GitHub, com a cor mais forte nos dias com mais sessões pelo edit.r (**Tudo** conta também as do terminal e do VSCode). Mostra os dias de uso, a sequência atual e o recorde; tocar num dia mostra as sessões, as mensagens e o custo.
   - **Últimos 30 dias**: custo estimado, mensagens suas, dias de uso e tokens; o custo de cada dia em colunas; um mapa de calor dos dias da semana e horários em que você mais usa; e os projetos que mais consumiram. O custo é a preço de tabela da API.
   - **Projetos recentes**: branch e arquivos não commitados de cada um, a última conversa, quanto custou em 30 dias e **+** para começar uma conversa nova nele.
-  - O histórico vem dos registros das conversas no PC, que o Claude Code apaga depois de ~30 dias; por isso o servidor guarda um resumo por dia em `~/.local/share/cald/activity.json`, e o grid não perde os dias antigos. Dias de antes dos registros que ainda existem vêm do histórico de mensagens do terminal (`~/.claude/history.jsonl`), sem custo.
+  - O histórico vem dos registros das conversas no PC, que o Claude Code apaga depois de ~30 dias; por isso o servidor guarda um resumo por dia em `~/.local/share/editr/activity.json`, e o grid não perde os dias antigos. Dias de antes dos registros que ainda existem vêm do histórico de mensagens do terminal (`~/.claude/history.jsonl`), sem custo.
 - **Salinha** (`/salinha`; o atalho fica no painel Computador): um prédio de escritórios desenhado em SVG para deixar de fundo e acompanhar tudo de uma vez. Cada conversa aberta (no painel ou no PC) é uma área do escritório, separada das outras por divisórias; cada andar tem áreas dos dois lados do corredor (no celular, uma por andar, com o corredor à esquerda), e conversa nova ganha área nova, no lugar onde fica até fechar.
   - **Estações:** o claudinho da conversa (o mesmo do avatar dela, com o nome dele) e os funcionários (os subagentes, cada um com um claudinho sorteado) chegam pelo elevador e vão até a estação do que estão fazendo: mesa com o PC (web, inclusive `curl`), gaveteiro (lendo e procurando arquivos, inclusive `cat`, `grep` e afins no terminal, e compactando a conversa), bancada (editando), terminal (comandos), quadro (planejando e coordenando), café (pensando) e sofá (descansando, com a TV ligada quando algo roda em segundo plano); quem pede você sai até o corredor com um "!". A última ferramenta segura o claudinho na estação por alguns segundos, porque Read e Edit acabam antes da salinha perguntar, e cada um fica um tempo mínimo onde chegou antes de ir para outra.
   - **O que acontece na conversa vira animação:** cada arquivo editado é uma folha voando para a pilha da bancada; erro solta fumaça e um "!?"; teste acende o semáforo do rack, verde ou vermelho; `git commit` faz o claudinho levar uma caixa ao elevador, e `git push` ou `gh pr create` chama o caminhão de entregas na rua; skill tira um livro da estante; o quadro mostra as tarefas da conversa (TodoWrite) com a barra de progresso; o subagente que termina entrega uma pasta ao claudinho da conversa antes de ir embora; turno encerrado ou pedido respondido ganham um ✓. O claudinho da conversa usa o chapéu do modelo: coroa no Opus, chapéu de mago no Fable, boina no Sonnet e brotinho no Haiku.
@@ -293,10 +311,10 @@ O que dá para fazer:
 - **Conversas em paralelo no mesmo projeto:** várias conversas podem mexer no mesmo checkout ao mesmo tempo, e o app mostra quem está junto com quem.
   - Nas listas de conversas, o estado fica só no claudinho: os pontinhos enquanto trabalha, o balão de exclamação quando espera você.
   - Na lista de conversas do PC, as abertas de um projeto (no painel ou no PC) ficam ligadas por um **trilho**, como num grafo do git, embaixo da setinha do grupo. Cada uma aberta no checkout é um nó: azul e pulsando trabalhando, âmbar esperando você, vazado aberta e parada. Entre duas ou mais trabalhando ao mesmo tempo, o trecho do trilho fica azul, com uma corrente descendo por ele: os mesmos arquivos mudando por mais de uma conversa. A conversa num worktree sai do trilho numa curva, porque roda numa cópia só dela.
-  - Cada projeto, na lista do PC, nas abas do celular, na tela **Projetos** e no hub dele, leva a **marca** dele: a logo ou o favicon que o próprio repositório já tem (o PC procura em `public/`, `app/`, `src/assets/`, `.github/` e na raiz, também dentro de `web/`, `frontend/`, `client/` e `apps/web/`, e ignora o favicon padrão do create-next-app). Sem uma, a inicial num quadradinho com a cor do projeto. Se a achada não servir ou não houver nenhuma, o botão direito no projeto (no celular, segurar o dedo) abre **Escolher uma logo…**: a imagem vem do aparelho, o PC a reduz e a guarda fora do repositório (`~/.local/share/cald/project-icons`), e ela passa na frente da do repositório em todos os aparelhos; **Tirar a logo** desfaz. Ao lado, os claudinhos das conversas dele, quem trabalha primeiro (piscando), também com o grupo recolhido; as que não cabem viram um "+n".
+  - Cada projeto, na lista do PC, nas abas do celular, na tela **Projetos** e no hub dele, leva a **marca** dele: a logo ou o favicon que o próprio repositório já tem (o PC procura em `public/`, `app/`, `src/assets/`, `.github/` e na raiz, também dentro de `web/`, `frontend/`, `client/` e `apps/web/`, e ignora o favicon padrão do create-next-app). Sem uma, a inicial num quadradinho com a cor do projeto. Se a achada não servir ou não houver nenhuma, o botão direito no projeto (no celular, segurar o dedo) abre **Escolher uma logo…**: a imagem vem do aparelho, o PC a reduz e a guarda fora do repositório (`~/.local/share/editr/project-icons`), e ela passa na frente da do repositório em todos os aparelhos; **Tirar a logo** desfaz. Ao lado, os claudinhos das conversas dele, quem trabalha primeiro (piscando), também com o grupo recolhido; as que não cabem viram um "+n".
   - **A mesa do projeto** (o hub dele, numa aba do PC, aberto pelo nome do projeto): as conversas abertas nele (no painel ou no PC, inclusive as dos worktrees dele) lado a lado, em miniatura, quantas couberem por linha. Cada miniatura é a conversa de verdade: as mensagens ao vivo, as aprovações e perguntas para responder ali mesmo e a caixa de mensagem. Tocar no topo dela a abre como aba, com o resto (mapa, agentes, menu). Cada uma fica no lugar enquanto está aberta, sem pular quando muda de estado. A primeira vaga é a caixa de uma conversa nova, que já vem num worktree próprio, com quem trabalha no projeto numa linha só (os claudinhos e a conta); mandar não sai da mesa, e a conversa nova aparece logo ao lado. Sem conversa aberta, a caixa ocupa o alto da página, com a pergunta do dia e os atalhos para a issue ou o TODO. A aba **Worktrees**, no topo, mostra os worktrees do projeto, como na seção do Computador, e a **Detalhes**, os detalhes dele (ver **Detalhes do projeto**). Embaixo, as conversas fechadas, os PRs, as issues, o TODO e o uso dos últimos 30 dias. Com o fundo da conversa ligado, a mesa fica sob o mesmo véu, com os blocos de vidro.
   - No cabeçalho do chat, um selo **com Juju** (os claudinhos e os nomes; numa conversa estreita, só os claudinhos) diz quem mais trabalha agora no mesmo checkout. Ele abre a lista: o que cada uma faz neste momento (a ferramenta, como na salinha) e as abertas paradas ou esperando você. Escolher uma a abre ao lado.
-- **Worktrees:** com outra conversa já aberta no projeto (no painel ou no PC), a conversa nova (na tela **Nova** ou no hub do projeto) avisa quem trabalha lá agora, com os claudinhos ("Pepe e Juju trabalham em cald agora · 2 abertas paradas"), e já vem com **Rodar em worktree** ligado, para não mexer nos mesmos arquivos. Na mesa do projeto, ela vem ligada sempre, mesmo sem ninguém lá. As paradas também contam, porque voltam a mexer na próxima mensagem. Ligado, ela abre num [git worktree](https://git-scm.com/docs/git-worktree) só dela, em `<projeto>/.claude/worktrees/<nome>` (o mesmo lugar do `claude --worktree`), numa branch `cald/<nome>` que sai do commit atual do projeto. O nome vem do começo do pedido. Sem conflito, a chave fica à mão, desligada.
+- **Worktrees:** com outra conversa já aberta no projeto (no painel ou no PC), a conversa nova (na tela **Nova** ou no hub do projeto) avisa quem trabalha lá agora, com os claudinhos ("Pepe e Juju trabalham em edit.r agora · 2 abertas paradas"), e já vem com **Rodar em worktree** ligado, para não mexer nos mesmos arquivos. Na mesa do projeto, ela vem ligada sempre, mesmo sem ninguém lá. As paradas também contam, porque voltam a mexer na próxima mensagem. Ligado, ela abre num [git worktree](https://git-scm.com/docs/git-worktree) só dela, em `<projeto>/.claude/worktrees/<nome>` (o mesmo lugar do `claude --worktree`), numa branch `editr/<nome>` que sai do commit atual do projeto. O nome vem do começo do pedido. Sem conflito, a chave fica à mão, desligada.
   - Antes da primeira mensagem, o servidor instala as dependências pelo lockfile (pnpm, bun, yarn ou npm, primeiro pelo cache local). Se falhar, a conversa abre mesmo assim, e o Claude fica sabendo. As configurações do projeto (as permissões do `settings.local.json`, skills e hooks) vêm do checkout principal, e o Claude é avisado de que está num worktree, para não mexer no checkout das outras conversas. A pasta entra no `.git/info/exclude`, então não aparece no `git status` do projeto.
   - Na lista, a conversa fica no grupo do projeto, com o nome do worktree. No chat, o botão da branch no cabeçalho tem um selo com quantos commits ela tem para levar à branch de origem (verde quando já dá para trazer), e o menu dele mostra a branch, os arquivos sem commit e quanto a de origem andou. **Trazer**, no menu, faz o merge dessa branch na de origem, no checkout principal (avança quando dá; senão, um commit de merge). Ele só vai com tudo commitado e com o projeto na branch de origem. Em conflito, o merge é desfeito e a mensagem diz em quais arquivos: peça ao Claude, no worktree, para trazer a branch de origem e resolver. O worktree continua depois do Trazer, para a conversa seguir.
   - **Remover o worktree**, no mesmo menu, apaga o worktree. A branch sai junto quando tudo dela já está na branch de origem, mesmo que com outro hash (um commit rebaseado conta como trazido); com commits que não voltaram, ela fica, para trazer depois. Se algo ainda não voltou, a confirmação diz o que se perde. As conversas do painel que estavam nele são fechadas e ficam na lista, só para leitura. Os worktrees criados no terminal com `claude --worktree` também ganham o botão.
@@ -307,22 +325,22 @@ O que dá para fazer:
 - **Paleta de comandos** (Ctrl+K, ⌘K no Mac; no terminal o Ctrl+K continua do shell): achar e abrir qualquer coisa pelo nome. Sem nada digitado, mostra as conversas esperando você (aprovações e perguntas), as últimas conversas, os projetos mais usados e a inbox, com o número de novos e os itens novos mais recentes. Buscando, procura em todas as conversas (título, nome do claudinho, projeto, branch, workspace), nos projetos de todas as máquinas e nos itens da inbox, sem ligar para acento. Cada coisa abre como abriria pela lista: a conversa na aba dela, o projeto no hub, o PR ou a issue numa aba. O que foi digitado também vira uma pergunta: **Perguntar** (ou Ctrl+Enter de qualquer linha) cria uma conversa nova com o texto como primeira mensagem, no projeto da conversa em foco (ou no último usado), num worktree próprio quando outra conversa já está aberta nele, como na conversa nova; **Em outro projeto…** abre a escolha do projeto. O Ctrl+P segue sendo o dos arquivos do projeto.
 - **Projetos:** escolher um diretório do PC para iniciar uma sessão nova. Os projetos com mudanças no git sobem para o grupo **Com mudanças**, com selos de arquivos não commitados, commits para enviar (↑) e commits novos no GitHub (↓). A tela mostra primeiro o estado local e depois consulta o remoto com `git fetch` (no máximo a cada 10 min por projeto, sem nunca pedir senha: sem chave ou credencial que funcione sozinha, o ↓ fica no último fetch). O botão de pasta com **+** no topo adiciona projetos: uma **pasta nova**, criada na primeira pasta de `PROJECT_ROOTS` (com `git init`, se quiser), ou uma **pasta existente** em qualquer lugar do PC, escolhida navegando pelas pastas ou digitando o caminho. As pastas de fora de `PROJECT_ROOTS` ficam guardadas no PC (em `meta.json`) e passam a aceitar conversas; no mesmo diálogo dá para tirá-las da lista, sem apagar nada. A pasta pessoal e as de cima dela não podem ser projeto.
 - **Computador:** detalhes do sistema (carga, swap, processos do Claude e memória deles, tempo ligado), os agentes (ver **Agentes**), a conexão, as notificações, os sons e o tema. Não é uma tela: abre como painel por cima de onde você está, então dá para conferir o PC ou mudar um ajuste sem sair da conversa. Abre pela aba no celular e, no PC, pela alça, pelas medidas e pelo quadro do PC no início; fecha pelo X, tocando fora ou com o voltar do celular.
-- **Habilidades do cald** (o botão de varinha no pé da alça da direita; no celular, no topo da folha da barra do projeto): skills do próprio cald, e não do Claude Code. Cada uma tem um nome, que vira o `/cald:nome`, a descrição de quando usar e as instruções, e vale **em todo projeto** (global) ou **só num projeto**; com o mesmo nome, a do projeto ganha da global ali.
-  - Nas conversas do painel, o Claude as vê como skills: carrega uma quando a descrição bate com o pedido, ou quando você a chama com `/cald:nome`, que aparece no autocompletar do `/` junto dos comandos. O cald monta para cada conversa um plugin "cald" com as que valem nela (`~/.cache/cald/habilidades`) e o passa ao abrir; criar, editar ou desligar uma faz a conversa reler na hora, sem reiniciar. As conversas abertas no terminal ou no VSCode não as veem.
+- **Habilidades do edit.r** (o botão de varinha no pé da alça da direita; no celular, no topo da folha da barra do projeto): skills do próprio edit.r, e não do Claude Code. Cada uma tem um nome, que vira o `/editr:nome`, a descrição de quando usar e as instruções, e vale **em todo projeto** (global) ou **só num projeto**; com o mesmo nome, a do projeto ganha da global ali.
+  - Nas conversas do painel, o Claude as vê como skills: carrega uma quando a descrição bate com o pedido, ou quando você a chama com `/editr:nome`, que aparece no autocompletar do `/` junto dos comandos. O edit.r monta para cada conversa um plugin "editr" com as que valem nela (`~/.cache/editr/habilidades`) e o passa ao abrir; criar, editar ou desligar uma faz a conversa reler na hora, sem reiniciar. As conversas abertas no terminal ou no VSCode não as veem.
   - O modal mostra as **deste projeto** e as **globais**. Com uma conversa em foco, cada uma tem o botão de ligar e desligar **nesta conversa** (toda habilidade começa ligada, e o desligado segue a conversa numa bifurcação). Numa conversa aberta no PC, o que você mudar vale quando ela vier para o painel.
-  - **Nova** e o lápis abrem o editor (nome, onde vale, quando usar e instruções em Markdown). A lixeira tem **Desfazer** ali mesmo e, no pé do modal, **Restaurar** e **Apagar de vez**; o que passa de 30 dias lá some sozinho. Elas ficam guardadas no PC, em `~/.local/share/cald/habilidades.json`.
-- **Detalhes do projeto:** notas suas sobre como cada parte de um projeto funciona ("Avatares": de onde vem o ícone, que arquivo sorteia o claudinho…), cada uma com um título e o conteúdo em Markdown, com `@` para arquivos e o olho para ver como fica. Servem para o Claude não ler o projeto inteiro só para entender uma parte: toda conversa do painel no projeto abre sabendo só a chave e o título de cada detalhe (poucos tokens, junto das instruções do MCP do cald) e lê o conteúdo do que o trabalho tocar, pelas ferramentas `listar_detalhes` e `ler_detalhe`, sem pedir aprovação. Você escreve no app ou pede ao Claude ("adiciona nos detalhes o visual do projeto"): ele estuda a parte e grava com `criar_detalhe` ou `editar_detalhe`, que pedem sua aprovação.
+  - **Nova** e o lápis abrem o editor (nome, onde vale, quando usar e instruções em Markdown). A lixeira tem **Desfazer** ali mesmo e, no pé do modal, **Restaurar** e **Apagar de vez**; o que passa de 30 dias lá some sozinho. Elas ficam guardadas no PC, em `~/.local/share/editr/habilidades.json`.
+- **Detalhes do projeto:** notas suas sobre como cada parte de um projeto funciona ("Avatares": de onde vem o ícone, que arquivo sorteia o claudinho…), cada uma com um título e o conteúdo em Markdown, com `@` para arquivos e o olho para ver como fica. Servem para o Claude não ler o projeto inteiro só para entender uma parte: toda conversa do painel no projeto abre sabendo só a chave e o título de cada detalhe (poucos tokens, junto das instruções do MCP do edit.r) e lê o conteúdo do que o trabalho tocar, pelas ferramentas `listar_detalhes` e `ler_detalhe`, sem pedir aprovação. Você escreve no app ou pede ao Claude ("adiciona nos detalhes o visual do projeto"): ele estuda a parte e grava com `criar_detalhe` ou `editar_detalhe`, que pedem sua aprovação.
   - No PC, ficam no hub do projeto, na aba **Detalhes**: a lista e o editor lado a lado. No celular, e também no PC, o menu do projeto (botão direito ou dedo segurado no projeto em **Projetos**, nas **Conversas** ou na barra do projeto) tem **Detalhes**, que no celular abre uma folha com a lista; tocar num detalhe o abre no lugar dela.
   - Salva sozinho logo depois de parar de digitar. A chave sai do título (`Avatares e ícones` vira `avatares-e-icones`) e aparece no alto do editor. Um detalhe sem conteúdo fica apagado na lista e não entra no índice. Apagar tem **Desfazer**.
-  - O índice vale como estava ao abrir a conversa: um detalhe novo entra na próxima (ou na hora, se o Claude chamar `listar_detalhes`). Numa conversa em worktree, os detalhes são os do projeto de que ele é cópia. Ficam no PC, em `~/.local/share/cald/detalhes.json`.
-- **MCP do cald:** nas conversas do painel, o Claude tem ferramentas para mexer no próprio cald: o TODO do projeto, os times, os workspaces e as habilidades. Dá para pedir "estuda este projeto e monta um time pra me ajudar a codar nele" ou "quebra isso em TODOs", e ele vai marcando cada TODO como feito ao terminar. Para montar um time, ele é instruído a estudar o projeto antes (CLAUDE.md, README, stack, comandos, convenções) e a escrever para cada membro instruções daquele projeto.
+  - O índice vale como estava ao abrir a conversa: um detalhe novo entra na próxima (ou na hora, se o Claude chamar `listar_detalhes`). Numa conversa em worktree, os detalhes são os do projeto de que ele é cópia. Ficam no PC, em `~/.local/share/editr/detalhes.json`.
+- **MCP do edit.r:** nas conversas do painel, o Claude tem ferramentas para mexer no próprio edit.r: o TODO do projeto, os times, os workspaces e as habilidades. Dá para pedir "estuda este projeto e monta um time pra me ajudar a codar nele" ou "quebra isso em TODOs", e ele vai marcando cada TODO como feito ao terminar. Para montar um time, ele é instruído a estudar o projeto antes (CLAUDE.md, README, stack, comandos, convenções) e a escrever para cada membro instruções daquele projeto.
   - **TODO:** `listar_todos`, `criar_todos` (vários de uma vez) e `editar_todo` (título, descrição, feito). Um `TODO:n` mencionado na mensagem já lembra o Claude de marcá-lo no fim. Numa conversa em worktree, o TODO é o do projeto de que ele é cópia, também na barra da direita e no `TODO:n`.
   - **Detalhes do projeto:** `listar_detalhes` (chave e título) e `ler_detalhe` (vários de uma vez, pela chave), sem aprovação; `criar_detalhe` e `editar_detalhe` (título ou conteúdo, pela chave) pedem aprovação, porque o índice abre toda conversa do projeto. Criar com o título de um que já existe é recusado, para o Claude editar aquele. O índice dos detalhes já vai nas instruções do MCP de cada conversa (ver **Detalhes do projeto**).
   - **Times:** `listar_times`, `criar_time`, `editar_time` e `usar_time`, que põe o time na própria conversa. Como o SDK fixa os subagentes quando o processo sobe, a conversa reabre com o time assim que a resposta termina (e nada mais roda em segundo plano), pelo mesmo caminho do seletor de time.
   - **Workspaces:** `listar_workspaces`, `criar_workspace` (sem projetos, fica o da conversa; vira o padrão do projeto principal, se ele não tem um) e `editar_workspace`. **Habilidades:** `listar_habilidades`, `criar_habilidade` (global ou do projeto) e `editar_habilidade`, que já valem na própria conversa.
   - Ler, criar e marcar TODOs e criar time ou workspace passam sem pedir. Editar time ou workspace e criar ou editar habilidade pedem aprovação: uma habilidade global vale em todo projeto, e um arquivo de um repositório qualquer poderia convencer o Claude a plantar uma instrução ali. Nada se apaga por ele; tirar algo é com você, pelo app.
   - O que muda, pelo Claude, pelo app ou em outro aparelho, aparece na hora em todos os aparelhos. O app manda o TODO inteiro a cada mudança, então o PC recusa uma lista velha (`409 todos_changed`) em vez de apagar o item que o Claude acabou de criar; o app avisa e mostra como ficou.
-  - É um servidor MCP dentro do próprio cald (`server/src/cald-mcp.ts`), montado por conversa: as abertas no terminal ou no VSCode não o veem, e ele não aparece na seção **MCP** do Computador.
+  - É um servidor MCP dentro do próprio edit.r (`server/src/editr-mcp.ts`), montado por conversa: as abertas no terminal ou no VSCode não o veem, e ele não aparece na seção **MCP** do Computador.
 - **Agentes** (painel **Computador → Agentes**, da máquina escolhida no topo): quem conduz as conversas. Hoje é só o Claude Code; a seção está pronta para outros (ver [Agentes](#agentes) em Desenvolvimento). Cada agente é uma linha com a versão, se é o padrão das conversas novas (ou o que falta no PC, em âmbar) e a chave de ligado; sempre fica um ligado, e o que não está instalado não liga. Tocar na linha abre a página dele, com abas só para o que ele oferece:
   - **Geral:** ligado, **Padrão nas conversas novas** (para trocar, faz-se outro o padrão) e como ele está no PC (pronto ou não, e a versão).
   - **Uso** (no Claude Code): os limites do plano, todas as janelas, inclusive por modelo. As medidas de 5 h e semana da alça e o **Detalhes** do cartão de limites do início abrem direto aqui.
@@ -332,18 +350,18 @@ O que dá para fazer:
 - **O que o Claude carrega:** a memória que ele guardou, as skills, os comandos, os agentes e os servidores MCP. Fica no painel **Computador → Agentes → Claude Code**, nas abas **Memória**, **Skills** e **MCP** (da máquina escolhida no topo), no que vale em todo projeto; os worktrees ficam na seção **Worktrees** do Computador. Serve para entender por que o Claude fala de algo que você não lembra de ter pedido, e para dar uma limpa.
   - **Memória:** a memória automática do Claude Code, que fica em `~/.claude/projects/<projeto>/memory`, um arquivo por lembrança e o índice `MEMORY.md`, lido no começo de cada conversa naquele projeto. Um grupo por projeto; a aba **Memória** (e o item **Agentes** do painel) ganha um número quando alguma ficou fora do índice ou o índice cita arquivo que não existe. A busca olha também o texto. Os filtros mostram o que pede limpeza: **Fora do índice** (o Claude não chega a vê-la), **Órfã** (o projeto não existe mais), **Velha** (sem mudar há mais de 60 dias) e **Link sem memória** (um `[[nome]]` que ainda não existe, às vezes de propósito), além do tipo (jeito de trabalhar, projeto, referência, sobre você). O grupo avisa também quando o índice passa de 150 linhas (o Claude Code só lê as primeiras 200) ou cita arquivo que não existe.
     - Tocar numa memória mostra o texto, quem a cita e **De onde veio**, que abre a conversa em que o Claude a guardou (se ela ainda existe: o Claude Code apaga as conversas depois de uns 30 dias). **Editar** muda a descrição e o texto, e o resto do cabeçalho fica como estava; se o Claude mexer nela enquanto o editor está aberto, salvar recusa, para não apagar o que ele escreveu.
-    - **Para a lixeira**, de uma ou de várias (a caixinha de cada uma, ou a do projeto para todas), tira a memória e a linha dela do índice, com **Desfazer** no pé da lista por alguns segundos. Elas vão para a lixeira do cald (`~/.local/share/cald/memory-trash`, ou `MEMORY_TRASH_DIR`), no pé da lista: **Restaurar** devolve o arquivo e a linha no mesmo lugar do índice, **Esvaziar** apaga de vez, e o que passa de 30 dias lá some sozinho.
-    - **Sugestões de memória:** nas conversas do painel, o Claude não grava memória sozinho. Quando ele tenta (um Write ou Edit na pasta de memória), o cald guarda o texto como sugestão e devolve a ele um aviso de que ela não foi gravada, e o Claude segue trabalhando, sem travar a conversa. No chat, a ferramenta aparece como **Sugeriu uma memória**, e não como erro. No topo da conversa surge o botão da lâmpada, com quantas esperam você, que abre a lista da conversa. Cada sugestão mostra o nome, a descrição, o tipo, se é **nova** ou se **atualiza** uma que existe, e o texto, que abre inteiro ao tocar. Os botões são estes:
+    - **Para a lixeira**, de uma ou de várias (a caixinha de cada uma, ou a do projeto para todas), tira a memória e a linha dela do índice, com **Desfazer** no pé da lista por alguns segundos. Elas vão para a lixeira do edit.r (`~/.local/share/editr/memory-trash`, ou `MEMORY_TRASH_DIR`), no pé da lista: **Restaurar** devolve o arquivo e a linha no mesmo lugar do índice, **Esvaziar** apaga de vez, e o que passa de 30 dias lá some sozinho.
+    - **Sugestões de memória:** nas conversas do painel, o Claude não grava memória sozinho. Quando ele tenta (um Write ou Edit na pasta de memória), o edit.r guarda o texto como sugestão e devolve a ele um aviso de que ela não foi gravada, e o Claude segue trabalhando, sem travar a conversa. No chat, a ferramenta aparece como **Sugeriu uma memória**, e não como erro. No topo da conversa surge o botão da lâmpada, com quantas esperam você, que abre a lista da conversa. Cada sugestão mostra o nome, a descrição, o tipo, se é **nova** ou se **atualiza** uma que existe, e o texto, que abre inteiro ao tocar. Os botões são estes:
       - **Salvar** grava a memória e põe a linha dela no fim do `MEMORY.md`, se ainda não houver uma. Se a memória mudou ou apareceu desde a sugestão, salvar recusa, para não passar por cima.
       - **Editar** abre a descrição e o texto para mudar antes de salvar.
       - **Mencionar** põe "Sobre a memória que você sugeriu, “nome”:" na caixa de mensagem, para falar dela com o Claude. Se ele gravar o mesmo arquivo de novo, a sugestão é trocada pela nova.
       - **Recusar** tira da lista, com **Desfazer** no pé dela.
       - O Claude costuma pôr a linha do índice junto com a memória. Uma mudança no `MEMORY.md` que passaria a citar uma memória que não existe também fica de fora, e a linha entra quando você salva.
-      - As sugestões ficam no PC (`~/.local/share/cald/memory-suggestions.json`) e somem depois de 30 dias sem resposta. As conversas abertas no terminal ou no VSCode gravam memória como sempre.
-    - **Revisar com o Claude** (aberto o grupo de um projeto) abre uma conversa nova nele com o pedido já escrito, sem enviar: juntar as repetidas, encurtar as longas, propor apagar o que o código ou o git já dizem e manter o índice em dia, mostrando a lista antes de mexer. O que ele apagar por ali não passa pela lixeira do cald.
+      - As sugestões ficam no PC (`~/.local/share/editr/memory-suggestions.json`) e somem depois de 30 dias sem resposta. As conversas abertas no terminal ou no VSCode gravam memória como sempre.
+    - **Revisar com o Claude** (aberto o grupo de um projeto) abre uma conversa nova nele com o pedido já escrito, sem enviar: juntar as repetidas, encurtar as longas, propor apagar o que o código ou o git já dizem e manter o índice em dia, mostrando a lista antes de mexer. O que ele apagar por ali não passa pela lixeira do edit.r.
   - **Skills:** as skills, os comandos e os agentes que o Claude Code carrega, agrupados pela origem: **Suas** (`~/.claude/skills`, `commands` e `agents`), **Da sua conta no claude.ai** (as sincronizadas), **De plugins** e **Do próprio Claude Code**. Tocar mostra o arquivo e o texto inteiro. Quando uma skill cita um servidor MCP que não está ligado ali (como uma que fala do board do Cordel num projeto sem o MCP `cordel`), ela ganha o selo **cita MCP … · desligado aqui**, e um aviso no topo junta todas: é daí que o Claude fala de coisas que não tem.
     - **Ligar e desligar** uma skill ou comando usa o `skillOverrides` do próprio Claude Code (o mesmo do `/skills`): desligada, o Claude não a vê nem atende o `/nome`. Vale em todo projeto (nas suas configurações, `~/.claude/settings.json`); para um projeto só, use o `/skills` numa conversa dele. As desligadas continuam na lista, apagadas, com o filtro **Desligadas**. Skill de plugin não desliga sozinha: o botão fica no grupo do plugin e liga e desliga ele inteiro, com os agentes e os servidores dele. Agentes não têm como desligar.
-    - **A lixeira** leva as suas skills, comandos e agentes (a pasta da skill ou o arquivo) para a lixeira do cald (`~/.local/share/cald/claude-trash`, ou `CLAUDE_TRASH_DIR`), com **Desfazer** no pé da lista e **Restaurar** na lixeira, de onde voltam para o mesmo lugar. As do claude.ai, dos plugins e do Claude Code ficam de fora: as do claude.ai voltariam na próxima sincronização.
+    - **A lixeira** leva as suas skills, comandos e agentes (a pasta da skill ou o arquivo) para a lixeira do edit.r (`~/.local/share/editr/claude-trash`, ou `CLAUDE_TRASH_DIR`), com **Desfazer** no pé da lista e **Restaurar** na lixeira, de onde voltam para o mesmo lugar. As do claude.ai, dos plugins e do Claude Code ficam de fora: as do claude.ai voltariam na próxima sincronização.
   - **Worktrees:** os worktrees de cada projeto, um grupo por repositório (só os que têm algum): os das conversas, os do `claude --worktree` e os criados à mão em qualquer pasta. Cada um mostra a branch, os arquivos sem commit, os commits que a base ainda não tem (um rebaseado conta como trazido), quantos ele está atrás, se é de fora das pastas de projetos ou se a pasta já foi apagada, e as conversas que estão nele, que abrem com um toque. Ele também tem as ações:
     - **Trazer:** o merge na branch de origem, o mesmo do botão da branch no chat.
     - **Conversa:** abre uma conversa nova dentro do worktree.
@@ -385,7 +403,7 @@ Notificações, mesmo com o app fechado, depois de ativadas no painel Computador
 - **Quando terminar** (opcional): com o começo da última resposta do Claude.
 - **Sessões abertas no PC** (opcional): quando uma sessão do terminal ou do VSCode passa a esperar você, ou termina algo que levou mais de 1 min.
 - **Sons no app** (cartão **Sons**, no painel Computador): com o app aberto, toca um som quando qualquer conversa passa a perguntar algo ou pedir aprovação (duas notas subindo) e outro quando termina (três notas descendo); das sessões abertas no PC, o de fim só depois de algo que levou mais de 1 min. Cada um liga e desliga separado, com **Ouvir** para conhecer. Os sons são gerados no próprio navegador, sem arquivo de áudio. Com o app na tela, a notificação chega sem som, porque o app já tocou o dele; em segundo plano, quem avisa é a notificação. O navegador só libera o som depois do primeiro toque no app.
-- **Título da aba:** enquanto alguma conversa espera você (uma pergunta ou uma aprovação, no painel ou numa sessão aberta no PC, em qualquer máquina), o título da aba vira "(2) Esperando resposta · cald", com quantas são. Dá para ver de outra aba, sem som nem notificação, e volta a ser só "cald" quando a última é respondida. É o mesmo sinal do som de atenção.
+- **Título da aba:** enquanto alguma conversa espera você (uma pergunta ou uma aprovação, no painel ou numa sessão aberta no PC, em qualquer máquina), o título da aba vira "(2) Esperando resposta · edit.r", com quantas são. Dá para ver de outra aba, sem som nem notificação, e volta a ser só "edit.r" quando a última é respondida. É o mesmo sinal do som de atenção.
 - **Fundo da conversa** (cartão **Fundo da conversa**, no painel Computador): um desenho em ASCII animado atrás da conversa. Ele ocupa a área central inteira — não a alça nem a lista ao lado, e o cabeçalho de cada conversa fica opaco por cima dele —, e é uma cena só: com conversas lado a lado o fundo atravessa a divisória em vez de recomeçar em cada uma. A barra de mensagem fica por cima dele, de vidro. Com uma foto sua atrás (as cenas em caracteres dispensam), um véu escurece a janela inteira por dentro, por igual, de lado a lado e até o fim da tela por trás da barra, para as letras ficarem legíveis: no escuro ele é preto, no claro tem a cor do fundo do app. O mapa mental também deixa a cena aparecer, sob o mesmo véu, no lugar do chat ou ao lado dele, a inbox também, numa aba do PC, com o véu atrás da lista e o topo de vidro como a aba aberta, o arquivo ou o diff aberto como aba, com o véu atrás do código, e a mesa do projeto, com os blocos de vidro. O quanto ele escurece se ajusta no controle **Escurecer**, de 0 a 90%, separado da força da cena; quem já usava começa com o que a força dava antes. São catorze temas, escolhidos por miniaturas que são a própria cena rodando:
   - **Água:** **Aquário** (cardume atravessando, algas no rodapé e os grandes comendo os pequenos), **Lagoa das Tartarugas** (honu planando, uma raia ao fundo e a rede de luz das cáusticas tremendo por cima), **Lago das Carpas** (o lago visto de cima, carpas coleando e vitórias-régias boiando), **Água-viva** (campânulas que apertam para subir e afundam devagar) e **Barquinhos de Papel** (barcos atravessando, com o reflexo tremendo embaixo).
   - **Céu:** **Nuvens**, **Aurora** (cortinas de luz entre o verde e o violeta), **Galáxia** (três camadas de estrelas em paralaxe, nebulosa e riscos cruzando) e **Luar** (a lua, nuvens finas na frente dela e o caminho de luz na água).
@@ -401,10 +419,10 @@ Notificações, mesmo com o app fechado, depois de ativadas no painel Computador
 No chat:
 - **Bifurcar daqui:** o ícone ao lado de cada mensagem sua abre uma conversa nova com o histórico só até antes dela, e devolve o texto ao campo para você reescrever e seguir por outro caminho. A original fica intacta na lista, então dá para comparar as duas respostas depois. É o mesmo que editar uma mensagem antiga no ChatGPT. O corte vai até o último registro do turno que fica de pé, e o Claude Code retoma a conversa só até ali.
   - A bifurcação se identifica: um ícone de ramo antes do título, na lista e no cabeçalho do chat, e uma tarja no alto da conversa dizendo de qual ela saiu — tocar nela abre a original.
-  - O Claude Code só grava o arquivo da conversa bifurcada no primeiro turno dela. Até lá (e depois, se ela for fechada antes disso) o painel mostra o histórico herdado da origem, cortado no ponto, só para consulta. De onde cada bifurcação saiu fica gravado em `~/.local/state/cald/meta.json`, porque o vínculo precisa durar mais que o processo.
-- **De onde saiu cada mensagem:** embaixo de cada mensagem sua aparece por onde ela entrou, de que máquina e quando: "Terminal · valb · 22:41", "VSCode · valb · ontem 10:03", "cald · pixel-8 · 09:12". O ícone diz se foi pelo terminal, pelo VSCode, por um celular ou por um computador; passar o mouse mostra a data inteira. É isso que substitui o antigo **Assumir**: a conversa vai do terminal para o celular e volta, e o histórico conta o caminho.
+  - O Claude Code só grava o arquivo da conversa bifurcada no primeiro turno dela. Até lá (e depois, se ela for fechada antes disso) o painel mostra o histórico herdado da origem, cortado no ponto, só para consulta. De onde cada bifurcação saiu fica gravado em `~/.local/state/editr/meta.json`, porque o vínculo precisa durar mais que o processo.
+- **De onde saiu cada mensagem:** embaixo de cada mensagem sua aparece por onde ela entrou, de que máquina e quando: "Terminal · valb · 22:41", "VSCode · valb · ontem 10:03", "edit.r · pixel-8 · 09:12". O ícone diz se foi pelo terminal, pelo VSCode, por um celular ou por um computador; passar o mouse mostra a data inteira. É isso que substitui o antigo **Assumir**: a conversa vai do terminal para o celular e volta, e o histórico conta o caminho.
   - Terminal e VSCode são sempre o próprio PC, e a hora vem do registro da conversa no Claude Code. Do app, o nome do aparelho vem do Tailscale: o `tailscale serve` repassa o IP de quem acessa, e o `tailscale status` diz de que máquina ele é (pelo nome do MagicDNS, o mesmo do painel do Tailscale). Aberto no próprio PC, em `127.0.0.1`, é o nome dele.
-  - O Claude Code não grava de que aparelho a mensagem veio, então o cald dá a ela o próprio UUID e guarda o aparelho e a hora do envio em `~/.local/share/cald/origins.jsonl`. Mensagens do app de antes disso aparecem só como "cald" e a hora.
+  - O Claude Code não grava de que aparelho a mensagem veio, então o edit.r dá a ela o próprio UUID e guarda o aparelho e a hora do envio em `~/.local/share/editr/origins.jsonl`. Mensagens do app de antes disso aparecem só como "edit.r" e a hora.
 - **Modo zen** (o botão de recolher, no topo da conversa): deixa a conversa sozinha na tela — somem a alça, a lista e o cabeçalho, ficam só as mensagens e a caixa de escrever. É da conversa em que foi ligado: com outras lado a lado, elas saem de vista, sem fechar nem perder o que estava escrito, e voltam quando ele desliga. Para sair, o botão apagado no canto de cima, o Esc no PC ou o voltar do celular. A escolha fica salva neste aparelho.
 - O menu ⋮ tem **Fixar no topo**, **Renomear**, **Resumo da sessão** e **Apagar conversa**. O título é gravado no próprio Claude Code, então aparece também no `/resume` do terminal e no VSCode. Apagar remove o histórico de vez e é recusado se a conversa estiver aberta no PC.
 - **Sua mensagem fixa no topo:** quando a sua mensagem sobe e sai da tela, ela fica numa faixa logo abaixo do cabeçalho (até duas linhas), para você não perder o que pediu enquanto lê a resposta. Subindo até a resposta anterior, a faixa troca para a mensagem de lá; com a mensagem à vista, a faixa some. Mensagem curta: tocar leva até ela. Mensagem que não cabe nas duas linhas (com a ⌄): tocar abre ela inteira ali mesmo, rolando dentro da faixa até metade da tela, sem tirar você do ponto da resposta; embaixo, **Ir até a mensagem** e **Recolher**.
@@ -435,11 +453,11 @@ No chat:
 - **Terminal** (no PC, pelo botão **Terminal** da barra de status): o painel de baixo abre o shell do PC, como o terminal integrado do VSCode.
   - **Abas:** o **+** abre outro terminal na pasta da conversa ou do projeto em foco; cada aba mostra a pasta em que o shell está (acompanha o `cd`) e uma bolinha laranja enquanto um comando roda, vermelha se o último falhou. Trocar de conversa nas abas de cima não troca de terminal. O **×** ou o botão do meio fecha a aba e encerra o shell; fechar a última fecha o painel.
   - **Copiar e colar:** Ctrl+C copia o que está selecionado (sem seleção, interrompe o comando, como sempre) e Ctrl+V cola; Ctrl+Shift+C/V e Ctrl/Shift+Insert também valem.
-  - **O shell continua no PC:** travar o app, recarregar a página, a rede piscar ou fechar o navegador não encerra nada. Ao voltar, a aba reconecta sozinha ao mesmo shell e recebe o que saiu enquanto isso (até 1 MB); um programa de tela cheia, como o vim, se redesenha. Um terminal sem nenhum aparelho ligado por 24 h é encerrado, e reiniciar o cald encerra todos (a aba abre um novo na mesma pasta).
+  - **O shell continua no PC:** travar o app, recarregar a página, a rede piscar ou fechar o navegador não encerra nada. Ao voltar, a aba reconecta sozinha ao mesmo shell e recebe o que saiu enquanto isso (até 1 MB); um programa de tela cheia, como o vim, se redesenha. Um terminal sem nenhum aparelho ligado por 24 h é encerrado, e reiniciar o edit.r encerra todos (a aba abre um novo na mesma pasta).
   - Cada comando vira um bloco, com a pasta e a branch no cabeçalho e, à direita, ✓ ou ✗ com o código de saída e quanto levou.
   - **Salvos:** uma mini barra à direita do terminal, que liga e desliga no cabeçalho do painel, guarda os comandos que você roda sempre, deste projeto ou globais (`git pull --rebase` em qualquer pasta). Os fixados ficam no alto. Tocar roda o comando na aba à vista; se ela estiver ocupada (um `pnpm dev` rodando), abre outra aba na mesma pasta e roda lá. O **⋯** tem rodar numa aba nova, colar sem rodar, editar e mandar para a lixeira, com **Desfazer** ali mesmo e **Restaurar** no pé da barra (o que passa de 30 dias some sozinho).
     - **Sugestões:** a barra já traz o que a pasta oferece e ainda não foi salvo: os scripts do `package.json` mais perto, com o gerenciador do lockfile ou do `packageManager` (`pnpm dev`, `yarn build`, `npm run test`; os ganchos como `postinstall` ficam de fora), os alvos do `Makefile` (com `make -C` quando ele está numa pasta acima) e os comandos dos workspaces do projeto. Tocar roda; salvar ou fixar é um toque.
-    - O projeto é o repositório da pasta da aba (um worktree conta como o projeto de origem); fora de um, só os globais. Eles ficam guardados no PC, em `~/.local/share/cald/commands.json` (`COMMANDS_FILE`), e aparecem em qualquer aparelho.
+    - O projeto é o repositório da pasta da aba (um worktree conta como o projeto de origem); fora de um, só os globais. Eles ficam guardados no PC, em `~/.local/share/editr/commands.json` (`COMMANDS_FILE`), e aparecem em qualquer aparelho.
 - A caixa de mensagem segue o formato da extensão do VSCode: o texto em cima e, na mesma caixa, uma linha com:
   - **+**: enviar do celular (câmera, galeria, arquivos) ou adicionar contexto com `@`;
   - **/**: comandos e skills;
@@ -466,26 +484,26 @@ No chat:
   - Tocar num subagente (no trilho, na linha dele no chat ou no mapa mental) põe a conversa dele em foco, no lugar do chat: no alto, quem ele é, o tipo, as ferramentas usadas, o tempo, o estado e quem o chamou; embaixo, o pedido que recebeu, como a primeira mensagem, o passo a passo e o relatório final como resposta. Enquanto ele trabalha, a última linha diz o que está fazendo agora (com um resumo do andamento a cada ~30 s); pedindo aprovação, **Responder no chat** leva ao cartão de responder. Em conversas do histórico ou abertas no PC, o passo a passo vem do registro salvo no PC.
   - O claudinho da conversa, no alto do trilho, o X, o Esc no PC e o voltar do celular saem do foco. O chat continua montado por baixo, então volta onde estava, e a caixa de mensagem segue falando com a conversa principal.
   - Subagentes em segundo plano continuam depois do fim da resposta: enquanto trabalham, a conversa segue como **Executando**, com "N subagentes" na lista de conversas, e **Liberar para o PC** espera eles terminarem. Com a conversa aberta no painel, **Parar**, no alto da conversa do subagente, encerra ele (o Claude recebe o aviso).
-- **Protótipos do Claude:** quando o Claude publica uma página no claude.ai (a ferramenta Artifact do Claude Code, que sobe um HTML do PC), o chat mostra um cartão com o título dela, à vista mesmo com o bloco de ações fechado. **Abrir** mostra a página numa aba de navegador do app (no celular, em tela cheia, com o voltar), e a marca do Claude ao lado leva ao artifact no claude.ai. O claude.ai não deixa a página dele ser embutida em outro site, então a aba mostra o arquivo do PC, que é o mesmo que foi publicado: no alto, uma barra de navegador com recarregar, o caminho do arquivo, **claude.ai** e **Abrir numa janela**. Com a aba à vista, quando o Claude mexe no HTML (ou no CSS e nos scripts ao lado dele), ela recarrega sozinha. Qualquer `.html` do projeto também abre assim: **Abrir como página** no menu do arquivo, ou **Página** no arquivo aberto. A página roda isolada: ela carrega os arquivos da pasta dela (nunca os ocultos, como `.env` e `.git`) e o que buscar na internet, mas não alcança a API do cald nem o que o app guarda. Um HTML solto na pasta pessoal ou no `/tmp` abre sozinho, sem a pasta em volta; fora da pasta pessoal, das pastas de projetos e do `/tmp`, não abre. Nas conversas do painel a ferramenta vem ligada: o Claude Code a deixa desligada quando sobe pelo SDK, e o cald liga com `CLAUDE_CODE_ARTIFACT=1` (com `CLAUDE_CODE_ARTIFACT=0` no ambiente do serviço, ela fica desligada). Ela ainda depende da conta: login do claude.ai, plano que tenha artifacts e `enableArtifact` não desligado nos ajustes do Claude Code.
-- **Artefatos:** a página que o Claude publica pelo MCP do cald (`publicar_artefato`), no lugar de um HTML solto: um protótipo, um relatório, um painel. Cada publicação congela o HTML e os arquivos que ele usa por caminho relativo (CSS, scripts, imagens e fontes da mesma pasta, seguindo também o que o CSS e os scripts citam; nunca os ocultos, nem o que fica fora da pasta, até 20 MB e 500 arquivos) numa versão que não muda mais. Publicar o mesmo arquivo de novo cria a versão seguinte do mesmo artefato; sem mudança nenhuma, fica a atual. Publicar não pede aprovação: o artefato só aparece na sua tailnet.
+- **Protótipos do Claude:** quando o Claude publica uma página no claude.ai (a ferramenta Artifact do Claude Code, que sobe um HTML do PC), o chat mostra um cartão com o título dela, à vista mesmo com o bloco de ações fechado. **Abrir** mostra a página numa aba de navegador do app (no celular, em tela cheia, com o voltar), e a marca do Claude ao lado leva ao artifact no claude.ai. O claude.ai não deixa a página dele ser embutida em outro site, então a aba mostra o arquivo do PC, que é o mesmo que foi publicado: no alto, uma barra de navegador com recarregar, o caminho do arquivo, **claude.ai** e **Abrir numa janela**. Com a aba à vista, quando o Claude mexe no HTML (ou no CSS e nos scripts ao lado dele), ela recarrega sozinha. Qualquer `.html` do projeto também abre assim: **Abrir como página** no menu do arquivo, ou **Página** no arquivo aberto. A página roda isolada: ela carrega os arquivos da pasta dela (nunca os ocultos, como `.env` e `.git`) e o que buscar na internet, mas não alcança a API do edit.r nem o que o app guarda. Um HTML solto na pasta pessoal ou no `/tmp` abre sozinho, sem a pasta em volta; fora da pasta pessoal, das pastas de projetos e do `/tmp`, não abre. Nas conversas do painel a ferramenta vem ligada: o Claude Code a deixa desligada quando sobe pelo SDK, e o edit.r liga com `CLAUDE_CODE_ARTIFACT=1` (com `CLAUDE_CODE_ARTIFACT=0` no ambiente do serviço, ela fica desligada). Ela ainda depende da conta: login do claude.ai, plano que tenha artifacts e `enableArtifact` não desligado nos ajustes do Claude Code.
+- **Artefatos:** a página que o Claude publica pelo MCP do edit.r (`publicar_artefato`), no lugar de um HTML solto: um protótipo, um relatório, um painel. Cada publicação congela o HTML e os arquivos que ele usa por caminho relativo (CSS, scripts, imagens e fontes da mesma pasta, seguindo também o que o CSS e os scripts citam; nunca os ocultos, nem o que fica fora da pasta, até 20 MB e 500 arquivos) numa versão que não muda mais. Publicar o mesmo arquivo de novo cria a versão seguinte do mesmo artefato; sem mudança nenhuma, fica a atual. Publicar não pede aprovação: o artefato só aparece na sua tailnet.
   - **No chat:** a publicação vira um cartão, à vista mesmo com o bloco de ações fechado, com o título, a versão e o arquivo, **Abrir** e, no `⋯`, **Copiar link** e **Ver em Artefatos**. Várias publicações do mesmo artefato num bloco viram um cartão só, o da última.
   - **A aba:** no PC o artefato abre numa aba de navegador como a dos protótipos (no celular, em tela cheia, com o voltar), com recarregar, o título, a versão (o menu troca para as outras, da mais nova à mais antiga), copiar o link e **Abrir numa janela**. A página roda isolada, como a dos protótipos.
   - **A galeria:** **Artefatos**, ao lado das Habilidades no cabeçalho do projeto, no pé da alça do PC, na paleta de comandos e no `⋯` dos cartões. À esquerda, os artefatos por projeto, com o claudinho da conversa que publicou, a versão e quando; à direita, a prévia, a descrição, as versões (tocar abre aquela), o link e o **Link público**. Apagar manda para a lixeira, com **Desfazer** ali mesmo; no pé da lista, a lixeira, com **Restaurar** e apagar de vez. O que passa de 30 dias lá some sozinho, com as versões.
-  - **O link fixo:** `https://<máquina>.ts.net/a/<id>/` abre o artefato em qualquer aparelho da tailnet, sem o PIN (o id aleatório é a credencial), sempre na versão mais nova, numa barra no jeito do cald com o menu das versões; `/a/<id>/v/<n>/` fixa uma versão.
-  - **O link público:** só você liga, no interruptor da galeria (a ferramenta não tem como). O cald liga o Tailscale Funnel na porta 8443 quando o primeiro artefato fica público e desliga quando não sobra nenhum. Quem tem o link vê a versão de quando ele foi ligado, numa casca sem nada do app: publicar de novo não muda o que está na internet até você tocar em **Publicar vN**. Desligar revoga o link (ligar de novo dá outro), e mandar para a lixeira também. Por trás fica um servidor à parte, só em `127.0.0.1`, que serve apenas os artefatos públicos: nada da API, do app ou do PIN passa por ele. A tailnet precisa permitir o Funnel (ver a política de acesso no painel do Tailscale); sem isso, o interruptor volta desligado com o motivo.
-  - Os artefatos ficam em `~/.local/share/cald/artefatos.json` (`ARTEFATOS_FILE`), com as versões em `artefatos/<id>/v<n>/` ao lado.
+  - **O link fixo:** `https://<máquina>.ts.net/a/<id>/` abre o artefato em qualquer aparelho da tailnet, sem o PIN (o id aleatório é a credencial), sempre na versão mais nova, numa barra no jeito do edit.r com o menu das versões; `/a/<id>/v/<n>/` fixa uma versão.
+  - **O link público:** só você liga, no interruptor da galeria (a ferramenta não tem como). O edit.r liga o Tailscale Funnel na porta 8443 quando o primeiro artefato fica público e desliga quando não sobra nenhum. Quem tem o link vê a versão de quando ele foi ligado, numa casca sem nada do app: publicar de novo não muda o que está na internet até você tocar em **Publicar vN**. Desligar revoga o link (ligar de novo dá outro), e mandar para a lixeira também. Por trás fica um servidor à parte, só em `127.0.0.1`, que serve apenas os artefatos públicos: nada da API, do app ou do PIN passa por ele. A tailnet precisa permitir o Funnel (ver a política de acesso no painel do Tailscale); sem isso, o interruptor volta desligado com o motivo.
+  - Os artefatos ficam em `~/.local/share/editr/artefatos.json` (`ARTEFATOS_FILE`), com as versões em `artefatos/<id>/v<n>/` ao lado.
 - **Workspaces:** um molde de conversa, como uma gem. Cada workspace junta projetos (o primeiro é o principal, onde a conversa aberta pela página dele começa; os outros entram como pastas que o Claude também pode ler e editar), um texto de contexto, arquivos, regras, comandos de build, teste e lint e um time padrão. A página dele (uma aba no PC, sobre o fundo escurecido como o hub; uma tela no celular) edita tudo isso em blocos: o nome e a cor no alto, com **Nova conversa**; no PC, o contexto, as regras, os comandos e os arquivos de um lado e, do outro, os projetos (o `⋯` de cada um faz principal, faz padrão do projeto, abre o hub ou tira), o time padrão e as conversas dele. Ctrl+S salva, Enter numa regra abre a próxima e dá para soltar arquivos no bloco deles. Apagar o workspace fica no `⋯` do alto.
   - **Workspace do projeto:** cada projeto pode ter um workspace padrão, e a conversa nova no projeto (na tela de conversa nova ou na caixa da mesa, no hub) já vem com ele. O card **Workspace** do hub mostra o padrão (com o time e quantas regras, comandos e arquivos ele tem) e abre a página dele; os outros workspaces que têm o projeto aparecem embaixo, com **Tornar padrão**, e o `⋯` cria um novo ou deixa o projeto sem padrão. Projeto sem nenhum workspace ganha o botão **Criar workspace**, que cria um com o nome dele, já como padrão. Um workspace novo vira o padrão do projeto principal dele quando esse projeto ainda não tem um.
   - **Na conversa:** a caixa de mensagem tem o workspace ao lado do time: **Sem workspace** ou qualquer workspace que tenha o projeto (como principal ou não), com o padrão marcado, e atalhos para editar o escolhido ou torná-lo o padrão do projeto. Na conversa nova, escolher um workspace traz o time padrão dele, até você mexer no time; trocar de projeto mantém o workspace se ele também tem o novo, senão vai para o padrão do novo. Numa conversa que já começou, trocar funciona como trocar o time: parada no painel, ela é retomada com o contexto do workspace novo, e fechada, vale quando for aberta. No celular, o workspace no topo da conversa abre o mesmo menu. Uma conversa num worktree segue o projeto de origem.
   - Toda conversa do workspace recebe o contexto no prompt de sistema: as instruções, as regras, os comandos (para validar antes de dar algo por pronto, e passar a quem do time for testar), os outros projetos e os arquivos. Textos pequenos (até uns 30 KB no total) vão inteiros; PDFs, imagens e textos grandes vão como caminhos, que ele lê quando forem relevantes.
   - A conversa guarda só de qual workspace ela é: o contexto é montado do workspace atual toda vez que o processo dela sobe (conversa nova, reabrir, reinício, bifurcar, trocar o time). Editou o workspace, vale a partir da próxima vez que cada conversa for aberta.
-  - O topo da conversa mostra o workspace na cor dele, e a placa da área na salinha também. Os workspaces ficam em `~/.local/share/cald/workspaces.json` (`WORKSPACES_FILE`), com os arquivos em `workspace-files/` ao lado; o padrão de cada projeto vai junto, em `defaultFor`. Na primeira vez com esta versão, cada projeto fica com o workspace de que ele é o principal (o editado por último, se for de mais de um).
+  - O topo da conversa mostra o workspace na cor dele, e a placa da área na salinha também. Os workspaces ficam em `~/.local/share/editr/workspaces.json` (`WORKSPACES_FILE`), com os arquivos em `workspace-files/` ao lado; o padrão de cada projeto vai junto, em `defaultFor`. Na primeira vez com esta versão, cada projeto fica com o workspace de que ele é o principal (o editado por último, se for de mais de um).
 - **Times de agentes:** subagentes seus, cada um com nome, papel, modelo, esforço e instruções, e um claudinho próprio (o mesmo em todas as conversas). Na conversa nova, o botão de pessoas ao lado do modelo escolhe um time ou abre **Gerenciar times**, onde dá para montar um do zero ou começar cada membro por um papel pronto (Frontend, Backend, Testes, Revisão). O time vira os subagentes da conversa (a opção `agents` do SDK, com o modelo e o esforço de cada membro), e o Claude dela recebe no prompt de sistema quem é quem, para delegar o que for da área de cada um.
   - **Gerenciar times** é desenhado como as habilidades: os times à esquerda e o escolhido à direita, com um membro por linha (claudinho, papel, modelo e esforço). Tocar num membro abre o editor nele, um membro aberto por vez. Apagar manda para a lixeira, com **Desfazer** ali mesmo e, no pé da lista, **Restaurar** e apagar de vez; o que passa de 30 dias lá some sozinho.
   - A conversa guarda uma cópia do time de quando começou: editar ou apagar o time só vale para as conversas novas, e reabrir, retomar depois de reiniciar ou bifurcar traz o mesmo time. O time é escolhido só ao começar: o SDK fixa os subagentes quando o processo sobe.
   - Na conversa, o chip do time na barra da caixa (no PC) mostra quem é o time e troca por outro. Cada membro chamado entra no trilho de agentes com o claudinho dele.
   - Na salinha, os membros ficam na área mesmo sem trabalho, descansando; quando são chamados, saem do lugar até a estação, com o chapéu do modelo deles, e ao terminar levam a pasta ao claudinho da conversa.
-  - Só para conversas abertas no painel: as do terminal do PC não recebem subagentes de fora. Os times ficam em `~/.local/share/cald/teams.json` (`TEAMS_FILE`).
+  - Só para conversas abertas no painel: as do terminal do PC não recebem subagentes de fora. Os times ficam em `~/.local/share/editr/teams.json` (`TEAMS_FILE`).
 - **Mapa mental:** o botão de rede no topo troca o chat por um mapa mental da conversa, ao vivo. No centro fica a conversa; cada mensagem sua é um galho numerado, com uma cor; dele saem os passos do Claude, com o que ele disse que ia fazer (ou, se não disse nada, o raciocínio ou o que mais fez: "Lendo 3 arquivos", "Rodando 2 comandos"), as aprovações, as perguntas e a resposta. Nas pontas fica o que cada passo tocou: arquivos (lidos, criados ou editados, com +linhas −linhas), comandos, buscas, sites e subagentes, com o que eles fizeram.
   - Enquanto o Claude trabalha, o galho em andamento fica azul com a linha correndo, e o mapa acompanha sozinho o passo atual, sempre, sem botão para ligar ou desligar. Arrastar ou rolar com a mão segura o mapa onde você deixou por alguns segundos, para dar para olhar outra parte; depois disso, cada passo novo volta a ficar à vista. Com o Claude parado nada muda de foco, então nada puxa você de volta. Um pedido de aprovação ou uma pergunta fica laranja no mapa, e o cartão para responder (**Permitir**, **Negar**, as opções) aparece acima da caixa de mensagem, sem sair do mapa. Dá para mandar mensagem e parar o Claude normalmente.
   - Turnos antigos ficam recolhidos: tocar num turno abre ou fecha os passos dele, e passos com muitas ações mostram as mais recentes (**+N ações** abre o resto). Tocar num passo ou numa ação volta ao chat naquele ponto, que pisca para ser achado; num subagente, volta ao chat com a conversa dele em foco.
@@ -511,14 +529,14 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 - **`@`** lista os arquivos e pastas do projeto. Escolher uma pasta continua a navegação dentro dela.
 - **📎** anexa arquivos. No Android, o seletor oferece câmera, galeria e arquivos.
   - **Imagens** são reduzidas no celular para até 1568 px e vão direto para o Claude. Tocar numa imagem anexada (a do lápis) abre o editor: caneta, seta, círculo e recorte, em cinco cores, com desfazer; **Pronto** troca o anexo pela versão marcada.
-  - **Outros arquivos** (até 25 MB) são gravados no PC em `~/.cache/cald/uploads/<sessão>/` e entram na mensagem como `@caminho`. O Claude Code lê qualquer tipo assim, inclusive PDF.
+  - **Outros arquivos** (até 25 MB) são gravados no PC em `~/.cache/editr/uploads/<sessão>/` e entram na mensagem como `@caminho`. O Claude Code lê qualquer tipo assim, inclusive PDF.
 - No PC, colar um print com Ctrl+V também anexa.
 - O rascunho de cada conversa (texto e anexos) fica guardado no celular: trocar de conversa, tocar em **Atualizar** ou o Android fechar o app não perde o que foi digitado.
-- No Android, o cald aparece no menu **Compartilhar** dos outros apps (prints, fotos, arquivos, links): escolha a conversa, ou uma nova, e tudo entra no rascunho dela para você revisar antes de enviar. Depois de atualizar, o Android pode levar até um dia para mostrar o app no menu; reinstalar o app faz aparecer na hora.
+- No Android, o edit.r aparece no menu **Compartilhar** dos outros apps (prints, fotos, arquivos, links): escolha a conversa, ou uma nova, e tudo entra no rascunho dela para você revisar antes de enviar. Depois de atualizar, o Android pode levar até um dia para mostrar o app no menu; reinstalar o app faz aparecer na hora.
 
 ## Como funciona
 
-- Quem conduz as conversas é um **agente**: hoje, o Claude Code. O cald fala com ele por um contrato próprio (ver [Agentes](#agentes)), e um agente novo entra como mais uma implementação dele, sem mexer no resto.
+- Quem conduz as conversas é um **agente**: hoje, o Claude Code. O edit.r fala com ele por um contrato próprio (ver [Agentes](#agentes)), e um agente novo entra como mais uma implementação dele, sem mexer no resto.
 - Cada sessão controlada pelo celular tem um único dono: um processo headless do agente (no Claude Code, dirigido pelo Agent SDK).
 - Sessões abertas no PC aparecem no celular com o campo de mensagem de sempre. Enviar daqui encerra a sessão no terminal do PC, se ela estiver ociosa, e a continua no painel com todo o contexto; não há botão de assumir, e cada mensagem mostra de onde saiu. Trabalhando no PC, a mensagem não sai e fica com **Tentar de novo**; aberta no VSCode, é preciso fechá-la lá antes (encerrar a extensão pode fazê-la retomar a conversa sozinha e bifurcá-la). **Liberar** devolve a sessão ao terminal (`claude --resume <id>`).
 - O estado real das sessões do PC vem de `claude agents --json`.
@@ -527,11 +545,11 @@ No campo de mensagem, tanto no chat quanto em "Nova sessão":
 ## Operação do serviço
 
 ```sh
-systemctl --user status cald
-systemctl --user restart cald       # após mudar o código do servidor
-journalctl --user -u cald -f        # logs
-cald -link                          # link de acesso remoto (atalho)
-cald -link off                      # desligar o acesso remoto (`cald -link on` liga de novo)
+systemctl --user status editr
+systemctl --user restart editr       # após mudar o código do servidor
+journalctl --user -u editr -f        # logs
+editr -link                          # link de acesso remoto (atalho)
+editr -link off                      # desligar o acesso remoto (`editr -link on` liga de novo)
 tailscale serve status              # acesso remoto
 ```
 
@@ -543,25 +561,29 @@ Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no pa
 pnpm install
 pnpm build        # gera web/dist (com .br e .gz de cada arquivo), que o backend serve; basta recarregar a página
 pnpm dev:web      # Vite em http://localhost:5173 com proxy para o serviço na 7337
-pnpm check        # tipos do server e do web
+pnpm check        # tipos do server, do web e do app do PC
+pnpm desktop      # o app do PC (Electron), do repositório
+pnpm desktop:dist # AppImage, .deb e .pacman em desktop/release
 ```
 
-O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart cald`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop cald` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
+O app do PC fica em `desktop/`: o processo principal do Electron (`src/main.ts`, a janela, a bandeja e o menu), quem acha ou sobe o servidor (`src/server.ts`, que roda o `server/src/index.ts` no Node do próprio Electron, com `ELECTRON_RUN_AS_NODE`), o ambiente do shell de login (`src/shell-env.ts`), os avisos do sistema (`src/notifications.ts`, que ouve `/api/push/local`) e o preload que dá ao app web o `window.editr` (`web/src/lib/desktop.ts`). O `scripts/stage.mjs` junta o servidor com as dependências de produção e o app web para o `electron-builder.yml`.
+
+O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart editr`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop editr` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
 
 ### Agentes
 
-O cald não fala direto com o Claude Code: o núcleo do servidor (`panel-session.ts`, `manager.ts`) só conhece o contrato de `server/src/providers/types.ts`, e cada agente é um *strategy* que o implementa. O Claude Code fica todo em `server/src/providers/claude/` (o Agent SDK, o que ele guarda em `~/.claude`, a memória, as skills e os MCPs); fora dessa pasta, nada importa o SDK.
+O edit.r não fala direto com o Claude Code: o núcleo do servidor (`panel-session.ts`, `manager.ts`) só conhece o contrato de `server/src/providers/types.ts`, e cada agente é um *strategy* que o implementa. O Claude Code fica todo em `server/src/providers/claude/` (o Agent SDK, o que ele guarda em `~/.claude`, a memória, as skills e os MCPs); fora dessa pasta, nada importa o SDK.
 
 O contrato separa:
-- **Mensagem** (`UserTurn`): o texto, as imagens e o contexto que vai só para o agente, com o id que o cald escolhe.
+- **Mensagem** (`UserTurn`): o texto, as imagens e o contexto que vai só para o agente, com o id que o edit.r escolhe.
 - **Resposta**: o agente traduz o que fala para os eventos do painel (`PanelEvent`, em `events.ts`): falas, raciocínio, ferramentas e resultados, subagentes, tarefas em segundo plano, fim do turno. As ferramentas usam os nomes do Claude Code (Bash, Read, Edit, Agent…), que o app já sabe desenhar.
-- **Aprovação e pergunta** (`ApprovalRequest`, `QuestionRequest`): o agente pede pelo `RunHost`, e o cald mostra o cartão e devolve a decisão.
+- **Aprovação e pergunta** (`ApprovalRequest`, `QuestionRequest`): o agente pede pelo `RunHost`, e o edit.r mostra o cartão e devolve a decisão.
 - **Modelo** (`ModelOption`, `RunSettings`): os modelos, os níveis de esforço e os modos de permissão que o agente aceita.
 - **Conversa salva** (`ProviderHistory`): listar, ler, renomear e apagar, e o histórico já em eventos.
 - **Conversas fora do painel** (`ExternalSessions`, opcional): as abertas no terminal, para a lista, a salinha, os avisos e o "assumir".
 - **O que ele oferece** (`features`): uso do plano, memória, skills, MCP, esforço, modos de permissão, bifurcação. É o que liga as abas da página dele no painel Computador e os controles do chat.
 
-Para um agente novo: implemente `AgentProvider` numa pasta `server/src/providers/<id>/` e registre na lista de `index.ts` (`new ProviderRegistry([claude, …])`). Ele nasce desligado; quem liga é você, em **Computador → Agentes**, que guarda a escolha em `~/.local/state/cald/agents.json`. Com mais de um ligado, a conversa nova pergunta qual usar.
+Para um agente novo: implemente `AgentProvider` numa pasta `server/src/providers/<id>/` e registre na lista de `index.ts` (`new ProviderRegistry([claude, …])`). Ele nasce desligado; quem liga é você, em **Computador → Agentes**, que guarda a escolha em `~/.local/state/editr/agents.json`. Com mais de um ligado, a conversa nova pergunta qual usar.
 
 Estrutura do frontend (`web/src`):
 - `lib/store.ts`: WebSocket com reconexão automática e retomada pelo último `seq`.
@@ -614,11 +636,11 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/takeover` | Retomar no painel, encerrando antes a sessão ociosa do terminal; o app chama ao enviar numa conversa que não está aberta nele (`409 busy_on_pc` se estiver ocupada, `409 unsupported_entrypoint` se for do VSCode) |
 | POST | `/api/sessions/:id/release` | Liberar para o terminal |
 | POST | `/api/sessions/:id/messages` | Enviar `{text, attachments?: [{name, mediaType, data (base64), thumb?}]}` |
-| GET | `/api/commands?cwd=&session=&provider=` | Comandos e skills do projeto (cache de 10 min), com as habilidades do cald como `cald:nome`; com `session`, os do agente dela e sem as desligadas nela; sem, os do `provider` (ou do padrão) |
+| GET | `/api/commands?cwd=&session=&provider=` | Comandos e skills do projeto (cache de 10 min), com as habilidades do edit.r como `editr:nome`; com `session`, os do agente dela e sem as desligadas nela; sem, os do `provider` (ou do padrão) |
 | GET | `/api/saved-commands?cwd=` | Os comandos salvos do terminal: `{projectDir, project, global, trash, suggestions}` (o projeto da pasta, se ela for de um repositório) |
 | POST | `/api/saved-commands` | `{id?, label, command, project, pinned}`: cria ou edita (`project`: uma pasta do projeto, ou `null` para global; `400 not_a_project` fora de um repositório) |
 | POST | `/api/saved-commands/trash`, `/restore`, `/purge` | `{id}`: para a lixeira, de volta, ou apaga de vez |
-| GET | `/api/habilidades?cwd=` | As habilidades do cald: `{global, project, trash}` (as do projeto de `cwd`, se veio) |
+| GET | `/api/habilidades?cwd=` | As habilidades do edit.r: `{global, project, trash}` (as do projeto de `cwd`, se veio) |
 | POST | `/api/habilidades` | `{id?, name, description, body, project}`: cria ou edita (`project`: a pasta, ou `null` para global; `409 habilidade_exists`, `400 invalid_habilidade_name`) |
 | POST | `/api/habilidades/trash`, `/restore`, `/purge` | `{id}`: para a lixeira, de volta, ou apaga de vez |
 | GET | `/api/todos?cwd=` | O TODO do projeto: `{items, rev}` (`rev` sobe a cada mudança) |
@@ -628,7 +650,7 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | GET/POST | `/api/sessions/:id/habilidades` | `{off}`: as desligadas na conversa; o POST `{id, on}` liga ou desliga uma, e a conversa aberta no painel relê na hora |
 | GET | `/api/memory?cwd=` | A memória do Claude Code: `{folders, trash}`, de todos os projetos ou, com `cwd`, de um |
 | PUT | `/api/memory` | `{folder, file, description, body, mtime}`: grava uma memória (`409 memory_changed` se o arquivo mudou desde `mtime`) |
-| POST | `/api/memory/trash` | `{items: [{folder, file}]}` → `{ids}`: para a lixeira do cald, tirando a linha do índice |
+| POST | `/api/memory/trash` | `{items: [{folder, file}]}` → `{ids}`: para a lixeira do edit.r, tirando a linha do índice |
 | POST | `/api/memory/restore` | `{ids}`: devolve da lixeira, com a linha do índice no lugar (`409 memory_exists`) |
 | POST | `/api/memory/trash/empty` | `{ids?}`: apaga de vez as escolhidas ou, sem `ids`, a lixeira inteira |
 | GET | `/api/claude/setup?cwd=&refresh=1` | Skills, comandos, agentes e servidores MCP da pasta (sem `cwd`, da pessoal), com a origem de cada um e onde mais há MCPs; cache de 10 min |
@@ -636,10 +658,10 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/claude/mcp` | `{cwd?, name, enabled}`: liga ou desliga um servidor MCP na pasta (sem `cwd`, na pessoal) |
 | POST | `/api/claude/skill` | `{cwd?, name, enabled}`: liga ou desliga uma skill pelo `skillOverrides` (sem `cwd`, em todo projeto; com, só nele) |
 | POST | `/api/claude/plugin` | `{key, enabled}`: liga ou desliga um plugin (`nome@marketplace`) pelo `claude plugin` |
-| POST | `/api/claude/trash` | `{cwd?, path}` (skill, comando ou agente seu ou do projeto) ou `{mcp: {name, scope, project?}}` → `{id}`: para a lixeira do cald |
+| POST | `/api/claude/trash` | `{cwd?, path}` (skill, comando ou agente seu ou do projeto) ou `{mcp: {name, scope, project?}}` → `{id}`: para a lixeira do edit.r |
 | POST | `/api/claude/restore` | `{ids}`: devolve da lixeira (`409 claude_exists` se o lugar estiver ocupado) |
 | POST | `/api/claude/trash/empty` | `{ids?}`: apaga de vez as escolhidas ou a lixeira inteira |
-| POST | `/api/sessions/:id/pin` | `{pinned}`: fixa ou desafixa (guardado em `~/.local/state/cald/meta.json`) |
+| POST | `/api/sessions/:id/pin` | `{pinned}`: fixa ou desafixa (guardado em `~/.local/state/editr/meta.json`) |
 | POST | `/api/sessions/:id/rename` | `{title}`: grava no próprio agente (no Claude Code, `renameSession` do SDK) |
 | POST | `/api/sessions/:id/settings` | `{model?, effort?, permissionMode?}` numa sessão aberta no painel |
 | GET | `/api/sessions/:id/context` | Tokens usados e limite da compactação automática |
@@ -677,7 +699,7 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/worktrees/remove` | `{cwd, path, force?}`: apaga um worktree da lista (`404 worktree_not_found` fora dela; `409 worktree_unsaved` sem `force`) |
 | POST | `/api/worktrees/merge` | `{cwd, path}`: o "Trazer" de um worktree da lista |
 | POST | `/api/worktree/merge` | `{cwd}`: merge da branch do worktree na de origem, no checkout principal. Devolve `{commits}`; `409 worktree_dirty`, `nothing_to_merge`, `base_not_checked_out` ou `merge_conflict` (com `files`, e o merge desfeito) |
-| POST | `/api/worktree/remove` | `{cwd, force?}`: fecha as conversas do painel que estão nele e remove o worktree (e a branch, se foi o cald que criou); sem `force`, `409 worktree_unsaved` se algo não voltou |
+| POST | `/api/worktree/remove` | `{cwd, force?}`: fecha as conversas do painel que estão nele e remove o worktree (e a branch, se foi o edit.r que criou); sem `force`, `409 worktree_unsaved` se algo não voltou |
 | GET | `/api/sessions/:id/images/:key` | Imagem do chat (cache em memória, refeito a partir do histórico); `?thumb=1` devolve a miniatura em WebP, até 512 px |
 | GET | `/api/files?cwd=&q=` | Busca de arquivos do projeto para a menção `@` |
 | POST | `/api/sessions/:id/interrupt` | Interromper o turno |
@@ -688,11 +710,11 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/sessions/:id/memory-suggestions/:suggestion/dismiss` | Recusa a sugestão (fica uma hora para o desfazer) |
 | POST | `/api/sessions/:id/memory-suggestions/:suggestion/restore` | Desfaz a recusa |
 | GET | `/api/push/key` | Chave pública VAPID do PC, para o celular se inscrever |
-| POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/cald/push.json`) |
+| POST | `/api/push/subscribe` | `{subscription, prefs: {done, pc}}`: inscreve o aparelho ou muda as preferências (guardado em `~/.local/state/editr/push.json`) |
 | POST | `/api/push/unsubscribe` | `{endpoint}`: remove o aparelho |
 | POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
 | POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
-| GET | `/api/machines` | Nome desta máquina e as outras suas com o cald (`{name, machines: [{id, name, base}]}`) |
+| GET | `/api/machines` | Nome desta máquina e as outras suas com o edit.r (`{name, machines: [{id, name, base}]}`) |
 | GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
 | POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, `pnpm build` e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from './api'
 import { blobToBase64 } from './attachments'
+import { desktop } from './desktop'
 
 /** O que o TypeScript não declara do reconhecedor de voz (no Chrome ele ainda é `webkitSpeechRecognition`). */
 type Recognition = {
@@ -21,9 +22,10 @@ const speech = window as unknown as {
   SpeechRecognition?: new () => Recognition
   webkitSpeechRecognition?: new () => Recognition
 }
-const Recognizer = speech.SpeechRecognition ?? speech.webkitSpeechRecognition
+// No app do PC o reconhecedor existe, mas sem o serviço do Google atrás: lá o ditado é o do Whisper.
+const Recognizer = desktop ? undefined : (speech.SpeechRecognition ?? speech.webkitSpeechRecognition)
 
-/** Navegador com ditado ao vivo (Chrome e Safari). Sem ele (Firefox), o ditado grava e o PC transcreve com o Whisper. */
+/** Navegador com ditado ao vivo (Chrome e Safari). Sem ele (Firefox, o app do PC), o ditado grava e o PC transcreve com o Whisper. */
 const liveDictation = Boolean(Recognizer)
 
 let whisper: Promise<boolean> | undefined

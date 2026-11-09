@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { authHeader } from './pin-tokens'
 
 /**
- * Várias máquinas suas com o cald no mesmo app (ver server/src/machines.ts). A desta
+ * Várias máquinas suas com o edit.r no mesmo app (ver server/src/machines.ts). A desta
  * página (de onde o app foi aberto) tem id `''` e fala pela mesma origem; as outras, pelo endereço
  * delas no Tailscale. Cada conversa pertence a uma máquina, e as chamadas dela vão para lá.
  */

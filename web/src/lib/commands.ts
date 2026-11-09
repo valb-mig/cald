@@ -12,7 +12,7 @@ const PROGRAMS = new Set(
 
 /**
  * O comando de um código inline, se ele for um (`npm i x`, `git push`, `$ ls -la`, `./deploy.sh --prod`),
- * sem o `$ ` do prompt; `null` para nomes soltos (`main`, `cald`, `pnpm`) e o que não é comando.
+ * sem o `$ ` do prompt; `null` para nomes soltos (`main`, `editr`, `pnpm`) e o que não é comando.
  */
 export function commandOf(code: string): string | null {
   const text = code.trim()

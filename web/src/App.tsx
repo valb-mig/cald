@@ -39,6 +39,7 @@ import { MIN_CHAT, useMainWidth, useMaxChats, useSplit } from '@/lib/split'
 import { startOutbox } from '@/lib/outbox'
 import { startSounds } from '@/lib/sounds'
 import { startTitle } from '@/lib/title'
+import { desktop } from '@/lib/desktop'
 import { syncPush } from '@/lib/push'
 import { connect } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
@@ -91,7 +92,7 @@ function Panel() {
   const glass = useGlass()
 
   useEffect(() => {
-    // Outras máquinas suas com o cald (ver lib/machines.ts); a lista guardada vale até a resposta.
+    // Outras máquinas suas com o edit.r (ver lib/machines.ts); a lista guardada vale até a resposta.
     const refresh = () => void loadMachines().catch(() => {})
     refresh()
     const machines = setInterval(refresh, 60_000)
@@ -101,18 +102,25 @@ function Panel() {
     startSounds()
     startTitle()
     watchUpdates()
-    void syncPush().catch(() => {})
+    // No app do PC os avisos são do sistema, sem Web Push (ver lib/desktop.ts).
+    if (!desktop) void syncPush().catch(() => {})
     return () => clearInterval(machines)
   }, [])
 
-  // Toque numa notificação com o app já aberto: o service worker pede a troca de tela. A que pede o
-  // painel Computador (`/?computador=acesso`) abre ele por cima da tela em que você está.
+  // Toque numa notificação com o app já aberto: o service worker (no app do PC, o próprio app) pede a
+  // troca de tela. A que pede o painel Computador (`/?computador=acesso`) abre ele por cima da tela em
+  // que você está.
   useEffect(() => {
+    const go = (url: string) => openComputerLink(url) === null && navigate(url)
     const onMessage = (e: MessageEvent<{ type?: string; url?: string }>) => {
-      if (e.data?.type === 'navigate' && e.data.url && openComputerLink(e.data.url) === null) navigate(e.data.url)
+      if (e.data?.type === 'navigate' && e.data.url) go(e.data.url)
     }
     navigator.serviceWorker?.addEventListener('message', onMessage)
-    return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
+    const offDesktop = desktop?.onNavigate(go)
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onMessage)
+      offDesktop?.()
+    }
   }, [navigate])
 
   // A salinha fica sozinha na tela, sem a lista nem as abas: é para deixar de fundo.

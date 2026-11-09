@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-/** Onde o Claude Code guarda o que é dele, o binário que o cald roda e o ambiente do processo filho. */
+/** Onde o Claude Code guarda o que é dele, o binário que o edit.r roda e o ambiente do processo filho. */
 
 const env = process.env;
 
@@ -35,7 +35,7 @@ const INHERITED_CLAUDE_VARS = [
 ];
 
 export function childEnv(): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'cald/0.1' };
+  const out: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'editr/0.1' };
   for (const key of INHERITED_CLAUDE_VARS) delete out[key];
   return out;
 }

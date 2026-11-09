@@ -5,7 +5,7 @@ import { authHeader, baseOfUrl, clearTokens, setToken, tokenAt } from './pin-tok
 /**
  * A tela de bloqueio do PIN (ver server/src/pin.ts). Cada máquina confere o PIN e devolve o token
  * dela; você digita uma vez e o app destrava todas (o PIN precisa ser o mesmo em cada uma, definido
- * com `cald -pin`). Enquanto destravado, o PIN fica só em memória, para destravar sozinho uma máquina
+ * com `editr -pin`). Enquanto destravado, o PIN fica só em memória, para destravar sozinho uma máquina
  * que aparecer depois ou cujo token caiu. Travar (na mão, pelo tempo ou ao ir para o fundo) apaga os
  * tokens daqui e nos servidores.
  */

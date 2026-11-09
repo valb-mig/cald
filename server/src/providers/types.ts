@@ -1,14 +1,14 @@
 import type { ImageSink } from '../images.ts';
 import type { LoggedEvent, PanelEvent, Question, Sent } from '../events.ts';
-import type { McpServerSpec } from '../cald-mcp.ts';
+import type { McpServerSpec } from '../editr-mcp.ts';
 import type { OfficeSnapshot } from '../office.ts';
 import type { PlanUsage } from '../system.ts';
 import type { TeamSnapshot } from '../teams.ts';
 
 /**
- * O contrato entre o cald e um agente de código (o Claude Code hoje; Codex, Gemini e outros depois).
+ * O contrato entre o edit.r e um agente de código (o Claude Code hoje; Codex, Gemini e outros depois).
  *
- * O cald cuida do que é dele: o catálogo de conversas, o log de eventos com `seq`, os cartões de
+ * O edit.r cuida do que é dele: o catálogo de conversas, o log de eventos com `seq`, os cartões de
  * aprovação e de pergunta, a fila do celular, a origem de cada mensagem, times, workspaces, worktrees
  * e habilidades. O agente cuida do processo e do formato dele: abre e retoma conversas, traduz o que
  * fala para o vocabulário do painel (`PanelEvent`, em events.ts) e devolve o histórico salvo no mesmo
@@ -50,12 +50,12 @@ export type TurnBlock = { type: 'image'; mediaType: string; data: string };
 
 /** Uma mensagem sua para o agente. */
 export type UserTurn = {
-  /** Id da mensagem no histórico do agente, escolhido pelo cald: é por ele que se acha depois de onde ela veio. */
+  /** Id da mensagem no histórico do agente, escolhido pelo edit.r: é por ele que se acha depois de onde ela veio. */
   uuid: string;
   text: string;
   /** Imagens, antes do texto. */
   blocks?: TurnBlock[];
-  /** Vai depois do texto, à parte: é para o agente, não para a tela (o conteúdo dos TODOs, avisos do cald). */
+  /** Vai depois do texto, à parte: é para o agente, não para a tela (o conteúdo dos TODOs, avisos do edit.r). */
   context?: string;
 };
 
@@ -86,7 +86,7 @@ export type QuestionReply = { answered: true; answers: Record<string, string> } 
 // Uma conversa rodando
 // ---------------------------------------------------------------------------
 
-/** O que o cald entrega ao agente para abrir (ou retomar) uma conversa. */
+/** O que o edit.r entrega ao agente para abrir (ou retomar) uma conversa. */
 export type RunOptions = {
   cwd: string;
   /** Retomar esta conversa salva. */
@@ -95,13 +95,13 @@ export type RunOptions = {
   fork?: boolean;
   /** Com `fork`: a nova leva o histórico só até esta entrada. */
   resumeAt?: string;
-  /** Id da conversa nova (ou da bifurcação), escolhido pelo cald; o agente que não aceita escolher avisa o dele por `rekey`. */
+  /** Id da conversa nova (ou da bifurcação), escolhido pelo edit.r; o agente que não aceita escolher avisa o dele por `rekey`. */
   sessionId?: string;
   model?: string;
   effort?: string;
   permissionMode?: string;
   title?: string;
-  /** Instruções do cald para o fim do prompt de sistema: o time, o workspace, o worktree. */
+  /** Instruções do edit.r para o fim do prompt de sistema: o time, o workspace, o worktree. */
   instructions?: string;
   /** Pastas que o agente lê sem pedir: os anexos do celular, os outros projetos do workspace. */
   directories: string[];
@@ -110,11 +110,11 @@ export type RunOptions = {
   /** O time da conversa, para virar os subagentes dela. */
   team?: TeamSnapshot;
   /**
-   * A pasta com as habilidades do cald que valem nesta conversa: `skills/<nome>/SKILL.md` (o formato das
+   * A pasta com as habilidades do edit.r que valem nesta conversa: `skills/<nome>/SKILL.md` (o formato das
    * Agent Skills), mais o manifesto que faz dela um plugin do Claude Code (ver habilidades.ts).
    */
   skills?: string;
-  /** O MCP do cald, já amarrado a esta conversa. */
+  /** O MCP do edit.r, já amarrado a esta conversa. */
   mcp?: McpServerSpec;
   /**
    * Antes de cada ferramenta que grava arquivo (Write, Edit): um recado para negar e seguir (a memória
@@ -124,7 +124,7 @@ export type RunOptions = {
 };
 
 /**
- * O lado do cald de uma conversa rodando (ver panel-session.ts): o agente avisa por aqui o que
+ * O lado do edit.r de uma conversa rodando (ver panel-session.ts): o agente avisa por aqui o que
  * acontece, já no vocabulário do painel, e pede aprovações e respostas.
  */
 export interface RunHost {
@@ -153,7 +153,7 @@ export interface RunHost {
   exit(error?: string): void;
 }
 
-/** Uma conversa aberta no agente, dirigida pelo cald. */
+/** Uma conversa aberta no agente, dirigida pelo edit.r. */
 export interface ProviderRun {
   send(turn: UserTurn): void;
   setModel(model: string): Promise<void>;
@@ -206,7 +206,7 @@ export interface ProviderHistory {
   /** Os ids das entradas, em ordem: bastam para contar e achar o ponto de uma bifurcação. */
   uuids(sessionId: string): Promise<string[]>;
   messages(sessionId: string): Promise<SavedMessage[]>;
-  /** Muda quando o histórico muda (o cald guarda o convertido até lá). */
+  /** Muda quando o histórico muda (o edit.r guarda o convertido até lá). */
   version(sessionId: string): Promise<string>;
   /** O título é provisório (o agente ainda não gerou um): o começo da primeira mensagem descreve melhor. */
   provisional(title: string, cwd?: string): boolean;
@@ -273,7 +273,7 @@ export type ProviderFeatures = {
 
 export type ProviderStatus = { available: boolean; version?: string; problem?: string };
 
-/** Um agente de código: o strategy que o cald usa para conversar com ele. */
+/** Um agente de código: o strategy que o edit.r usa para conversar com ele. */
 export interface AgentProvider {
   /** Curto e estável: vai no catálogo e nas preferências (`claude`). */
   readonly id: string;

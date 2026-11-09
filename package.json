@@ -1,11 +1,13 @@
 {
-  "name": "cald",
+  "name": "editr",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
-    "check": "pnpm --filter server check && pnpm --filter web exec tsc -b"
+    "check": "pnpm --filter server check && pnpm --filter web exec tsc -b && pnpm --filter editr-desktop check",
+    "desktop": "pnpm --filter editr-desktop start",
+    "desktop:dist": "pnpm --filter editr-desktop dist"
   }
 }

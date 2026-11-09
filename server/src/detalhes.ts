@@ -9,7 +9,7 @@ import { worktreeOf } from './worktrees.ts';
 /**
  * Um detalhe de um projeto: como uma parte dele funciona, escrito por você ou pelo Claude a seu pedido
  * ("Avatares" → "o ícone vem de tal arquivo, cai para tal coisa…"). A descrição é Markdown, com menções `@caminho` a arquivos do
- * projeto. A `chave` sai do título e é por ela que o Claude pede o detalhe (ver cald-mcp.ts): ele recebe
+ * projeto. A `chave` sai do título e é por ela que o Claude pede o detalhe (ver editr-mcp.ts): ele recebe
  * só a lista de chaves e títulos ao abrir a conversa e lê o que precisa, em vez de varrer o código.
  */
 export type Detalhe = {
@@ -132,7 +132,7 @@ export class DetalheStore extends EventEmitter {
   }
 
   /**
-   * Um detalhe novo no fim da lista, pelo MCP do cald. Título com a chave de um que já existe é recusado,
+   * Um detalhe novo no fim da lista, pelo MCP do edit.r. Título com a chave de um que já existe é recusado,
    * para o Claude editar aquele em vez de criar um `-2` ao lado.
    */
   async add(cwd: string, input: { title: string; body: string }): Promise<Detalhe> {
@@ -144,7 +144,7 @@ export class DetalheStore extends EventEmitter {
     return saved.find((d) => d.id === id)!;
   }
 
-  /** Muda um detalhe pela chave (ou pelo título), pelo MCP do cald; o que não vier fica como está. */
+  /** Muda um detalhe pela chave (ou pelo título), pelo MCP do edit.r; o que não vier fica como está. */
   async update(cwd: string, wanted: string, patch: { title?: string; body?: string }): Promise<Detalhe> {
     const items = this.list(cwd);
     const [old] = this.read(cwd, [wanted]).found;
@@ -155,7 +155,7 @@ export class DetalheStore extends EventEmitter {
   }
 
   /**
-   * O índice que vai nas instruções do MCP de uma conversa do projeto (ver cald-mcp.ts): só chave e
+   * O índice que vai nas instruções do MCP de uma conversa do projeto (ver editr-mcp.ts): só chave e
    * título, poucos tokens. `null` sem detalhe nenhum, para não pesar no prompt de quem não usa.
    */
   index(cwd: string): string | null {

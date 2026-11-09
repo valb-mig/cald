@@ -20,7 +20,7 @@ import type { Fork, MetaStore } from './meta.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
-import type { CaldMcpContext, McpServerSpec } from './cald-mcp.ts';
+import type { EditrMcpContext, McpServerSpec } from './editr-mcp.ts';
 import {
   createWorktree,
   listedWorktree,
@@ -106,7 +106,7 @@ export class Manager extends EventEmitter {
   private readonly imageReloads = new Map<string, Promise<unknown>>();
   /** `clientId` das últimas mensagens aceitas, em ordem de chegada. */
   private readonly delivered = new Set<string>();
-  /** Times que o Claude pôs na própria conversa (`usar_time`, ver cald-mcp.ts): entram quando o turno acaba. */
+  /** Times que o Claude pôs na própria conversa (`usar_time`, ver editr-mcp.ts): entram quando o turno acaba. */
   private readonly teamLater = new Map<PanelSession, string>();
   private readonly providers: ProviderRegistry;
   private readonly meta: MetaStore;
@@ -145,7 +145,7 @@ export class Manager extends EventEmitter {
     });
   }
 
-  // ---- habilidades do cald (ver habilidades.ts) ----
+  // ---- habilidades do edit.r (ver habilidades.ts) ----
 
   /** As habilidades que valem numa conversa em `cwd`, tirando as desligadas nela. */
   private habilidadesFor(cwd: string, sessionId?: string) {
@@ -531,7 +531,7 @@ export class Manager extends EventEmitter {
       await this.meta.setWorktree(made.ref.path, made.info);
       cwd = made.cwd;
       if (made.install && !made.install.ok) {
-        notice = `(Aviso do cald: o \`${made.install.tool}\` não conseguiu instalar as dependências neste worktree. Instale antes de rodar build ou testes.)\n${made.install.error}`;
+        notice = `(Aviso do edit.r: o \`${made.install.tool}\` não conseguiu instalar as dependências neste worktree. Instale antes de rodar build ou testes.)\n${made.install.error}`;
       }
     }
     const workspace = ws ? ((await this.workspaces.context(ws.id, cwd)) ?? undefined) : undefined;
@@ -544,7 +544,7 @@ export class Manager extends EventEmitter {
         workspace,
         worktree: this.worktreeContext(cwd),
         habilidades: await this.habilidadesPlugin(cwd),
-        mcp: this.caldMcp(cwd),
+        mcp: this.editrMcp(cwd),
         memory: this.memoryHook,
         label: opts.title || prompt.slice(0, 80),
       }),
@@ -650,11 +650,11 @@ export class Manager extends EventEmitter {
   suggestMemory?: (sessionId: string, tool: string, input: unknown) => Promise<string | null>;
   private readonly memoryHook = (sessionId: string, tool: string, input: unknown) => this.suggestMemory?.(sessionId, tool, input) ?? Promise.resolve(null);
 
-  /** O MCP do cald para uma conversa do painel (ver cald-mcp.ts). Posto pelo index.ts, que tem o TODO. */
-  mcpFor?: (ctx: CaldMcpContext) => McpServerSpec;
+  /** O MCP do edit.r para uma conversa do painel (ver editr-mcp.ts). Posto pelo index.ts, que tem o TODO. */
+  mcpFor?: (ctx: EditrMcpContext) => McpServerSpec;
 
   /** O MCP de uma conversa que vai abrir em `cwd`, amarrado a ela para o `usar_time`. */
-  private caldMcp(cwd: string): PanelSessionOptions['mcp'] {
+  private editrMcp(cwd: string): PanelSessionOptions['mcp'] {
     const build = this.mcpFor;
     return build && ((session) => build({ cwd, useTeam: (teamId) => this.useTeamLater(session, teamId), sessionId: () => session.id }));
   }
@@ -673,11 +673,11 @@ export class Manager extends EventEmitter {
     const teamId = this.teamLater.get(session);
     if (teamId === undefined || session.state !== 'idle' || session.pendingWork) return;
     this.teamLater.delete(session);
-    this.changeTeam(session.id, teamId).catch((err: unknown) => console.warn(`[cald] o time ${teamId} não entrou na conversa ${session.id}:`, err));
+    this.changeTeam(session.id, teamId).catch((err: unknown) => console.warn(`[edit.r] o time ${teamId} não entrou na conversa ${session.id}:`, err));
   }
 
   /**
-   * `notice`: um aviso do cald para o Claude, junto do contexto dos TODOs (fora da tela também).
+   * `notice`: um aviso do edit.r para o Claude, junto do contexto dos TODOs (fora da tela também).
    * `from`: o aparelho que mandou, guardado junto da mensagem (ver origins.ts).
    */
   async send(
@@ -697,7 +697,7 @@ export class Manager extends EventEmitter {
       const todos = await this.todoContext?.(session.cwd, text).catch(() => null);
       const context = [todos, notice].filter(Boolean).join('\n\n') || undefined;
       const at = Date.now();
-      const sent = { via: 'cald' as const, device: from?.name, mobile: from?.mobile, at };
+      const sent = { via: 'editr' as const, device: from?.name, mobile: from?.mobile, at };
       const uuid = session.send(turn.text, { blocks: turn.blocks, images: turn.images, clientId, context, sent });
       this.origins.record({ uuid, at, device: from?.name, mobile: from?.mobile });
     } catch (err) {
@@ -707,15 +707,15 @@ export class Manager extends EventEmitter {
   }
 
   /**
-   * Comandos e skills para o autocompletar do "/", por projeto. As habilidades do cald entram como
-   * `cald:nome`, tiradas daqui e não do agente (a sonda não leva o plugin), sem as desligadas na
+   * Comandos e skills para o autocompletar do "/", por projeto. As habilidades do edit.r entram como
+   * `editr:nome`, tiradas daqui e não do agente (a sonda não leva o plugin), sem as desligadas na
    * conversa `sessionId`. Os do agente vêm do agente da conversa, do pedido, ou do padrão.
    */
   async commands(cwd: string, sessionId?: string, providerId?: string): Promise<CommandInfo[]> {
     const dir = await this.knownCwd(cwd);
     const provider = sessionId ? await this.providerOf(sessionId).catch(() => this.providers.pick(providerId)) : this.providers.pick(providerId);
-    const ours = this.habilidadesFor(dir, sessionId).map((h) => ({ name: `cald:${h.name}`, description: h.description, argumentHint: '', builtin: false }));
-    const theirs = (await provider.commands(dir)).filter((c) => !c.name.startsWith('cald:'));
+    const ours = this.habilidadesFor(dir, sessionId).map((h) => ({ name: `editr:${h.name}`, description: h.description, argumentHint: '', builtin: false }));
+    const theirs = (await provider.commands(dir)).filter((c) => !c.name.startsWith('editr:'));
     return [...ours, ...theirs];
   }
 
@@ -885,7 +885,7 @@ export class Manager extends EventEmitter {
         worktree: this.worktreeContext(cwd),
         // Retomada (ou bifurcada), com as habilidades que estavam desligadas nela.
         habilidades: await this.habilidadesPlugin(cwd, sessionId),
-        mcp: this.caldMcp(cwd),
+        mcp: this.editrMcp(cwd),
         memory: this.memoryHook,
       }),
     );

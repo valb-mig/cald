@@ -20,8 +20,8 @@ import type { Habilidade, HabilidadeList } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 /**
- * As habilidades do cald (ver server/src/habilidades.ts): skills do próprio cald, globais ou do
- * projeto, que o Claude vê nas conversas do painel como `/cald:nome` e carrega pela descrição. Abre
+ * As habilidades do edit.r (ver server/src/habilidades.ts): skills do próprio edit.r, globais ou do
+ * projeto, que o Claude vê nas conversas do painel como `/editr:nome` e carrega pela descrição. Abre
  * pelo botão do pé da alça da direita, com o projeto e a conversa em foco.
  *
  * Desenhado como o painel Computador: uma ilha na cor da casca, com a lista à esquerda (as deste
@@ -52,8 +52,8 @@ export function HabilidadesDialog() {
   return (
     <Dialog open={open} onOpenChange={(o) => useHabilidadesDialog.setState({ open: o })}>
       <DialogContent showCloseButton={false} className={ISLAND}>
-        <DialogTitle className="sr-only">Habilidades do cald</DialogTitle>
-        <DialogDescription className="sr-only">As habilidades do cald deste projeto e as globais, com o liga e desliga nesta conversa.</DialogDescription>
+        <DialogTitle className="sr-only">Habilidades do edit.r</DialogTitle>
+        <DialogDescription className="sr-only">As habilidades do edit.r deste projeto e as globais, com o liga e desliga nesta conversa.</DialogDescription>
         {open && <Body key={`${project?.machine ?? ''}\n${project?.cwd ?? ''}`} machine={project?.machine ?? ''} cwd={project?.cwd} session={project?.chat || undefined} />}
       </DialogContent>
     </Dialog>
@@ -68,7 +68,7 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
   const [view, setView] = useState<View | null>(null)
   // O "Desfazer" fica dentro do modal: um aviso fica por baixo dele e não dá para tocar.
   const [undo, setUndo] = useState<Habilidade | null>(null)
-  // A conversa em foco: as do PC (terminal, VSCode) não carregam o plugin do cald.
+  // A conversa em foco: as do PC (terminal, VSCode) não carregam o plugin do edit.r.
   const entry = useStore((s) => (session ? s.catalog.find((c) => c.sessionId === session) : undefined))
 
   const load = useCallback(() => {
@@ -81,7 +81,7 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
     )
   }, [machine, cwd])
   useEffect(load, [load])
-  // Criada ou editada pelo Claude de uma conversa (o MCP do cald), ou em outro aparelho.
+  // Criada ou editada pelo Claude de uma conversa (o MCP do edit.r), ou em outro aparelho.
   useOnChanged(machine, 'habilidades', load)
   useEffect(() => {
     if (session) api.sessionHabilidades(session).then((r) => setOff(r.off), () => {})
@@ -222,7 +222,7 @@ function Body({ machine, cwd, session }: { machine: string; cwd?: string; sessio
           {undo && (
             <div className="absolute inset-x-4 bottom-4">
               <UndoBar
-                text={`/cald:${undo.name} foi para a lixeira`}
+                text={`/editr:${undo.name} foi para a lixeira`}
                 onUndo={() => {
                   setUndo(null)
                   void api.restoreHabilidade(machine, undo.id).then(changed, (err) => toast.error(errorMessage(err)))
@@ -280,9 +280,9 @@ function Intro({ onNew }: { onNew: () => void }) {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
       <WandSparkles className="size-6 text-muted-foreground" />
       <div className="space-y-1">
-        <p className="text-sm font-medium">Habilidades do cald</p>
+        <p className="text-sm font-medium">Habilidades do edit.r</p>
         <p className="max-w-sm text-xs text-muted-foreground">
-          Skills do próprio cald, deste projeto ou de todos. Nas conversas do painel, o Claude usa uma quando ela serve, ou quando você chama com <code>/cald:nome</code>.
+          Skills do próprio edit.r, deste projeto ou de todos. Nas conversas do painel, o Claude usa uma quando ela serve, ou quando você chama com <code>/editr:nome</code>.
         </p>
       </div>
       <Button size="sm" onClick={onNew}>
@@ -319,7 +319,7 @@ function Detail({
   return (
     <>
       <WindowHeader
-        title={<span className="font-mono">/cald:{h.name}</span>}
+        title={<span className="font-mono">/editr:{h.name}</span>}
         subtitle={`${h.project ? `Só em ${projectName(h.project)}` : 'Em todo projeto'} · editada ${relativeTime(h.updatedAt)}`}
         onBack={onBack}
       >
@@ -366,7 +366,7 @@ function Editor({ machine, cwd, draft, onCancel, onSaved }: { machine: string; c
     setBusy(true)
     try {
       const saved = await api.saveHabilidade(machine, { id: d.id, name, description: d.description, body: d.body, project: d.scope === 'project' && cwd ? cwd : null })
-      toast.success(d.id ? 'Habilidade salva' : `/cald:${saved.name} criada`)
+      toast.success(d.id ? 'Habilidade salva' : `/editr:${saved.name} criada`)
       onSaved(saved)
     } catch (err) {
       toast.error(errorMessage(err))
@@ -389,7 +389,7 @@ function Editor({ machine, cwd, draft, onCancel, onSaved }: { machine: string; c
           <label className="block space-y-2">
             <span className="block px-1 text-xs font-medium text-muted-foreground">Nome</span>
             <span className={cn(FIELD, 'flex h-9 items-center gap-0 py-0 font-mono focus-within:bg-foreground/[0.07] focus-within:ring-1 focus-within:ring-foreground/15')}>
-              <span className="shrink-0 text-muted-foreground">/cald:</span>
+              <span className="shrink-0 text-muted-foreground">/editr:</span>
               <input
                 value={d.name}
                 onChange={(e) => set({ name: slug(e.target.value) })}
@@ -447,7 +447,7 @@ function TrashView({ machine, items, onBack, onChanged }: { machine: string; ite
       <div className="tab-panel-in min-h-0 flex-1 overflow-y-auto px-6 pb-6 max-sm:px-4">
         <Group>
           {items.map((t) => (
-            <SettingRow key={t.id} label={<span className="font-mono">/cald:{t.name}</span>} hint={`${t.project ? projectName(t.project) : 'Em todo projeto'} · ${relativeTime(t.deletedAt)}`}>
+            <SettingRow key={t.id} label={<span className="font-mono">/editr:{t.name}</span>} hint={`${t.project ? projectName(t.project) : 'Em todo projeto'} · ${relativeTime(t.deletedAt)}`}>
               <Button variant="ghost" size="xs" onClick={() => void run(api.restoreHabilidade(machine, t.id))}>
                 <RotateCcw /> Restaurar
               </Button>

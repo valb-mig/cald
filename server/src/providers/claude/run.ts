@@ -15,7 +15,7 @@ import {
   type SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk';
 import { UPLOADS_DIR } from '../../config.ts';
-import type { McpServerSpec } from '../../cald-mcp.ts';
+import type { McpServerSpec } from '../../editr-mcp.ts';
 import { HttpError } from '../../errors.ts';
 import { parseQuestions } from '../../events.ts';
 import type { PlanUsage } from '../../system.ts';
@@ -29,7 +29,7 @@ import { BackgroundTasks } from './tasks.ts';
 import { agentsOf } from './team.ts';
 import { readPlanUsage } from './usage.ts';
 
-/** O MCP do cald como servidor do SDK, no mesmo processo. */
+/** O MCP do edit.r como servidor do SDK, no mesmo processo. */
 function sdkMcp(spec: McpServerSpec): McpSdkServerConfigWithInstance {
   return createSdkMcpServer({
     name: spec.name,
@@ -42,7 +42,7 @@ function sdkMcp(spec: McpServerSpec): McpSdkServerConfigWithInstance {
 /**
  * Uma conversa do painel no Claude Code: um processo headless dirigido pelo Agent SDK, com entrada em
  * streaming (a fila mantém o processo vivo entre turnos). Traduz o que o SDK fala para o painel
- * (ver providers/types.ts) e as aprovações do `canUseTool` em pedidos ao cald.
+ * (ver providers/types.ts) e as aprovações do `canUseTool` em pedidos ao edit.r.
  */
 export class ClaudeRun implements ProviderRun {
   readonly cwd: string;
@@ -95,9 +95,9 @@ export class ClaudeRun implements ProviderRun {
         projectConfigRoot: opts.configRoot,
         systemPrompt: { type: 'preset', preset: 'claude_code', ...(append ? { append } : {}) },
         agents: opts.team ? agentsOf(opts.team) : undefined,
-        // As habilidades do cald como plugin: o Claude as vê como skills (`/cald:nome`).
+        // As habilidades do edit.r como plugin: o Claude as vê como skills (`/editr:nome`).
         plugins: opts.skills ? [{ type: 'local', path: opts.skills, skipMcpDiscovery: true }] : undefined,
-        // O MCP do cald: o Claude cria TODOs, times, workspaces e habilidades; ler e criar passam sem aprovação.
+        // O MCP do edit.r: o Claude cria TODOs, times, workspaces e habilidades; ler e criar passam sem aprovação.
         // A regra vai na camada de flags, e não em `allowedTools`: dá no mesmo, sem o SDK avisar a cada
         // abertura que o `canUseTool` não é chamado para elas.
         mcpServers: opts.mcp ? { [opts.mcp.name]: sdkMcp(opts.mcp) } : undefined,
@@ -116,7 +116,7 @@ export class ClaudeRun implements ProviderRun {
         // Sem o EMIT o SDK engole os `session_state_changed`, e um turno que o Claude começa sozinho
         // (tarefa em segundo plano terminou) não tira a sessão de "Concluída".
         // O Claude Code deixa a ferramenta Artifact desligada quando sobe pelo SDK (`sdk_default_off`), e
-        // o cald mostra os protótipos que ela publica: liga aqui, antes do ambiente, para que
+        // o edit.r mostra os protótipos que ela publica: liga aqui, antes do ambiente, para que
         // `CLAUDE_CODE_ARTIFACT=0` no serviço ainda desligue. Conta, plano e `enableArtifact` seguem valendo.
         env: { CLAUDE_CODE_ARTIFACT: '1', ...childEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
         stderr: (data) => {
@@ -256,7 +256,7 @@ export class ClaudeRun implements ProviderRun {
       : { behavior: 'deny', message: decision.message };
   };
 
-  /** O recado do cald nega a ferramenta sem travar a conversa: o Claude lê e segue. */
+  /** O recado do edit.r nega a ferramenta sem travar a conversa: o Claude lê e segue. */
   private writeHook(check: NonNullable<RunOptions['beforeWrite']>): HookCallback {
     return async (input) => {
       if (input.hook_event_name !== 'PreToolUse') return {};

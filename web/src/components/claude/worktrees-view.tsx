@@ -31,7 +31,7 @@ const atRisk = (w: ListedWorktree) => w.changed > 0 || w.unmerged > 0
 
 /**
  * Os worktrees de todos os projetos da máquina, na seção Worktrees do painel Computador, agrupados por
- * repositório: os das conversas (do cald e do `claude --worktree`) e os criados à mão em qualquer
+ * repositório: os das conversas (do edit.r e do `claude --worktree`) e os criados à mão em qualquer
  * pasta. Cada um diz a branch, o que tem sem commit e o que a base ainda não tem, e quais conversas
  * estão nele. Dá para trazer o trabalho (o mesmo "Trazer" do botão da branch no chat), abrir uma
  * conversa nova ou um terminal nele e apagá-lo. `onLeave`: o painel fecha ao ir para outra tela.

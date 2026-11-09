@@ -8,7 +8,7 @@ import { useGlass } from '@/lib/wallpaper'
 
 /**
  * O que a página pode no iframe. Nunca `allow-same-origin`: escrita pelo Claude, ela roda com origem
- * opaca e não alcança a API do cald nem o que o app guarda. O PC manda a mesma CSP (ver server/src/prototypes.ts).
+ * opaca e não alcança a API do edit.r nem o que o app guarda. O PC manda a mesma CSP (ver server/src/prototypes.ts).
  */
 export const PAGE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads'
 

@@ -151,7 +151,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
               <Button variant="ghost" size="icon" onClick={() => openArtefatos()} aria-label="Artefatos" title="Artefatos">
                 <ArtefatoIcon />
               </Button>
-              <Button variant="ghost" size="icon" onClick={openHabilidades} aria-label="Habilidades do cald" title="Habilidades do cald">
+              <Button variant="ghost" size="icon" onClick={openHabilidades} aria-label="Habilidades do edit.r" title="Habilidades do edit.r">
                 <WandSparkles />
               </Button>
               <Button variant="ghost" size="icon" onClick={() => setPanelShown(false)} aria-label="Fechar a barra do projeto" title="Fechar">
@@ -231,12 +231,12 @@ function ProjectRail({ project }: { project: PanelProject }) {
             </RailItem>
           )
         })}
-        {/* No pé da alça, longe das abas: os artefatos e as habilidades do cald abrem por cima, não são uma aba. */}
+        {/* No pé da alça, longe das abas: os artefatos e as habilidades do edit.r abrem por cima, não são uma aba. */}
         <div className="flex-1" />
         <RailItem side="left" label="Artefatos" onClick={() => openArtefatos()}>
           <ArtefatoIcon />
         </RailItem>
-        <RailItem side="left" label="Habilidades do cald" onClick={openHabilidades}>
+        <RailItem side="left" label="Habilidades do edit.r" onClick={openHabilidades}>
           <WandSparkles />
         </RailItem>
       </aside>

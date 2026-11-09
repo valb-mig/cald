@@ -75,7 +75,7 @@ export function ActivityGrid({ days, className }: { days: ActivityDay[] | null; 
   const d = grid.byDate.get(shown)
   const detail = d
     ? [
-        metric === 'remote' ? plural(d.remote, 'sessão pelo cald', 'sessões pelo cald') : plural(d.sessions, 'sessão', 'sessões'),
+        metric === 'remote' ? plural(d.remote, 'sessão pelo edit.r', 'sessões pelo edit.r') : plural(d.sessions, 'sessão', 'sessões'),
         metric === 'remote' && d.sessions !== d.remote && `${d.sessions} no total`,
         d.prompts > 0 && plural(d.prompts, 'mensagem sua', 'mensagens suas'),
         d.costUsd > 0 && usd(d.costUsd),
@@ -87,7 +87,7 @@ export function ActivityGrid({ days, className }: { days: ActivityDay[] | null; 
   return (
     <HomeCard
       className={className}
-      title={metric === 'remote' ? 'Dias com o cald' : 'Dias com o Claude Code'}
+      title={metric === 'remote' ? 'Dias com o edit.r' : 'Dias com o Claude Code'}
       description={
         days
           ? `${plural(grid.active.size, 'dia', 'dias')} de uso no último ano · sequência atual: ${plural(grid.streak.current, 'dia', 'dias')} · recorde: ${plural(grid.streak.best, 'dia', 'dias')}`
@@ -97,7 +97,7 @@ export function ActivityGrid({ days, className }: { days: ActivityDay[] | null; 
         <div className="flex shrink-0 rounded-lg border p-0.5 text-xs" role="radiogroup" aria-label="O que contar">
           {(
             [
-              ['remote', 'cald'],
+              ['remote', 'edit.r'],
               ['all', 'Tudo'],
             ] as const
           ).map(([value, label]) => (

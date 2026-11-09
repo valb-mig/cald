@@ -493,7 +493,7 @@ function Labels({ f, font }: { f: Frame; font: string }) {
   }
 
   const sign = signBox(l)
-  const signText = f.closed ? (f.reopen ? `VOLTA ÀS ${f.reopen}` : 'FECHADO') : 'CALD'
+  const signText = f.closed ? (f.reopen ? `VOLTA ÀS ${f.reopen}` : 'FECHADO') : 'EDIT.R'
   const signColor = f.closed || f.warn ? '#f5a623' : f.sky.dark > 0.2 ? '#ffd36b' : '#f2f4f7'
   return (
     <g>

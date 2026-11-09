@@ -12,7 +12,7 @@ import { SAFE_ID } from './transcript.ts';
  * A memória automática do Claude Code: em ~/.claude/projects/<pasta>/memory, um arquivo por
  * lembrança, com cabeçalho (nome, descrição, tipo), e o índice MEMORY.md, que o Claude lê no começo
  * de cada conversa naquele projeto. Aqui ela é listada com o que pede limpeza, editada e mandada para
- * uma lixeira do cald, de onde volta igual, com a linha do índice no mesmo lugar.
+ * uma lixeira do edit.r, de onde volta igual, com a linha do índice no mesmo lugar.
  */
 
 const PROJECTS = join(CLAUDE_HOME, 'projects');
@@ -225,10 +225,10 @@ function memoryPath(folder: string, file: string): string {
   return join(PROJECTS, folder, 'memory', file);
 }
 
-// Gravação atômica, como em todos os stores do cald: um temporário renomeado por cima.
+// Gravação atômica, como em todos os stores do edit.r: um temporário renomeado por cima.
 async function atomicWrite(path: string, text: string): Promise<void> {
-  await writeFile(`${path}.cald-tmp`, text);
-  await rename(`${path}.cald-tmp`, path);
+  await writeFile(`${path}.editr-tmp`, text);
+  await rename(`${path}.editr-tmp`, path);
 }
 
 // ~/.claude e ~/.local podem estar em discos diferentes: aí o rename não serve.
@@ -359,7 +359,7 @@ const onlyFor = (line: string, file: string) => {
   return files.length > 0 && files.every((f) => f === file);
 };
 
-/** Manda para a lixeira do cald, tirando do índice as linhas que apontavam para ela. Devolve os ids na lixeira. */
+/** Manda para a lixeira do edit.r, tirando do índice as linhas que apontavam para ela. Devolve os ids na lixeira. */
 export function trashMemories(items: { folder: string; file: string }[]): Promise<string[]> {
   return serial(async () => {
     // Repetidas saem uma vez; e todas são conferidas antes de mexer em qualquer uma.

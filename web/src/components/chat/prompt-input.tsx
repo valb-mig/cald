@@ -43,7 +43,7 @@ const commandCache = new Map<string, Promise<CommandInfo[]>>()
 
 /**
  * Carrega (uma vez por projeto em cada máquina, e por conversa e agente) a lista de comandos e skills,
- * com as habilidades do cald ligadas nela. `provider`: o agente da conversa nova, que ainda não tem
+ * com as habilidades do edit.r ligadas nela. `provider`: o agente da conversa nova, que ainda não tem
  * conversa de onde o PC saiba qual é.
  */
 export function loadCommands(machine: string, cwd: string, session?: string, provider?: string): Promise<CommandInfo[]> {
@@ -57,9 +57,9 @@ export function loadCommands(machine: string, cwd: string, session?: string, pro
   return list
 }
 
-/** Uma habilidade do cald mudou (criada, editada, ligada ou desligada): o "/" pede a lista de novo. */
+/** Uma habilidade do edit.r mudou (criada, editada, ligada ou desligada): o "/" pede a lista de novo. */
 export const forgetCommands = () => commandCache.clear()
-// Também quando foi o Claude de uma conversa que criou ou editou (o MCP do cald).
+// Também quando foi o Claude de uma conversa que criou ou editou (o MCP do edit.r).
 onChanged((_, c) => c.what === 'habilidades' && forgetCommands())
 
 /**
@@ -238,7 +238,7 @@ type Props = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
   handleRef?: Ref<PromptInputHandle>
   /** Projeto da sessão: de onde vêm os comandos, os arquivos, as issues e os PRs sugeridos. */
   cwd?: string
-  /** A conversa do campo: o "/" mostra só as habilidades do cald ligadas nela. */
+  /** A conversa do campo: o "/" mostra só as habilidades do edit.r ligadas nela. */
   session?: string
   /** O agente da conversa (ver lib/providers.ts): os comandos do "/" são os dele. */
   provider?: string

@@ -14,14 +14,14 @@ import { hidden, locatePage, PROTOTYPE_CSP, VIEW_TYPES } from './prototypes.ts';
 const exec = promisify(execFile);
 
 /**
- * Os artefatos do cald: uma página HTML que o Claude publica pelo MCP do cald (`publicar_artefato`). Cada
+ * Os artefatos do edit.r: uma página HTML que o Claude publica pelo MCP do edit.r (`publicar_artefato`). Cada
  * publicação congela o HTML e os arquivos que ele usa numa versão que não muda mais (v1, v2…), e o
  * artefato tem um link fixo na tailnet (`/a/<id>/`), que mostra a versão mais nova numa casca no jeito do
- * cald, sem depender do arquivo que o Claude continua editando.
+ * edit.r, sem depender do arquivo que o Claude continua editando.
  *
  * O link público é escolha sua, no app (a ferramenta não tem como ligar): um servidor à parte, só em
  * 127.0.0.1, que serve apenas `/a/<token>/` dos artefatos públicos, exposto na internet pelo Tailscale
- * Funnel, que o cald liga quando o primeiro fica público e desliga quando não sobra nenhum. O público mostra
+ * Funnel, que o edit.r liga quando o primeiro fica público e desliga quando não sobra nenhum. O público mostra
  * a versão de quando foi ligado: publicar de novo não muda o que está na internet até você atualizar.
  */
 
@@ -68,7 +68,7 @@ const FILE = process.env.ARTEFATOS_FILE ?? join(DATA_DIR, 'artefatos.json');
 const DIR = process.env.ARTEFATOS_DIR ?? join(DATA_DIR, 'artefatos');
 /** O servidor público (só em 127.0.0.1; a internet chega pelo Funnel). */
 export const PUBLIC_PORT = Number(process.env.ARTEFATOS_PUBLIC_PORT ?? PORT + 2);
-/** A porta do Funnel: 8443 ou 10000 (as que o Tailscale libera além da 443, que é a do próprio cald). */
+/** A porta do Funnel: 8443 ou 10000 (as que o Tailscale libera além da 443, que é a do próprio edit.r). */
 export const FUNNEL_PORT = Number(process.env.ARTEFATOS_FUNNEL_PORT ?? 8443);
 
 const newId = () => randomBytes(16).toString('base64url');
@@ -168,7 +168,7 @@ async function titleOf(abs: string): Promise<string | undefined> {
 
 /** Liga ou desliga o Funnel da porta dos artefatos; falhou, diz por quê em uma linha. */
 async function funnel(on: boolean): Promise<void> {
-  if (FUNNEL_PORT === 443) throw new HttpError(409, 'funnel_unavailable', { detail: 'a porta 443 é a do próprio cald' });
+  if (FUNNEL_PORT === 443) throw new HttpError(409, 'funnel_unavailable', { detail: 'a porta 443 é a do próprio edit.r' });
   const args = on ? ['funnel', '--bg', `--https=${FUNNEL_PORT}`, `http://${HOST}:${PUBLIC_PORT}`] : ['funnel', `--https=${FUNNEL_PORT}`, 'off'];
   try {
     await exec('tailscale', args, { timeout: 15_000 });
@@ -184,7 +184,7 @@ async function funnel(on: boolean): Promise<void> {
 export type PublishInput = { path: string; cwd?: string; sessionId?: string; title?: string; description?: string; label?: string };
 export type PublishResult = { artefato: Artefato; version: ArtefatoVersao; novo: boolean };
 
-/** Avisa `change` a cada gravação, venha do app ou do Claude (ver cald-mcp.ts). */
+/** Avisa `change` a cada gravação, venha do app ou do Claude (ver editr-mcp.ts). */
 export class ArtefatoStore extends EventEmitter {
   private items: Stored[] = [];
   private trash: StoredLixo[] = [];
@@ -239,9 +239,9 @@ export class ArtefatoStore extends EventEmitter {
     return this.out(this.stored(id));
   }
 
-  /** O endereço completo do link fixo, para o Claude passar adiante (ver cald-mcp.ts). */
+  /** O endereço completo do link fixo, para o Claude passar adiante (ver editr-mcp.ts). */
   linkUrl(id: string): string {
-    const base = process.env.CALD_URL?.replace(/\/+$/, '') ?? (this.host() ? `https://${this.host()}` : `http://${HOST}:${PORT}`);
+    const base = process.env.EDITR_URL?.replace(/\/+$/, '') ?? (this.host() ? `https://${this.host()}` : `http://${HOST}:${PORT}`);
     return `${base}/a/${id}/`;
   }
 
@@ -442,17 +442,17 @@ async function fileOf(a: Pick<Stored, 'id' | 'versions'>, n: number, rel: string
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const when = (at: number) => new Date(at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '');
 
-const CALD_MARK =
+const EDITR_MARK =
   '<svg viewBox="1 1.5 30 30" width="18" height="18" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.64 5.56A5 5 0 0 1 20.36 5.56L29.86 22.56A5 5 0 0 1 25.5 30L6.5 30A5 5 0 0 1 2.14 22.56ZM7.5 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0ZM17.9 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0Z"/></svg>';
 
 /** A casca não roda script nenhum: só ela mesma, o estilo e a página no iframe isolado. */
-/** As páginas das versões, servidas pelo cald na tailnet (sem o PIN: o id aleatório é a credencial). */
+/** As páginas das versões, servidas pelo edit.r na tailnet (sem o PIN: o id aleatório é a credencial). */
 export const ARTEFATO_VIEW_ROUTE = '/api/artefato/view/:id/:n/*';
 
 export const SHELL_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-src 'self'; base-uri 'none'; form-action 'none'";
 
 /**
- * A página do link: a barra no jeito do cald (a marca, o título, a versão e, na tailnet, as outras
+ * A página do link: a barra no jeito do edit.r (a marca, o título, a versão e, na tailnet, as outras
  * versões num menu sem script) e, embaixo, a página num iframe isolado, como a janela de uma conversa.
  * `frame`: o endereço da página; `versions`: os links das versões (só na tailnet).
  */
@@ -502,7 +502,7 @@ iframe { display: block; width: 100%; height: 100%; border: 0; background: var(-
 </head>
 <body>
 <header>
-<span class="mark" title="cald">${CALD_MARK}</span>
+<span class="mark" title="edit.r">${EDITR_MARK}</span>
 <h1>${esc(a.title)}</h1>
 <span class="when">${when(v.at)}</span>
 <span class="grow"></span>
@@ -518,7 +518,7 @@ ${menu}
 
 /**
  * O servidor do link público: só GET e HEAD, só `/a/<token>/` (a casca) e `/a/<token>/f/<arquivo>` (a
- * versão que está na internet). Fica num processo HTTP à parte do cald, sem a API, o app, o PIN nem o
+ * versão que está na internet). Fica num processo HTTP à parte do edit.r, sem a API, o app, o PIN nem o
  * WebSocket: o que o Funnel expõe é só isto.
  */
 export function startPublicServer(store: ArtefatoStore, log: (msg: string, err?: unknown) => void): Server {

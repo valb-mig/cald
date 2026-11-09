@@ -8,7 +8,7 @@ import { HttpError } from './errors.ts';
 
 /**
  * PIN do painel, por cima da identidade do Tailscale: protege do celular desbloqueado na mão de outra
- * pessoa (que segue na tailnet). O PIN é definido no PC (`cald -pin`, ver pin-cli.ts) e só o hash fica
+ * pessoa (que segue na tailnet). O PIN é definido no PC (`editr -pin`, ver pin-cli.ts) e só o hash fica
  * aqui; acertar dá um token, que o guard (ver guard.ts) exige em toda rota da API e no WebSocket. Sem
  * arquivo de PIN, nada disso vale e o painel abre direto, como antes.
  */
@@ -87,7 +87,7 @@ export class PinLock extends EventEmitter {
     } catch {
       // Primeiro uso: nenhum token.
     }
-    // `cald -pin` grava o arquivo com o servidor rodando: vale na hora, sem reiniciar.
+    // `editr -pin` grava o arquivo com o servidor rodando: vale na hora, sem reiniciar.
     watchFile(PIN_FILE, { interval: 2_000 }, () => void this.reload()).unref();
   }
 

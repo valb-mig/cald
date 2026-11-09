@@ -1049,7 +1049,7 @@ export async function githubPatches(cwd: string, target: { pr: number } | { sha:
   return { files: await value };
 }
 
-// ---- abrir um PR pelo cald ----
+// ---- abrir um PR pelo edit.r ----
 
 /** Um commit da branch que ainda não está na principal: vai junto no PR. */
 export type DraftCommit = { sha: string; short: string; headline: string };
@@ -1176,7 +1176,7 @@ export async function githubCreatePull(cwd: string, d: PullDraft): Promise<{ num
     await gitWrite(cwd, ['commit', '-m', c.message.trim() || d.title.trim(), '--', ...c.files]);
   }
   await gitWrite(cwd, ['push', '-u', 'origin', 'HEAD']);
-  // Quem abre pelo cald já fica como responsável: a conta do `gh` deste PC.
+  // Quem abre pelo edit.r já fica como responsável: a conta do `gh` deste PC.
   const args = ['pr', 'create', '--repo', `${at.owner}/${at.name}`, '--base', d.base, '--head', branch, '--title', d.title.trim(), '--body', d.body, '--assignee', '@me'];
   for (const l of d.labels) args.push('--label', l);
   if (d.draft) args.push('--draft');

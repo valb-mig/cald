@@ -8,7 +8,7 @@ import { BADGES, splitPath, type Badge } from './status'
 
 /**
  * Os arquivos de um PR ou de um commit com o diff de cada um, como o "Files changed" do GitHub, no
- * desenho do cald: uma linha por arquivo, com a letra da mudança, que abre o diff ali mesmo.
+ * desenho do edit.r: uma linha por arquivo, com a letra da mudança, que abre o diff ali mesmo.
  */
 
 // Um commit não muda: os diffs dele ficam aqui enquanto o app está aberto. Os do PR, o servidor guarda 2 min.

@@ -12,11 +12,11 @@ const exec = promisify(execFile);
 /**
  * Worktrees das conversas: quando outra conversa já mexe no projeto, a nova pode abrir num checkout só
  * dela, em `<projeto>/.claude/worktrees/<nome>` (o mesmo lugar do `claude --worktree`), numa branch
- * `cald/<nome>` que sai do HEAD do projeto. O "Trazer" faz o merge dela de volta na branch de origem.
+ * `editr/<nome>` que sai do HEAD do projeto. O "Trazer" faz o merge dela de volta na branch de origem.
  */
 const DIR = '.claude/worktrees';
 /** Branches de passagem: voltam para a de origem pelo "Trazer" e somem com o worktree. */
-const BRANCH_PREFIX = 'cald/';
+const BRANCH_PREFIX = 'editr/';
 const NAME_MAX = 24;
 const INSTALL_TIMEOUT_MS = 180_000;
 
@@ -56,7 +56,7 @@ export function worktreePrompt(ref: WorktreeRef, info?: WorktreeInfo): string {
     '# Worktree',
     `Esta conversa roda num git worktree próprio (${ref.path}${branch}), para não atrapalhar outras conversas que trabalham no mesmo projeto.`,
     `O checkout principal (${ref.root}) é delas: leia de lá se precisar, mas não edite arquivos, não faça commit nem troque de branch lá.`,
-    `O trabalho volta para ${info ? `\`${info.base}\`` : 'a branch do projeto'} quando o usuário usa o "Trazer" do cald, que leva só o que estiver commitado neste worktree.`,
+    `O trabalho volta para ${info ? `\`${info.base}\`` : 'a branch do projeto'} quando o usuário usa o "Trazer" do edit.r, que leva só o que estiver commitado neste worktree.`,
   ].join('\n');
 }
 
@@ -281,7 +281,7 @@ export async function removeWorktree(ref: WorktreeRef, s: WorktreeStatus): Promi
 
 /** Um worktree do repositório na lista da aba Claude: o status dele e de onde veio. */
 export type ListedWorktree = WorktreeStatus & {
-  /** Criado pelo cald ou pelo `claude --worktree` (fica em `.claude/worktrees` do projeto). */
+  /** Criado pelo edit.r ou pelo `claude --worktree` (fica em `.claude/worktrees` do projeto). */
   managed: boolean;
   /** A pasta sumiu (apagada à mão): só sobra o registro no git, que o "Apagar" limpa. */
   missing: boolean;

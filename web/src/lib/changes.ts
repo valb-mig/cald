@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 
 /**
- * O que mudou numa máquina, pelo app ou pelo Claude de uma conversa (o MCP do cald, ver
- * server/src/cald-mcp.ts): o TODO ou os detalhes de um projeto, os times, os workspaces, as habilidades, os artefatos
+ * O que mudou numa máquina, pelo app ou pelo Claude de uma conversa (o MCP do edit.r, ver
+ * server/src/editr-mcp.ts): o TODO ou os detalhes de um projeto, os times, os workspaces, as habilidades, os artefatos
  * ou as sugestões de memória de uma conversa; quem acessa o app (ver lib/access.ts); ou os agentes
  * ligados (ver lib/providers.ts). Chega pelo WebSocket (ver store.ts), e quem tem isso na tela recarrega.
  */

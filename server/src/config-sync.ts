@@ -22,12 +22,12 @@ import { HttpError } from './errors.ts';
 import { git, gitWrite, remoteWebUrl } from './git.ts';
 
 /**
- * A sua configuração do cald num repositório git seu (no GitHub, privado), para levar de uma máquina
+ * A sua configuração do edit.r num repositório git seu (no GitHub, privado), para levar de uma máquina
  * a outra: times, workspaces, habilidades, detalhes e TODOs, comandos salvos, a memória do Claude, o
  * que é seu no Claude Code e a aparência do app (ver config-sync-kinds.ts). "Enviar" grava o daqui
  * num clone em DATA_DIR e dá push; "Trazer" baixa e aplica aqui.
  *
- * Cada item tem um id que não muda entre máquinas e a data da última edição, guardados no cald.json
+ * Cada item tem um id que não muda entre máquinas e a data da última edição, guardados no editr.json
  * do repositório: fica sempre o mais novo, nos dois sentidos. Nada é apagado, nem aqui nem lá: o que
  * você apagou numa máquina continua no repositório, e esta máquina lembra o que já viu (`known`)
  * para não trazer de volta o que você apagou aqui. O que um "Trazer" troca fica copiado antes.
@@ -36,7 +36,9 @@ import { git, gitWrite, remoteWebUrl } from './git.ts';
 const exec = promisify(execFile);
 
 const STATE_FILE = process.env.CONFIG_SYNC_FILE ?? join(DATA_DIR, 'config-sync.json');
-const INDEX_FILE = 'cald.json';
+const INDEX_FILE = 'editr.json';
+// O índice de antes da troca de nome: lido enquanto o novo não existe, e apagado no envio seguinte.
+const LEGACY_INDEX_FILE = 'cald.json';
 const APPEARANCE_FILE = 'aparencia.json';
 // Quantos nomes cada lista do relatório leva; o resto vai só na conta.
 const MAX_LABELS = 200;
@@ -82,11 +84,11 @@ type State = {
   lastPull?: number;
 };
 
-const README = `# Configuração do cald
+const README = `# Configuração do edit.r
 
-Este repositório guarda a sua configuração do [cald](https://github.com/valb-mig/cald): times, workspaces, habilidades, detalhes e TODOs dos projetos, comandos salvos, a memória do Claude e o que é seu no Claude Code (settings, CLAUDE.md, agentes e skills).
+Este repositório guarda a sua configuração do [edit.r](https://github.com/valb-mig/cald): times, workspaces, habilidades, detalhes e TODOs dos projetos, comandos salvos, a memória do Claude e o que é seu no Claude Code (settings, CLAUDE.md, agentes e skills).
 
-Quem escreve aqui é o próprio cald, em **Computador → Sincronizar**: "Enviar" grava o de uma máquina, e "Trazer" aplica o daqui em outra. Dá para ler e editar à mão, mas o que o cald segue é o \`cald.json\`: quando cada item mudou (fica sempre o mais novo) e de que projeto ele é.
+Quem escreve aqui é o próprio edit.r, em **Computador → Sincronizar**: "Enviar" grava o de uma máquina, e "Trazer" aplica o daqui em outra. Dá para ler e editar à mão, mas o que o edit.r segue é o \`editr.json\`: quando cada item mudou (fica sempre o mais novo) e de que projeto ele é.
 
 - \`times/\`, \`workspaces/\`, \`habilidades/\`, \`comandos/\`: o que vale em todo projeto.
 - \`projetos/<nome>/\`: detalhes, TODOs, habilidades, comandos e memória de um projeto. Em outra máquina, o projeto é achado pelo remoto do git (ou pelo caminho).
@@ -116,9 +118,10 @@ const exists = (abs: string) => stat(abs).then(
 
 async function readIndex(): Promise<RepoIndex> {
   try {
-    const data = JSON.parse(await readFile(join(REPO_DIR, INDEX_FILE), 'utf8')) as Partial<RepoIndex>;
+    const file = (await exists(join(REPO_DIR, INDEX_FILE))) ? INDEX_FILE : LEGACY_INDEX_FILE;
+    const data = JSON.parse(await readFile(join(REPO_DIR, file), 'utf8')) as Partial<RepoIndex>;
     if (data.format === 1) {
-      // Um caminho que sairia do clone (cald.json editado à mão) não vale.
+      // Um caminho que sairia do clone (editr.json editado à mão) não vale.
       const items = Object.fromEntries(Object.entries(data.items ?? {}).filter(([, e]) => e && safeRel(e.path) && typeof e.updatedAt === 'number'));
       return { format: 1, items, projects: data.projects ?? {}, lastPush: data.lastPush };
     }
@@ -134,6 +137,7 @@ const sorted = <T>(rec: Record<string, T>) => Object.fromEntries(Object.entries(
 async function writeIndex(index: RepoIndex): Promise<void> {
   const data = { ...index, items: sorted(index.items), projects: sorted(index.projects) };
   await writeFile(join(REPO_DIR, INDEX_FILE), `${JSON.stringify(data, null, 2)}\n`);
+  await rm(join(REPO_DIR, LEGACY_INDEX_FILE), { force: true });
 }
 
 /** O caminho preferido, ou com `-2`, `-3` antes da extensão se outro item já está lá. */
@@ -214,7 +218,7 @@ export class ConfigSync {
       };
       if (/^[\w.-]+(?:\/[\w.-]+)?$/.test(spec)) {
         const name = spec.includes('/') ? spec : `${(await gh(['api', 'user', '--jq', '.login'])).trim()}/${spec}`;
-        if (create) await gh(['repo', 'create', name, '--private', '--description', 'Configuração do cald, sincronizada pelo app.']);
+        if (create) await gh(['repo', 'create', name, '--private', '--description', 'Configuração do edit.r, sincronizada pelo app.']);
         const info = JSON.parse(await gh(['repo', 'view', name, '--json', 'nameWithOwner,url,visibility'])) as { nameWithOwner: string; url: string; visibility: string };
         if (info.visibility === 'PUBLIC') throw new HttpError(409, 'config_repo_public', { repo: info.nameWithOwner });
         await fresh();
@@ -348,7 +352,7 @@ export class ConfigSync {
       if (!key.startsWith(prefix)) continue;
       const id = key.slice(prefix.length);
       // Ids que viram caminho (os dos stores, que são UUIDs, e os de arquivo, conferidos em cada categoria):
-      // um com `..` no `cald.json` não passa daqui.
+      // um com `..` no `editr.json` não passa daqui.
       if (!id || id.split('/').includes('..')) continue;
       const mine = local.get(id);
       if (mine && mine.updatedAt >= entry.updatedAt) {
@@ -452,13 +456,13 @@ export class ConfigSync {
     if (!(await git(REPO_DIR, ['status', '--porcelain'])).stdout.trim()) return null;
     const n = report.kinds.reduce((sum, k) => sum + k.total, 0);
     const lines = report.kinds.filter((k) => k.total).map((k) => `- ${k.kind}: ${k.total}`);
-    // Sem nome no git desta máquina, o commit sai como o cald dela.
+    // Sem nome no git desta máquina, o commit sai como o edit.r dela.
     const named = await git(REPO_DIR, ['config', 'user.email']).then(
       (r) => r.stdout.trim() !== '',
       () => false,
     );
-    const ident = named ? [] : ['-c', 'user.name=cald', '-c', `user.email=cald@${MACHINE_NAME}`];
-    await gitWrite(REPO_DIR, [...ident, 'commit', '--quiet', '-m', `cald: ${MACHINE_NAME} enviou ${n} ${n === 1 ? 'item' : 'itens'}`, '-m', lines.join('\n')]);
+    const ident = named ? [] : ['-c', 'user.name=edit.r', '-c', `user.email=editr@${MACHINE_NAME}`];
+    await gitWrite(REPO_DIR, [...ident, 'commit', '--quiet', '-m', `edit.r: ${MACHINE_NAME} enviou ${n} ${n === 1 ? 'item' : 'itens'}`, '-m', lines.join('\n')]);
     await gitWrite(REPO_DIR, ['push', '--quiet', '-u', 'origin', 'HEAD']);
     return (await git(REPO_DIR, ['rev-parse', '--short', 'HEAD'])).stdout.trim();
   }

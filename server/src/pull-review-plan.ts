@@ -23,7 +23,7 @@ const MAX_COMMENTS = 50;
 
 const TASK = `# Revisar um pull request
 
-The user is on cald's pull request screen and asked you for a thorough code review, as a careful senior
+The user is on edit.r's pull request screen and asked you for a thorough code review, as a careful senior
 reviewer of this codebase would do. Follow the user's conventions: their CLAUDE.md and any skills about code
 review or the project's standards (load the ones that apply with the Skill tool and follow them). Read the
 files around the changes when you need context (Read, Grep, Glob).

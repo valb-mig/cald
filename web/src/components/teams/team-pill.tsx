@@ -47,7 +47,7 @@ export function TeamPill({
     // Servidor antigo, sem times: o botão só oferece montar um (e o PC avisa que precisa atualizar).
     api.teams(machine).then(setTeams, () => setTeams([]))
   }, [machine])
-  // O Claude de uma conversa montou ou mudou um time (o MCP do cald), ou outro aparelho mexeu.
+  // O Claude de uma conversa montou ou mudou um time (o MCP do edit.r), ou outro aparelho mexeu.
   useOnChanged(machine, 'teams', () => api.teams(machine).then(setTeams, () => {}))
   const chosen = current ?? teams.find((t) => t.id === value)
   // Na conversa nova, o time escolhido foi apagado no diálogo: ela volta a não ter time.

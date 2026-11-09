@@ -66,12 +66,12 @@ export class DeviceDirectory {
   }
 }
 
-/** O que o cald guarda de cada mensagem mandada pelo app, pelo UUID dela no transcript. */
+/** O que o edit.r guarda de cada mensagem mandada pelo app, pelo UUID dela no transcript. */
 type Origin = { uuid: string; at: number; device?: string; mobile?: boolean };
 
 /**
  * De que aparelho saiu cada mensagem do app. O transcript do Claude Code tem a hora e o `entrypoint`,
- * que é o mesmo para qualquer aparelho que use o cald: o resto o cald guarda aqui, uma linha por
+ * que é o mesmo para qualquer aparelho que use o edit.r: o resto o edit.r guarda aqui, uma linha por
  * mensagem, pelo UUID que ele mesmo dá a ela (ver PanelSession.send).
  */
 export class OriginLog {
@@ -95,13 +95,13 @@ export class OriginLog {
     void appendFile(ORIGINS_FILE, `${JSON.stringify(origin)}\n`).catch(() => {});
   }
 
-  /** Por onde, de onde e quando: o que o cald guardou ou, sem isso, o que o histórico do agente diz. */
+  /** Por onde, de onde e quando: o que o edit.r guardou ou, sem isso, o que o histórico do agente diz. */
   sentOf(uuid: string, mark?: SavedMessage['prompt']): Sent | undefined {
     const own = this.byUuid.get(uuid);
-    if (own) return { via: 'cald', device: own.device, mobile: own.mobile, at: own.at };
+    if (own) return { via: 'editr', device: own.device, mobile: own.mobile, at: own.at };
     if (!mark) return undefined;
     const via = mark.via;
     // O terminal e o VSCode rodam aqui mesmo, no PC dono do histórico; do app, não se sabe qual aparelho foi.
-    return { via, device: via && via !== 'cald' ? MACHINE_NAME : undefined, at: mark.at };
+    return { via, device: via && via !== 'editr' ? MACHINE_NAME : undefined, at: mark.at };
   }
 }

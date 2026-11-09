@@ -33,7 +33,7 @@ import { MarkdownEditor } from './pull-view'
 import { badge, splitPath } from './status'
 
 /**
- * Abrir um PR sem sair do cald, no mesmo desenho da tela de PR: o título no topo, a descrição no meio,
+ * Abrir um PR sem sair do edit.r, no mesmo desenho da tela de PR: o título no topo, a descrição no meio,
  * os arquivos que vão (o não commitado, escolhido um a um) e os commits que a branch já tem; à
  * direita, de onde para onde, as etiquetas e o "Abrir PR", que diz antes o que vai fazer. Na
  * principal, o PR sai de uma branch nova, com o nome tirado do título.

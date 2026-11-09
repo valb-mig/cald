@@ -13,7 +13,7 @@ import { ChangeChip } from './patch-list'
 import { badge, splitPath } from './status'
 
 /**
- * O dump, na ilha do cald: à esquerda, os arquivos que vão, a mensagem do commit (que chega sugerida no
+ * O dump, na ilha do edit.r: à esquerda, os arquivos que vão, a mensagem do commit (que chega sugerida no
  * jeito dos seus commits, para você validar) e o "Commit e push"; à direita, o diff do arquivo escolhido.
  * No celular, a lista e o diff se revezam.
  */

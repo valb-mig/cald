@@ -14,7 +14,7 @@ import { SAFE_ID } from './transcript.ts';
 /**
  * O que o app muda no que o Claude Code carrega (ver claude-config.ts para o que ele só mostra):
  * ligar e desligar skills (`skillOverrides`, o mesmo do /skills) e plugins (pelo próprio `claude
- * plugin`), e mandar para uma lixeira do cald as skills, comandos e agentes seus ou do projeto e a
+ * plugin`), e mandar para uma lixeira do edit.r as skills, comandos e agentes seus ou do projeto e a
  * configuração de servidores MCP, de onde voltam iguais.
  */
 
@@ -64,8 +64,8 @@ async function readSettings(path: string): Promise<Record<string, unknown>> {
 
 async function writeSettings(path: string, data: Record<string, unknown>): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(`${path}.cald-tmp`, `${JSON.stringify(data, null, 2)}\n`);
-  await rename(`${path}.cald-tmp`, path);
+  await writeFile(`${path}.editr-tmp`, `${JSON.stringify(data, null, 2)}\n`);
+  await rename(`${path}.editr-tmp`, path);
 }
 
 /**

@@ -9,8 +9,8 @@ import { MAX_COMMANDS, MAX_INSTRUCTIONS as MAX_WS_INSTRUCTIONS, MAX_PROJECTS, MA
 import { worktreeOf } from './worktrees.ts';
 
 /**
- * O MCP do cald: ferramentas para o Claude de uma conversa do painel criar e mudar as coisas do
- * próprio cald (o TODO do projeto, os detalhes dele, times, workspaces e habilidades), que aparecem na
+ * O MCP do edit.r: ferramentas para o Claude de uma conversa do painel criar e mudar as coisas do
+ * próprio edit.r (o TODO do projeto, os detalhes dele, times, workspaces e habilidades), que aparecem na
  * hora no app.
  * Roda no mesmo processo, um por conversa, já amarrado à pasta dela. Aqui ele é só a descrição das
  * ferramentas (`McpServerSpec`), sem amarrar a um agente: cada um monta o servidor do seu jeito (o
@@ -18,7 +18,7 @@ import { worktreeOf } from './worktrees.ts';
  * regra do app de não ter ação sem volta. As abertas no terminal não o veem.
  */
 
-export const CALD_MCP = 'cald';
+export const EDITR_MCP = 'editr';
 
 /**
  * Passam sem pedir aprovação: ler, criar TODOs e marcá-los, e criar time ou workspace (nada disso muda o
@@ -27,7 +27,7 @@ export const CALD_MCP = 'cald';
  * do projeto, e um arquivo de um repositório qualquer poderia convencer o Claude a plantar ali uma
  * instrução que fica.
  */
-export const CALD_MCP_ALLOWED = new Set([
+export const EDITR_MCP_ALLOWED = new Set([
   'listar_todos',
   'criar_todos',
   'editar_todo',
@@ -47,18 +47,18 @@ export const CALD_MCP_ALLOWED = new Set([
 /** O que uma ferramenta devolve: texto para o agente ler, e se foi erro. */
 export type McpToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
-/** Uma ferramenta do MCP do cald: a entrada descrita em zod, e o que ela faz. */
+/** Uma ferramenta do MCP do edit.r: a entrada descrita em zod, e o que ela faz. */
 export type McpTool = {
   name: string;
   description: string;
   shape: z.ZodRawShape;
   handler: (args: Record<string, unknown>) => Promise<McpToolResult>;
   annotations?: { readOnlyHint?: boolean; idempotentHint?: boolean; destructiveHint?: boolean };
-  /** Passa sem pedir aprovação (ver CALD_MCP_ALLOWED). */
+  /** Passa sem pedir aprovação (ver EDITR_MCP_ALLOWED). */
   allowed: boolean;
 };
 
-/** O MCP do cald de uma conversa, para o agente montar. */
+/** O MCP do edit.r de uma conversa, para o agente montar. */
 export type McpServerSpec = { name: string; version: string; instructions: string; tools: McpTool[] };
 
 /** Uma ferramenta, com os tipos da entrada tirados do próprio esquema. */
@@ -69,10 +69,10 @@ function tool<S extends z.ZodRawShape>(
   handler: (args: z.infer<z.ZodObject<S>>) => Promise<McpToolResult>,
   extras: Pick<McpTool, 'annotations'> = {},
 ): McpTool {
-  return { name, description, shape, handler: handler as McpTool['handler'], annotations: extras.annotations, allowed: CALD_MCP_ALLOWED.has(name) };
+  return { name, description, shape, handler: handler as McpTool['handler'], annotations: extras.annotations, allowed: EDITR_MCP_ALLOWED.has(name) };
 }
 
-export type CaldMcpDeps = {
+export type EditrMcpDeps = {
   todos: TodoStore;
   detalhes: DetalheStore;
   teams: TeamStore;
@@ -83,7 +83,7 @@ export type CaldMcpDeps = {
   knownCwd: (cwd: string) => Promise<string>;
 };
 
-export type CaldMcpContext = {
+export type EditrMcpContext = {
   /** A pasta da conversa: o TODO e as habilidades "deste projeto" são dela. */
   cwd: string;
   /** Põe o time nesta conversa quando o turno acabar (ver Manager.useTeamLater). */
@@ -92,13 +92,13 @@ export type CaldMcpContext = {
   sessionId: () => string | undefined;
 };
 
-const INSTRUCTIONS = `O cald é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
-- TODO: a lista de tarefas deste projeto no cald (não é a sua lista interna de tarefas). Cada item tem um número, que o usuário menciona no chat como \`TODO:n\`. Ao quebrar um trabalho em tarefas, crie todas de uma vez com \`criar_todos\`; ao terminar uma, marque-a como feita com \`editar_todo\` (\`feito: true\`).
+const INSTRUCTIONS = `O edit.r é o painel em que esta conversa roda, no celular e no PC do usuário. Por estas ferramentas você cria e muda coisas dele, e tudo aparece na hora no app.
+- TODO: a lista de tarefas deste projeto no edit.r (não é a sua lista interna de tarefas). Cada item tem um número, que o usuário menciona no chat como \`TODO:n\`. Ao quebrar um trabalho em tarefas, crie todas de uma vez com \`criar_todos\`; ao terminar uma, marque-a como feita com \`editar_todo\` (\`feito: true\`).
 - Detalhes: notas do usuário sobre como partes deste projeto funcionam. Quando a conversa abre com uma lista deles abaixo, leia com \`ler_detalhe\` o que tocar no trabalho antes de varrer o código para entender aquela parte: é mais rápido e mais barato. Quando o usuário pedir para registrar uma parte, estude-a no código e escreva com \`criar_detalhe\` (ou \`editar_detalhe\`, para um que já existe): curto, direto, citando os arquivos com @caminho.
 - Times: subagentes do usuário (nome, papel, modelo, esforço e instruções), que uma conversa recebe para delegar pela ferramenta Agent. Ao montar um time para um projeto, estude o projeto antes (CLAUDE.md, README, a stack, os comandos de build, teste e lint, as convenções) e escreva para cada membro instruções específicas dele: do que cuida, onde isso fica no código, que padrões seguir e como validar. Um time editado só vale nas conversas que começarem depois; \`usar_time\` põe um time nesta conversa quando a sua resposta terminar.
 - Workspaces: moldes de conversa, com projetos, instruções, regras, comandos de validação e um time padrão. Cada projeto pode ter um workspace padrão, com que a conversa nova dele já vem. Mudanças valem da próxima vez que uma conversa do workspace abrir.
-- Habilidades: skills do cald (\`/cald:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
-- Artefatos: para mostrar uma página HTML (protótipo, relatório, painel, visualização) ao usuário, publique com \`publicar_artefato\`. O cald congela o HTML e os arquivos que ele usa (CSS, JS, imagens e fontes da mesma pasta, por caminho relativo) numa versão, e o chat mostra um cartão para abrir. Publicar o mesmo arquivo de novo cria a versão seguinte, com o mesmo link. O link fica na tailnet do usuário; deixá-lo público na internet é escolha dele, no app.
+- Habilidades: skills do edit.r (\`/editr:nome\`), globais ou deste projeto. Valem nas conversas do painel, esta inclusive, assim que salvas.
+- Artefatos: para mostrar uma página HTML (protótipo, relatório, painel, visualização) ao usuário, publique com \`publicar_artefato\`. O edit.r congela o HTML e os arquivos que ele usa (CSS, JS, imagens e fontes da mesma pasta, por caminho relativo) numa versão, e o chat mostra um cartão para abrir. Publicar o mesmo arquivo de novo cria a versão seguinte, com o mesmo link. O link fica na tailnet do usuário; deixá-lo público na internet é escolha dele, no app.
 Nada aqui apaga: para tirar algo, o usuário usa o app.`;
 
 /**
@@ -126,13 +126,13 @@ const artefatoOut = (a: Artefato, link: string) => ({
 
 const ok = (data: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(data, null, 1) }] });
 
-/** O erro do cald vira uma resposta que o Claude lê (e pode corrigir), em vez de derrubar a chamada. */
+/** O erro do edit.r vira uma resposta que o Claude lê (e pode corrigir), em vez de derrubar a chamada. */
 function guarded<A>(run: (args: A) => Promise<unknown>) {
   return async (args: A) => {
     try {
       return ok(await run(args));
     } catch (err) {
-      const text = err instanceof HttpError ? `Erro do cald: ${err.code}${err.details ? ` ${JSON.stringify(err.details)}` : ''}` : String(err);
+      const text = err instanceof HttpError ? `Erro do edit.r: ${err.code}${err.details ? ` ${JSON.stringify(err.details)}` : ''}` : String(err);
       return { content: [{ type: 'text' as const, text }], isError: true };
     }
   };
@@ -193,7 +193,7 @@ const mapMembers = (list: z.infer<typeof member>[], old?: Team) =>
   }));
 const mapCommands = (list: z.infer<typeof command>[]) => list.map((c) => ({ label: c.rotulo, command: c.comando, cwd: c.pasta }));
 
-export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
+export function editrMcp(deps: EditrMcpDeps, ctx: EditrMcpContext): McpServerSpec {
   const { todos, detalhes, teams, workspaces, habilidades, artefatos } = deps;
   const knownProjects = (list: string[]) => Promise.all(list.map((p) => deps.knownCwd(p)));
   const habilidade = (id: string) => {
@@ -204,21 +204,21 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
   };
 
   return {
-    name: CALD_MCP,
+    name: EDITR_MCP,
     version: '1.0.0',
     instructions: instructionsFor(detalhes.index(ctx.cwd)),
     tools: [
       // ---- TODO do projeto ----
       tool(
         'listar_todos',
-        'Lista o TODO deste projeto no cald: número, título, se está feito e a descrição.',
+        'Lista o TODO deste projeto no edit.r: número, título, se está feito e a descrição.',
         { feitos: z.boolean().optional().describe('Incluir os já feitos (padrão: só os a fazer)') },
         guarded(async ({ feitos }) => todos.list(ctx.cwd).filter((t) => feitos || !t.done).map(todoOut)),
         { annotations: { readOnlyHint: true } },
       ),
       tool(
         'criar_todos',
-        'Cria itens no TODO deste projeto no cald, todos de uma vez, no fim da lista. Devolve o número de cada um.',
+        'Cria itens no TODO deste projeto no edit.r, todos de uma vez, no fim da lista. Devolve o número de cada um.',
         {
           itens: z
             .array(
@@ -248,7 +248,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       // ---- detalhes do projeto ----
       tool(
         'listar_detalhes',
-        'Lista os detalhes deste projeto no cald (notas do usuário sobre como partes dele funcionam): a chave e o título de cada um, sem o conteúdo.',
+        'Lista os detalhes deste projeto no edit.r (notas do usuário sobre como partes dele funcionam): a chave e o título de cada um, sem o conteúdo.',
         {},
         guarded(async () =>
           detalhes
@@ -273,7 +273,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       ),
       tool(
         'criar_detalhe',
-        'Cria um detalhe neste projeto no cald: como uma parte dele funciona, para a próxima conversa entender a parte sem varrer o código. Escreva curto e direto, citando os arquivos com @caminho. Se já existir um com a mesma chave, use editar_detalhe.',
+        'Cria um detalhe neste projeto no edit.r: como uma parte dele funciona, para a próxima conversa entender a parte sem varrer o código. Escreva curto e direto, citando os arquivos com @caminho. Se já existir um com a mesma chave, use editar_detalhe.',
         {
           titulo: z.string().min(1).max(MAX_DETALHE_TITLE).describe('O nome da parte (ex.: "Visual"); a chave sai dele'),
           conteudo: z.string().min(1).max(MAX_DETALHE_BODY).describe('Markdown; pode citar arquivos do projeto com @caminho'),
@@ -295,20 +295,20 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       // ---- times ----
       tool(
         'listar_times',
-        'Lista os times de agentes do cald, com os membros e as instruções de cada um.',
+        'Lista os times de agentes do edit.r, com os membros e as instruções de cada um.',
         {},
         guarded(async () => teams.list().map(teamOut)),
         { annotations: { readOnlyHint: true } },
       ),
       tool(
         'criar_time',
-        `Cria um time de agentes no cald: até ${MAX_MEMBERS} membros, cada um um subagente com nome, papel, modelo, esforço e instruções. Estude o projeto antes e escreva instruções específicas dele.`,
+        `Cria um time de agentes no edit.r: até ${MAX_MEMBERS} membros, cada um um subagente com nome, papel, modelo, esforço e instruções. Estude o projeto antes e escreva instruções específicas dele.`,
         { nome: z.string().min(1).max(60), membros: z.array(member).min(1).max(MAX_MEMBERS) },
         guarded(async ({ nome, membros }) => teamOut(await teams.save({ name: nome, members: mapMembers(membros) }))),
       ),
       tool(
         'editar_time',
-        'Muda um time do cald. `membros`, se vier, é a lista inteira como deve ficar (quem tem o mesmo nome continua o mesmo membro). Só vale nas conversas que começarem depois.',
+        'Muda um time do edit.r. `membros`, se vier, é a lista inteira como deve ficar (quem tem o mesmo nome continua o mesmo membro). Só vale nas conversas que começarem depois.',
         { id: z.string().min(1).max(64), nome: z.string().min(1).max(60).optional(), membros: z.array(member).min(1).max(MAX_MEMBERS).optional() },
         guarded(async ({ id, nome, membros }) => {
           const old = teams.get(id);
@@ -330,14 +330,14 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       // ---- workspaces ----
       tool(
         'listar_workspaces',
-        'Lista os workspaces do cald: projetos, instruções, regras, comandos, time padrão e arquivos de contexto.',
+        'Lista os workspaces do edit.r: projetos, instruções, regras, comandos, time padrão e arquivos de contexto.',
         {},
         guarded(async () => workspaces.list().map(workspaceOut)),
         { annotations: { readOnlyHint: true } },
       ),
       tool(
         'criar_workspace',
-        'Cria um workspace no cald, um molde de conversa. O primeiro projeto é o principal, onde a conversa abre; sem projetos, fica só o desta conversa. Se o principal ainda não tem workspace padrão, este vira o padrão dele.',
+        'Cria um workspace no edit.r, um molde de conversa. O primeiro projeto é o principal, onde a conversa abre; sem projetos, fica só o desta conversa. Se o principal ainda não tem workspace padrão, este vira o padrão dele.',
         {
           nome: z.string().min(1).max(60),
           projetos: z.array(z.string().max(4096)).max(MAX_PROJECTS).optional().describe('Caminhos absolutos das pastas dos projetos'),
@@ -361,7 +361,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       ),
       tool(
         'editar_workspace',
-        'Muda um workspace do cald. Cada lista que vier (projetos, regras, comandos) substitui a anterior inteira; o que não vier fica como está.',
+        'Muda um workspace do edit.r. Cada lista que vier (projetos, regras, comandos) substitui a anterior inteira; o que não vier fica como está.',
         {
           id: z.string().min(1).max(64),
           nome: z.string().min(1).max(60).optional(),
@@ -388,7 +388,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       // ---- habilidades ----
       tool(
         'listar_habilidades',
-        'Lista as habilidades do cald que valem aqui: as globais e as deste projeto, com descrição e corpo.',
+        'Lista as habilidades do edit.r que valem aqui: as globais e as deste projeto, com descrição e corpo.',
         {},
         guarded(async () => {
           const { global, project } = habilidades.list(ctx.cwd);
@@ -398,7 +398,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       ),
       tool(
         'criar_habilidade',
-        'Cria uma habilidade do cald (uma skill, `/cald:nome`), global ou só deste projeto. Vale já nesta conversa.',
+        'Cria uma habilidade do edit.r (uma skill, `/editr:nome`), global ou só deste projeto. Vale já nesta conversa.',
         {
           nome: z.string().min(1).max(50).describe('Minúsculas, números e hífen'),
           descricao: z.string().min(1).max(MAX_DESCRIPTION).describe('Quando usar: é por ela que o Claude decide carregar a habilidade'),
@@ -411,7 +411,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       ),
       tool(
         'editar_habilidade',
-        'Muda uma habilidade do cald (global ou deste projeto). O que não vier fica como está.',
+        'Muda uma habilidade do edit.r (global ou deste projeto). O que não vier fica como está.',
         {
           id: z.string().min(1).max(64),
           nome: z.string().min(1).max(50).optional(),
@@ -432,7 +432,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       // ---- artefatos ----
       tool(
         'publicar_artefato',
-        `Publica uma página HTML como artefato do cald: congela o HTML e os arquivos da mesma pasta que ele usa por caminho relativo (até ${MAX_BYTES / 1024 / 1024} MB) numa versão, com um link fixo na tailnet. Publicar o mesmo arquivo de novo cria a versão seguinte do mesmo artefato; sem mudança, devolve a atual. O chat mostra um cartão para abrir.`,
+        `Publica uma página HTML como artefato do edit.r: congela o HTML e os arquivos da mesma pasta que ele usa por caminho relativo (até ${MAX_BYTES / 1024 / 1024} MB) numa versão, com um link fixo na tailnet. Publicar o mesmo arquivo de novo cria a versão seguinte do mesmo artefato; sem mudança, devolve a atual. O chat mostra um cartão para abrir.`,
         {
           arquivo: z.string().min(1).max(4096).describe('O .html (ou uma pasta com index.html); relativo vale a partir da pasta da conversa'),
           titulo: z.string().min(1).max(120).optional().describe('Sem ele, vale o <title> da página'),
@@ -454,7 +454,7 @@ export function caldMcp(deps: CaldMcpDeps, ctx: CaldMcpContext): McpServerSpec {
       ),
       tool(
         'listar_artefatos',
-        'Lista os artefatos do cald: título, versões, arquivo de origem, link e se está público.',
+        'Lista os artefatos do edit.r: título, versões, arquivo de origem, link e se está público.',
         {},
         guarded(async () => artefatos.list().map((a) => artefatoOut(a, artefatos.linkUrl(a.id)))),
         { annotations: { readOnlyHint: true } },

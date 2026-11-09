@@ -55,7 +55,7 @@ const reviewPrompt = (f: MemoryFolder) =>
 /**
  * A memória automática do Claude Code: com `cwd`, a de um projeto; sem, a de
  * todos os projetos da máquina (o painel Computador), um grupo por projeto. Filtra pelo que pede
- * limpeza, apaga uma ou várias para a lixeira do cald e abre a conversa que criou cada uma.
+ * limpeza, apaga uma ou várias para a lixeira do edit.r e abre a conversa que criou cada uma.
  * `onLeave`: o painel Computador fecha antes de ir para uma conversa.
  */
 export function MemoryView({ machine, cwd, onLeave }: { machine: string; cwd?: string; onLeave?: () => void }) {
@@ -375,7 +375,7 @@ function MemoryRow({
   )
 }
 
-/** A lixeira do cald: o que foi apagado daqui volta igual; some sozinho depois de 30 dias. */
+/** A lixeira do edit.r: o que foi apagado daqui volta igual; some sozinho depois de 30 dias. */
 function Trash({ machine, items, single }: { machine: string; items: TrashedMemory[]; single: boolean }) {
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)

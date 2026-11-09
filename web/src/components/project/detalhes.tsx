@@ -29,7 +29,7 @@ const UNDO_MS = 10_000
 /**
  * Os detalhes do projeto, no hub (Mesa · Worktrees · Detalhes): como cada parte dele funciona, escrito
  * por você em Markdown, com `@` para arquivos. A conversa do projeto abre sabendo só as chaves e os
- * títulos (ver server/src/cald-mcp.ts) e lê o conteúdo do que precisar, em vez de varrer o código. No
+ * títulos (ver server/src/editr-mcp.ts) e lê o conteúdo do que precisar, em vez de varrer o código. No
  * PC, a lista e o editor lado a lado; no celular, a lista, e o detalhe abre no lugar dela. Salva sozinho.
  */
 export function DetalhesView({ machine, cwd, className }: { machine: string; cwd: string; className?: string }) {

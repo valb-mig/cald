@@ -47,7 +47,7 @@ const TIMEOUT_MS = 5 * 60_000;
 
 const TASK = `# Organizar um pull request
 
-The user is on cald's "Abrir PR" screen and asked you to organize the pull request, the way they would by
+The user is on edit.r's "Abrir PR" screen and asked you to organize the pull request, the way they would by
 typing "abrir PR" in a conversation. Follow the user's own conventions: their CLAUDE.md and any skills
 about commits, branches or pull requests (load the ones that apply with the Skill tool and follow their
 writing rules: language, message format, branch naming, PR description template). With none, follow the

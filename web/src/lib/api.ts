@@ -198,7 +198,7 @@ export const api = {
   /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
   activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),
   /**
-   * Com `session`, as habilidades do cald desligadas nela ficam de fora. `provider`: os comandos desse
+   * Com `session`, as habilidades do edit.r desligadas nela ficam de fora. `provider`: os comandos desse
    * agente (a conversa nova); sem ele, os do agente da conversa, ou do padrão.
    */
   commands: (m: string, cwd: string, session?: string, provider?: string) =>
@@ -502,7 +502,7 @@ export const api = {
  * vale depois de reiniciar). Só para rotas novas: em outras, o mesmo 404 quer dizer outra coisa.
  */
 export const isOutdatedServer = (err: unknown) => err instanceof ApiError && err.status === 404 && err.code === 'not_found'
-export const OUTDATED_SERVER = 'O servidor do PC ainda roda a versão anterior. Reinicie o cald no PC para usar isto.'
+export const OUTDATED_SERVER = 'O servidor do PC ainda roda a versão anterior. Reinicie o edit.r no PC para usar isto.'
 
 export function errorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) return err instanceof Error ? err.message : String(err)
@@ -543,7 +543,7 @@ export function errorMessage(err: unknown): string {
     case 'habilidade_exists':
       return `Já existe uma habilidade chamada ${String(err.details.name ?? '')} aí. Escolha outro nome.`
     case 'invalid_habilidade_name':
-      return 'O nome vai no /cald:nome: só letras minúsculas, números e hífen, começando por letra ou número.'
+      return 'O nome vai no /editr:nome: só letras minúsculas, números e hífen, começando por letra ou número.'
     case 'invalid_habilidade_description':
       return 'Escreva a descrição: é por ela que o Claude decide quando usar a habilidade.'
     case 'habilidade_too_long':
