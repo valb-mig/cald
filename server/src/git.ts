@@ -1,8 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, readlink, rm, symlink } from 'node:fs/promises';
+import { constants, createWriteStream } from 'node:fs';
+import { access, chmod, copyFile, lstat, mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -306,6 +306,22 @@ async function keep(cwd: string, paths: string[], intents: Set<string>): Promise
 }
 
 /**
+ * Apagar ou trocar um arquivo pede escrita na pasta dele. Uma pasta de outro usuário (a de uploads que um
+ * container criou, por exemplo) barraria o descarte no meio, com parte já feita e sem volta: confere antes.
+ */
+async function checkWritable(cwd: string, paths: string[]) {
+  const dirs = [...new Set(paths.map((p) => dirname(join(cwd, p))))];
+  const denied: string[] = [];
+  for (const dir of dirs) {
+    // Pasta que não existe mais (arquivo apagado): o git a recria, e quem decide é a de cima.
+    await access(dir, constants.W_OK).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'EACCES' || err.code === 'EPERM') denied.push(dir.slice(cwd.length + 1) || '.');
+    });
+  }
+  if (denied.length) throw new HttpError(403, 'discard_denied', { dirs: denied });
+}
+
+/**
  * Descarta as alterações dos arquivos: os do histórico voltam a ser como no último commit, no índice e
  * no disco, e os novos somem. Antes, guarda como cada um estava, e o `undo` devolvido desfaz tudo (ver
  * `gitUndoDiscard`): no painel, nenhuma ação fica sem volta.
@@ -318,6 +334,7 @@ export async function gitDiscard(cwd: string, paths: string[]): Promise<{ undo: 
   if (files.length === 0) throw new HttpError(409, 'nothing_to_discard');
   // Numa renomeação, o caminho antigo volta junto.
   const touched = [...new Set(files.flatMap((f) => (f.from ? [f.path, f.from] : [f.path])))];
+  await checkWritable(cwd, touched);
   const kept = await keep(cwd, touched, new Set(files.filter((f) => f.index === '.' && f.worktree === 'A').map((f) => f.path)));
 
   const born = await hasHead(cwd);

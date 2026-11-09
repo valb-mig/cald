@@ -656,6 +656,11 @@ export function errorMessage(err: unknown): string {
       return 'O servidor não roda como serviço. Reinicie pelo terminal.'
     case 'git_failed':
       return String(err.details.message || 'O git recusou.')
+    case 'discard_denied': {
+      const dirs = (err.details.dirs as string[] | undefined) ?? []
+      const where = dirs.length === 1 ? `a pasta ${dirs[0]} é` : `as pastas ${dirs.join(', ')} são`
+      return `Sem permissão para apagar: ${where} de outro usuário (um container, talvez). Nada foi descartado.`
+    }
     case 'worktree_dirty':
       return `O worktree tem ${String(err.details.changed)} ${err.details.changed === 1 ? 'arquivo' : 'arquivos'} sem commit. O "Trazer" leva só commits: faça o commit antes.`
     case 'nothing_to_merge':
@@ -776,6 +781,8 @@ export function errorMessage(err: unknown): string {
       return 'Já tem um envio ou um "Trazer" em andamento. Espere terminar.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
+    case 'internal':
+      return String(err.details.message || 'O PC deu um erro.')
     default:
       return err.code
   }
