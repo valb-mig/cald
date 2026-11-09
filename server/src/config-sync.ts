@@ -347,6 +347,9 @@ export class ConfigSync {
     for (const [key, entry] of Object.entries(ctx.index.items) as [string, Entry][]) {
       if (!key.startsWith(prefix)) continue;
       const id = key.slice(prefix.length);
+      // Ids que viram caminho (os dos stores, que são UUIDs, e os de arquivo, conferidos em cada categoria):
+      // um com `..` no `cald.json` não passa daqui.
+      if (!id || id.split('/').includes('..')) continue;
       const mine = local.get(id);
       if (mine && mine.updatedAt >= entry.updatedAt) {
         if (mine.updatedAt === entry.updatedAt) r.same++;
@@ -377,7 +380,9 @@ export class ConfigSync {
       incoming.push({ id, entry, project, content });
     }
     if (!ctx.dry && incoming.length) await ctx.backupStores();
-    const rejected = new Set(ctx.dry || !incoming.length ? [] : await kind.apply(ctx, incoming));
+    // Um arquivo ilegível no repositório (editado à mão, conflito) não derruba o "Trazer" no meio: a
+    // categoria inteira fica como rejeitada, e as outras seguem.
+    const rejected = new Set(ctx.dry || !incoming.length ? [] : await kind.apply(ctx, incoming).catch(() => incoming.map((i) => i.id)));
     for (const i of incoming) {
       const key = `${prefix}${i.id}`;
       if (rejected.has(i.id)) {
