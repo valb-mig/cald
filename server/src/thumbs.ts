@@ -1,16 +1,11 @@
 import type { StoredImage } from './images.ts';
+import { toWebp } from './sharp.ts';
 
 /** Lado maior das miniaturas (chat e grade de mídia): nítidas em tela de celular com 2-3x de densidade. */
 const THUMB_SIDE = 512;
 const MAX_BYTES = 30 * 1024 * 1024;
 
 export type Thumbnail = { mediaType: string; data: Buffer };
-
-type Sharp = typeof import('sharp').default;
-
-// Sob demanda; sem o binário do sharp para esta máquina, a miniatura é a própria imagem, como antes.
-let loading: Promise<Sharp | null> | undefined;
-const loadSharp = () => (loading ??= import('sharp').then((m) => m.default, () => null));
 
 const cache = new Map<string, Thumbnail>();
 let bytes = 0;
@@ -39,17 +34,12 @@ export async function thumbnail(id: string, image: StoredImage): Promise<Thumbna
   }
   const original = Buffer.from(image.data, 'base64');
   let thumb: Thumbnail = { mediaType: image.mediaType, data: original };
-  const sharp = await loadSharp();
-  if (sharp) {
-    try {
-      const data = await sharp(original)
-        .resize(THUMB_SIDE, THUMB_SIDE, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 72 })
-        .toBuffer();
-      if (data.length < original.length) thumb = { mediaType: 'image/webp', data };
-    } catch {
-      // Formato que o sharp não lê: segue o original.
-    }
+  try {
+    // Sem o sharp nesta máquina, a miniatura é a própria imagem, como antes.
+    const data = await toWebp(original, { width: THUMB_SIDE, height: THUMB_SIDE, fit: 'inside', withoutEnlargement: true, quality: 72 });
+    if (data && data.length < original.length) thumb = { mediaType: 'image/webp', data };
+  } catch {
+    // Formato que o sharp não lê: segue o original.
   }
   remember(id, thumb);
   return thumb;
