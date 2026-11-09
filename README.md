@@ -568,7 +568,7 @@ pnpm desktop:dist # AppImage, .deb e .pacman em desktop/release
 
 #### Publicar uma versão do app
 
-O workflow `.github/workflows/desktop.yml` compila os pacotes do app em todo PR que mexe nele (sem publicar) e, a cada tag `v*`, publica o AppImage, o `.deb`, o `.pacman` e o `latest-linux.yml` (de onde o app instalado procura a versão nova) num Release do GitHub. A tag precisa bater com a versão do `desktop/package.json`:
+O workflow `.github/workflows/desktop.yml` compila os pacotes do app em todo PR que mexe nele (sem publicar) e, a cada tag `v*`, publica o AppImage, o `.deb`, o `.pacman` e o `latest-linux.yml` (de onde o app instalado procura a versão nova) num Release do GitHub. O Electron e as ferramentas do empacotamento entram antes, baixados pela API do GitHub com o token do workflow (`desktop/scripts/seed-downloads.sh`), porque os downloads anônimos dos Releases podem falhar em massa. A tag precisa bater com a versão do `desktop/package.json`:
 
 ```sh
 # na main, com a versão nova no desktop/package.json ("version": "0.2.0") já commitada
