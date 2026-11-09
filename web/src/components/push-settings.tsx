@@ -5,6 +5,7 @@ import { Group, SettingRow } from '@/components/settings-ui'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { errorMessage } from '@/lib/api'
+import { desktop, type DesktopNotifications } from '@/lib/desktop'
 import { disablePush, enablePush, loadPrefs, pushStatus, savePrefs, testPush, type PushStatus } from '@/lib/push'
 import type { PushPrefs } from '@/lib/types'
 
@@ -15,6 +16,63 @@ const OPTIONS: { key: keyof PushPrefs; label: string; hint: string }[] = [
 
 /** Liga as notificações deste aparelho e escolhe o que avisa. */
 export function PushSettings() {
+  return desktop ? <DesktopPushSettings bridge={desktop} /> : <WebPushSettings />
+}
+
+/**
+ * No app do PC: avisos do sistema, que o próprio app mostra (ver desktop/src/notifications.ts), com
+ * a janela fechada também, enquanto ele estiver na bandeja.
+ */
+function DesktopPushSettings({ bridge }: { bridge: NonNullable<typeof desktop> }) {
+  const [state, setState] = useState<DesktopNotifications | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void bridge.notifications.get().then(setState)
+  }, [bridge])
+
+  async function save(next: DesktopNotifications) {
+    setBusy(true)
+    try {
+      setState(await bridge.notifications.set(next))
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Group
+      title="Notificações"
+      note="Perguntas, pedidos de aprovação e erros avisam sempre. Aqui no PC, os avisos são do sistema e chegam com a janela fechada, enquanto o edit.r estiver na bandeja."
+    >
+      {state === null && <SettingRow label="Verificando…" />}
+      {state && (
+        <>
+          <SettingRow label="Avisos neste PC" hint="Com a janela do edit.r na frente, o aviso não aparece." htmlFor="push-enabled">
+            <Switch id="push-enabled" checked={state.enabled} disabled={busy} onCheckedChange={(on) => void save({ ...state, enabled: on })} />
+          </SettingRow>
+          {state.enabled &&
+            OPTIONS.map((o) => (
+              <SettingRow key={o.key} label={o.label} hint={o.hint} htmlFor={`push-${o.key}`}>
+                <Switch id={`push-${o.key}`} checked={state[o.key]} disabled={busy} onCheckedChange={(on) => void save({ ...state, [o.key]: on })} />
+              </SettingRow>
+            ))}
+          {state.enabled && (
+            <div className="flex gap-1 px-2 pt-1 pb-1.5">
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void bridge.notifications.test().catch((err: unknown) => toast.error(errorMessage(err)))}>
+                <Send /> Enviar teste
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </Group>
+  )
+}
+
+function WebPushSettings() {
   const [status, setStatus] = useState<PushStatus | null>(null)
   const [prefs, setPrefs] = useState(loadPrefs)
   const [busy, setBusy] = useState(false)
