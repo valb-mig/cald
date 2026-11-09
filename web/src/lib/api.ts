@@ -394,6 +394,9 @@ export const api = {
   gitPull: (m: string, cwd: string) => post<{ commits: number }>(`${at(m)}/git/pull`, { cwd }),
   gitStage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/stage`, { cwd, paths }),
   gitUnstage: (m: string, cwd: string, paths: string[]) => post(`${at(m)}/git/unstage`, { cwd, paths }),
+  /** Volta os arquivos ao último commit (os novos somem); o `undo` desfaz, por uma hora. */
+  gitDiscard: (m: string, cwd: string, paths: string[]) => post<{ undo: string; files: number }>(`${at(m)}/git/discard`, { cwd, paths }),
+  gitUndoDiscard: (m: string, cwd: string, undo: string) => post(`${at(m)}/git/discard/undo`, { cwd, undo }),
   /** Commit do que está staged; `all` prepara tudo antes. */
   gitCommit: (m: string, cwd: string, message: string, all: boolean) => post<{ sha: string }>(`${at(m)}/git/commit`, { cwd, message, all }),
   /** Traz o que chegou do remoto (só avançando) e envia o que falta; sem upstream, publica a branch. */
@@ -677,6 +680,12 @@ export function errorMessage(err: unknown): string {
       return 'Escolha um projeto para rodar num worktree.'
     case 'nothing_to_commit':
       return 'Nada para o commit.'
+    case 'nothing_to_discard':
+      return 'Nada para descartar: já está como no último commit.'
+    case 'discard_dir':
+      return `${String(err.details.path ?? 'Isso')} é uma pasta (submódulo ou outro repositório): descarte pelo terminal.`
+    case 'undo_expired':
+      return 'Não dá mais para desfazer esse descarte.'
     case 'suggest_failed':
       return 'O Claude não respondeu com uma mensagem.'
     case 'suggest_timeout':

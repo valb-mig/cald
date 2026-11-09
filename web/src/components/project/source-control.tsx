@@ -15,10 +15,12 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Undo2,
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { UndoBar } from '@/components/claude/bits'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,6 +72,9 @@ type Row = { path: string; from?: string; badge: Badge; additions: number | null
 /** A branch a apagar: a daqui (`local`), com a do remoto, se houver, ou só a do remoto. */
 type Doomed = { branch: string; local: boolean; remote: string | null; ahead: number | null }
 
+/** Por quanto tempo o Desfazer de um descarte fica na lista (o servidor guarda como estava por uma hora). */
+const UNDO_MS = 10_000
+
 // O último "Desta branch" de cada projeto: voltar para a aba mostra a lista na hora, e ela se atualiza por trás.
 const lastChanges = new Map<string, BranchChanges>()
 
@@ -98,11 +103,28 @@ function useBranchChanges(project: PanelProject, active: boolean, status: GitSta
   return { data, error }
 }
 
-/** Uma linha de arquivo: tocar mostra o diff; abrir o arquivo aparece ao passar o mouse (no toque, sempre). */
-function FileRow({ row, project, scope, selected, onMenu }: { row: Row; project: PanelProject; scope: Scope; selected: boolean; onMenu: (at: FileMenuAt) => void }) {
+/**
+ * Uma linha de arquivo: tocar mostra o diff; abrir o arquivo aparece ao passar o mouse (no toque, sempre).
+ * Descartar (`onDiscard`, só no não commitado) também aparece ao passar o mouse; no toque, fica no menu do dedo segurado.
+ */
+function FileRow({
+  row,
+  project,
+  scope,
+  selected,
+  onMenu,
+  onDiscard,
+}: {
+  row: Row
+  project: PanelProject
+  scope: Scope
+  selected: boolean
+  onMenu: (at: FileMenuAt) => void
+  onDiscard?: () => void
+}) {
   const { name, dir } = splitPath(row.path)
   const deleted = row.badge.letter === 'D'
-  const press = usePressMenu((x, y) => onMenu({ path: row.path, deleted, x, y }))
+  const press = usePressMenu((x, y) => onMenu({ path: row.path, deleted, discard: onDiscard, x, y }))
   const view = { ...project, path: row.path, diff: scope }
   return (
     <div className={cn('group flex min-w-0 items-center hover:bg-muted', selected && 'bg-muted')}>
@@ -129,6 +151,18 @@ function FileRow({ row, project, scope, selected, onMenu }: { row: Row; project:
           title="Abrir arquivo"
         >
           <FileText />
+        </Button>
+      )}
+      {onDiscard && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:text-red-600 pointer-coarse:hidden dark:hover:text-red-400"
+          onClick={onDiscard}
+          aria-label={`Descartar as alterações de ${name}`}
+          title="Descartar alterações"
+        >
+          <Undo2 />
         </Button>
       )}
       {row.additions || row.deletions ? (
@@ -159,7 +193,7 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
     setScopeState(next)
   }
   const [query, setQuery] = useState('')
-  const [busy, setBusy] = useState<'pull' | 'switch' | 'branch' | 'reload' | 'delete' | 'dump' | null>(null)
+  const [busy, setBusy] = useState<'pull' | 'switch' | 'branch' | 'reload' | 'delete' | 'dump' | 'discard' | null>(null)
   // O dump esperando a confirmação (ver dump-dialog.tsx).
   const [dumping, setDumping] = useState(false)
   const [branches, setBranches] = useState<GitBranches | null>(null)
@@ -170,6 +204,15 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
   // A branch esperando a confirmação para apagar, e se vai junto a do remoto.
   const [doomed, setDoomed] = useState<Doomed | null>(null)
   const [alsoRemote, setAlsoRemote] = useState(false)
+  // Os arquivos esperando a confirmação para descartar todos (ou todos os do filtro).
+  const [discarding, setDiscarding] = useState<{ rows: Row[]; filtered: boolean } | null>(null)
+  // O último descarte, com o Desfazer na própria lista: no celular a barra é uma folha, e um aviso ficaria fora dela, sem clique.
+  const [undone, setUndone] = useState<{ id: string; text: string } | null>(null)
+  useEffect(() => {
+    if (!undone) return
+    const timer = setTimeout(() => setUndone(null), UNDO_MS)
+    return () => clearTimeout(timer)
+  }, [undone])
   const branchChanges = useBranchChanges(project, scope === 'base', status)
   const viewing = useProjectPanel((s) => s.viewing)
   const menu = useFileMenu(project)
@@ -279,6 +322,23 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
     })
   }
 
+  /** Volta os arquivos ao último commit (os novos somem), com Desfazer logo em seguida. */
+  const discard = (paths: string[]) => {
+    setDiscarding(null)
+    if (busy) return
+    void run('discard', async () => {
+      const { undo, files } = await api.gitDiscard(project.machine, project.cwd, paths)
+      setUndone({ id: undo, text: paths.length === 1 ? `${splitPath(paths[0]!).name} descartado` : `${files} arquivos descartados` })
+    })
+  }
+
+  const undoDiscard = (id: string) => {
+    setUndone(null)
+    void run('discard', () => api.gitUndoDiscard(project.machine, project.cwd, id))
+  }
+
+  // Com o filtro, "descartar todas" é só as que ele mostra.
+  const filtered = Boolean(shown && rows && shown.length < rows.length)
   const selected = viewing?.machine === project.machine && viewing.cwd === project.cwd && viewing.diff === scope ? viewing.path : null
 
   return (
@@ -307,6 +367,18 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        {scope === 'head' && shown && shown.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={busy !== null}
+            onClick={() => setDiscarding({ rows: shown, filtered })}
+            aria-label={filtered ? 'Descartar as filtradas' : 'Descartar todas'}
+            title={filtered ? 'Descartar as alterações filtradas' : 'Descartar todas as alterações'}
+          >
+            {busy === 'discard' ? <Loader2 className="animate-spin" /> : <Undo2 />}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -336,23 +408,40 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {scope === 'base' && branchChanges.error ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">{branchChanges.error}</p>
-        ) : !shown ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {scope === 'base' && branchChanges.error ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">{branchChanges.error}</p>
+          ) : !shown ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : rows?.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {scope === 'head' ? 'Nada alterado.' : branchChanges.data?.base ? `Nada fora da ${branchChanges.data.base}.` : 'Não achei a main (nem a master) para comparar.'}
+            </p>
+          ) : shown.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">Nenhum arquivo com “{query.trim()}”.</p>
+          ) : (
+            shown.map((r) => (
+              <FileRow
+                key={r.path}
+                row={r}
+                project={project}
+                scope={scope}
+                selected={selected === r.path}
+                onMenu={menu.show}
+                onDiscard={scope === 'head' ? () => discard([r.path]) : undefined}
+              />
+            ))
+          )}
+          {menu.menu}
+        </div>
+        {undone && (
+          <div className="absolute inset-x-2 bottom-2">
+            <UndoBar text={undone.text} onUndo={() => undoDiscard(undone.id)} />
           </div>
-        ) : rows?.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
-            {scope === 'head' ? 'Nada alterado.' : branchChanges.data?.base ? `Nada fora da ${branchChanges.data.base}.` : 'Não achei a main (nem a master) para comparar.'}
-          </p>
-        ) : shown.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">Nenhum arquivo com “{query.trim()}”.</p>
-        ) : (
-          shown.map((r) => <FileRow key={r.path} row={r} project={project} scope={scope} selected={selected === r.path} onMenu={menu.show} />)
         )}
-        {menu.menu}
       </div>
 
       <div className="flex shrink-0 items-center gap-1 px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -465,6 +554,23 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
         onConfirm={runDump}
       />
 
+      <AlertDialog open={discarding !== null} onOpenChange={(open) => !open && setDiscarding(null)}>
+        {discarding && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{discarding.filtered ? `Descartar os ${discarding.rows.length} filtrados?` : 'Descartar todas as alterações?'}</AlertDialogTitle>
+              <AlertDialogDescription>{discardNote(discarding.rows)}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => discard(discarding.rows.map((r) => r.path))}>
+                Descartar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
+
       <AlertDialog open={doomed !== null} onOpenChange={(open) => !open && setDoomed(null)}>
         {doomed && (
           <AlertDialogContent>
@@ -493,6 +599,17 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
       </AlertDialog>
     </div>
   )
+}
+
+/** O que o descarte faz: quantos voltam ao último commit e quantos, nunca commitados, são apagados. */
+function discardNote(rows: Row[]): string {
+  const fresh = rows.filter((r) => r.badge.letter === 'U' || r.badge.letter === 'A').length
+  const back = rows.length - fresh
+  const parts = [
+    back > 0 && `${back} ${back === 1 ? 'volta' : 'voltam'} ao último commit`,
+    fresh > 0 && `${fresh} ${fresh === 1 ? 'novo é apagado' : 'novos são apagados'}`,
+  ].filter(Boolean)
+  return `${parts.join(' e ')}. Dá para desfazer logo depois.`
 }
 
 /** O que se perde ao apagar: os commits que só a branch tem, e se eles continuam no remoto. */
