@@ -104,8 +104,12 @@ export class PushService extends EventEmitter {
     await Promise.all([this.notifyHere(payload, opts), ...this.peers().map((base) => this.relay(base, payload, opts))]);
   }
 
-  /** Só aos aparelhos inscritos nesta máquina (aviso repassado por outra; não repassa de novo). */
+  /**
+   * Só aos aparelhos inscritos nesta máquina (aviso repassado por outra; não repassa de novo). Sai
+   * também como `local`, para o app do PC, que não tem Web Push e mostra como aviso do sistema.
+   */
   async notifyHere(payload: PushPayload, opts: SendOptions): Promise<void> {
+    this.emit('local', payload, opts);
     const targets = this.data.subscriptions.filter((s) => opts.needs.every((p) => s.prefs[p]));
     await Promise.all(targets.map((s) => this.deliver(s, payload, opts).catch((err: unknown) => this.emit('error', err))));
   }

@@ -11,7 +11,7 @@ import { AccessMonitor, keyOf, LOCAL } from './access.ts';
 import { activity } from './providers/claude/activity.ts';
 import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
-import { HOST, MACHINE_NAME, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
+import { HOST, MACHINE_NAME, PACKAGED, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
@@ -38,7 +38,7 @@ import { planReview, type PartialReview } from './pull-review-plan.ts';
 import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
-import { accessGuard, loadAccessPolicy, pinToken, refreshTailnet } from './guard.ts';
+import { accessGuard, loadAccessPolicy, localOnly, pinToken, refreshTailnet } from './guard.ts';
 import { RemoteLink } from './link.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
@@ -765,12 +765,15 @@ const updater = new Updater(
   },
 );
 
-app.get('/api/update', async () => updater.status());
-app.post('/api/update', async () => updater.start());
-app.post('/api/update/restart', async () => {
-  await updater.restartNow();
-  return { ok: true };
-});
+// Empacotado no app do PC não há repositório para puxar: sem as rotas, o app esconde o cartão.
+if (!PACKAGED) {
+  app.get('/api/update', async () => updater.status());
+  app.post('/api/update', async () => updater.start());
+  app.post('/api/update/restart', async () => {
+    await updater.restartNow();
+    return { ok: true };
+  });
+}
 
 app.get<{ Params: IdParams & { key: string }; Querystring: { thumb?: string } }>(
   '/api/sessions/:id/images/:key',
@@ -2024,6 +2027,23 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
     return { ok: true };
   },
 );
+
+// Os avisos para o app do PC (ver desktop/src/notifications.ts): o Electron não tem Web Push, então
+// ele ouve aqui, em Server-Sent Events, e mostra cada um como notificação do sistema. Só pela porta local.
+app.get('/api/push/local', (req, reply) => {
+  if (!localOnly(policy, req)) return reply.code(403).send({ error: 'local_only' });
+  reply.hijack();
+  reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+  reply.raw.write(': edit.r\n\n');
+  const send = (payload: PushPayload, opts: SendOptions) => reply.raw.write(`data: ${JSON.stringify({ payload, opts })}\n\n`);
+  // Comentário de tempos em tempos: a conexão parada não cai por inatividade.
+  const ping = setInterval(() => reply.raw.write(': ping\n\n'), 30_000);
+  push.on('local', send);
+  req.raw.on('close', () => {
+    clearInterval(ping);
+    push.off('local', send);
+  });
+});
 
 // ---- WebSocket: catálogo e eventos em tempo real ----
 

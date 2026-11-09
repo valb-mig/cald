@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CACHE_DIR } from './config.ts';
+import { CACHE_DIR, SUPERVISOR } from './config.ts';
 import { HttpError } from './errors.ts';
 
 /** Raiz do repositório do próprio painel (server/src → ../..). */
@@ -16,7 +16,7 @@ const LOG_TAIL = 4_000;
 const RESUME_FILE = process.env.RESUME_FILE ?? join(CACHE_DIR, 'resume.json');
 const RESUME_MAX_AGE_MS = 10 * 60_000;
 
-/** Saída com erro de propósito: o serviço tem `Restart=on-failure` e sobe de novo em 3 s. */
+/** Saída com erro de propósito: o serviço tem `Restart=on-failure` e sobe de novo em 3 s (o app do PC também). */
 export const RESTART_EXIT_CODE = 75;
 
 export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'restart';
@@ -37,7 +37,7 @@ export type UpdateStatus = {
   dirty: boolean;
   /** Conversas do painel trabalhando ou esperando resposta: reiniciar as derrubaria. */
   busy: string[];
-  /** Rodando como serviço do systemd, que sobe o servidor de novo depois de sair. */
+  /** Rodando como serviço do systemd ou pelo app do PC, que sobem o servidor de novo depois de sair. */
   canRestart: boolean;
   job: UpdateJob | null;
   fetchError?: string;
@@ -86,7 +86,7 @@ export class Updater {
 
   /**
    * @param busy conversas do painel que um reinício derrubaria (trabalhando ou esperando resposta).
-   * @param restart grava o que reabrir e encerra o processo; o systemd sobe de novo.
+   * @param restart grava o que reabrir e encerra o processo; o systemd (ou o app do PC) sobe de novo.
    */
   constructor(busy: () => Promise<string[]>, restart: () => Promise<void>, repo = REPO_DIR) {
     this.busy = busy;
@@ -127,7 +127,7 @@ export class Updater {
       ahead: Number(ahead),
       dirty: dirty.length > 0,
       busy,
-      canRestart: Boolean(process.env.INVOCATION_ID),
+      canRestart: SUPERVISOR !== null,
       job: this.job,
       fetchError,
     };
@@ -151,7 +151,7 @@ export class Updater {
 
   /** Reinício que ficou adiado (uma conversa começou a trabalhar durante a compilação). */
   async restartNow(): Promise<void> {
-    if (!process.env.INVOCATION_ID) throw new HttpError(409, 'update_no_service');
+    if (!SUPERVISOR) throw new HttpError(409, 'update_no_service');
     const busy = await this.busy();
     if (busy.length) throw new HttpError(409, 'update_busy', { sessions: busy });
     await this.restart();
@@ -177,7 +177,7 @@ export class Updater {
     job.step = 'restart';
     // Conversa que começou a trabalhar durante a compilação: não derruba; fica para reiniciar depois.
     const busy = await this.busy();
-    if (!process.env.INVOCATION_ID || busy.length) {
+    if (!SUPERVISOR || busy.length) {
       job.done = true;
       if (busy.length) job.error = 'restart_postponed';
       return;

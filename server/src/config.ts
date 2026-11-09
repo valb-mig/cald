@@ -5,7 +5,18 @@ import { fileURLToPath } from 'node:url';
 
 const env = process.env;
 
+// Pelo app do PC (ver desktop/), o servidor roda no Node do próprio Electron, ligado por esta
+// variável. Ela só vale na partida: sai daqui para não passar aos processos filhos, onde faria um app
+// Electron aberto pelo terminal do painel (o VSCode, por exemplo) subir como Node.
+delete env.ELECTRON_RUN_AS_NODE;
+
 export const PORT = Number(env.PORT ?? 7337);
+
+// Quem sobe o servidor de novo depois de ele sair (o reinício da atualização): o systemd, que marca
+// os serviços com INVOCATION_ID, ou o app do PC. `null` rodando à mão.
+export const SUPERVISOR = env.EDITR_SUPERVISOR ?? (env.INVOCATION_ID ? 'systemd' : null);
+// Empacotado no app do PC, sem o repositório git ao lado: a atualização é a do app, não a do git.
+export const PACKAGED = env.EDITR_PACKAGED === '1';
 
 // Nome desta máquina no app quando há várias (ver machines.ts); por padrão, o do sistema.
 export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();

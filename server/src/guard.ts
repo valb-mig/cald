@@ -66,7 +66,16 @@ function knownOrigin(policy: AccessPolicy, origin: string): boolean {
 // (ver machines.ts e push.ts) e as páginas dos protótipos e dos artefatos, cujo id aleatório é a
 // credencial (ver prototypes.ts e artefatos.ts). Continuam valendo o Host, a origem e o login do Tailscale.
 const PAGE_ROUTES = new Set([VIEW_ROUTE, ARTEFATO_VIEW_ROUTE]);
-const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay', ...PAGE_ROUTES]);
+// O canal de avisos do app do PC também, mas só pela porta local (ver `localOnly`).
+const PIN_FREE = new Set(['/api/health', '/api/pin', '/api/pin/unlock', '/api/pin/lock', '/api/push/relay', '/api/push/local', ...PAGE_ROUTES]);
+
+/**
+ * Pedido feito no próprio PC, direto na porta local: o `tailscale serve` sempre manda o
+ * `X-Forwarded-For`, e o Host de quem vem pela tailnet é o nome dela. É assim que fala o app do PC.
+ */
+export function localOnly(policy: AccessPolicy, req: FastifyRequest): boolean {
+  return policy.localHosts.has(req.headers.host ?? '') && !('x-forwarded-for' in req.headers) && !('tailscale-user-login' in req.headers);
+}
 
 /** O token do PIN: no cabeçalho (fetch) ou em `?t=` (WebSocket, `<img>` e links, que não mandam cabeçalho). */
 export function pinToken(req: FastifyRequest): string | undefined {
