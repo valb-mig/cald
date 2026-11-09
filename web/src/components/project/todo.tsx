@@ -17,6 +17,7 @@ import { insertInChat, openViewer, type PanelProject } from '@/lib/project-panel
 import { mentionsOf, newTodoId, saveTodos, useTodoError, useTodos } from '@/lib/todos'
 import type { Todo, TodoFile } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { TodoEmptyArt } from './empty-art'
 
 // A descrição numa linha só, para a lista: sem a marcação do Markdown nem o caminho inteiro das menções.
 const preview = (body: string) =>
@@ -478,7 +479,7 @@ export function TodoTab({ project }: { project: PanelProject }) {
           <Plus /> Novo
         </Button>
       </form>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {error && !items ? (
           <p className="p-4 text-center text-sm text-muted-foreground">{error}</p>
         ) : !items ? (
@@ -486,7 +487,7 @@ export function TodoTab({ project }: { project: PanelProject }) {
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : items.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">Nada por fazer neste projeto.</p>
+          <TodoEmptyArt />
         ) : (
           <>
             <div className="space-y-0.5">

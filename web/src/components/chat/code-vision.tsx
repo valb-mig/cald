@@ -11,7 +11,7 @@ import type { FileView } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { LineCounts } from './activity'
 import { buildTree, relOf, targetOf, type FileEdit, type FileInfo, type TreeNode } from './code-files'
-import { CodeEmptyArt } from './empty-art'
+import { CodeEmptyArt, FileMissingArt, FileNotTextArt } from './empty-art'
 import { isRecent, reducedMotion } from './fresh'
 import { ScreenBar } from './screen-bar'
 import { ScreenCtx } from './screen-ctx'
@@ -113,6 +113,30 @@ function Rows({ rows, seed }: { rows: Row[]; seed: string }) {
               </span>
             </span>
           )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// O esqueleto do carregando: recuo e largura de cada linha, em px, como um trecho de código qualquer.
+const SKELETON: [number, number][] = [
+  [0, 96], [0, 168], [16, 132], [16, 76], [0, 24], [0, 0], [0, 120], [16, 188], [32, 144], [32, 104], [16, 40], [0, 0], [0, 84], [16, 156],
+]
+
+/**
+ * Lendo o arquivo: linhas de código em barras, no lugar e no passo das de verdade (gutter, 20 px por linha),
+ * para o conteúdo entrar sem pular. Aparece só depois de um instante: leitura rápida não pisca nada.
+ */
+function CodeSkeleton() {
+  return (
+    <div aria-busy aria-label="Carregando" className="min-w-0 flex-1 animate-in overflow-hidden py-1 fade-in-0 duration-300" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
+      {SKELETON.map(([indent, w], n) => (
+        <div key={n} className="flex h-5 items-center">
+          <span className="flex w-11 shrink-0 justify-end pr-2">
+            <span className="h-2 w-2.5 rounded-full bg-muted/60" />
+          </span>
+          {w > 0 && <span className="h-2 animate-pulse rounded-full bg-muted motion-reduce:animate-none" style={{ marginLeft: indent, width: w, animationDelay: `${n * 60}ms` }} />}
         </div>
       ))}
     </div>
@@ -378,18 +402,18 @@ export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId
         <SideToggle />
       </ScreenBar>
       <div className={cn('flex min-h-0 flex-1', ctx?.collapsed && 'hidden')}>
-        <div ref={scroller} className="relative min-w-0 flex-1 overflow-auto">
-          {rows ? (
-            <>
-              <Rows rows={rows.length > MAX_ROWS ? rows.slice(0, MAX_ROWS) : rows} seed={seed} />
-              {view && view !== 'missing' && view.kind === 'text' && view.truncated && <p className="px-3 pb-2 text-xs text-muted-foreground">Arquivo cortado: só o começo.</p>}
-            </>
-          ) : (
-            <p className="px-3 py-3 text-xs text-muted-foreground">
-              {view === 'missing' ? 'Arquivo indisponível' : view ? (view.kind === 'text' ? '' : 'Arquivo que não é texto') : 'Carregando…'}
-            </p>
-          )}
-        </div>
+        {rows ? (
+          <div ref={scroller} className="relative min-w-0 flex-1 overflow-auto">
+            <Rows rows={rows.length > MAX_ROWS ? rows.slice(0, MAX_ROWS) : rows} seed={seed} />
+            {view && view !== 'missing' && view.kind === 'text' && view.truncated && <p className="px-3 pb-2 text-xs text-muted-foreground">Arquivo cortado: só o começo.</p>}
+          </div>
+        ) : view === 'missing' ? (
+          <FileMissingArt />
+        ) : view && view.kind !== 'text' ? (
+          <FileNotTextArt kind={view.kind} />
+        ) : (
+          <CodeSkeleton />
+        )}
         {side && (
           <div className="w-[190px] shrink-0 overflow-y-auto bg-foreground/[0.03] px-1 py-1">
             <Tree

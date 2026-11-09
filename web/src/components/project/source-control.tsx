@@ -51,6 +51,7 @@ import type { BranchChanges, GitBranches, GitStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { openPanelTab } from '@/lib/workbench'
 import { DumpDialog } from './dump-dialog'
+import { CleanEmptyArt } from './empty-art'
 import { useFileMenu, type FileMenuAt } from './file-menu'
 import { ChangeChip } from './patch-list'
 import { badge, BADGES, splitPath, type Badge } from './status'
@@ -409,7 +410,7 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
       )}
 
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {scope === 'base' && branchChanges.error ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">{branchChanges.error}</p>
           ) : !shown ? (
@@ -417,9 +418,13 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
             </div>
           ) : rows?.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              {scope === 'head' ? 'Nada alterado.' : branchChanges.data?.base ? `Nada fora da ${branchChanges.data.base}.` : 'Não achei a main (nem a master) para comparar.'}
-            </p>
+            scope === 'head' ? (
+              <CleanEmptyArt title="Nada alterado" hint="O que mudar nos arquivos, antes do commit, aparece aqui." />
+            ) : branchChanges.data?.base ? (
+              <CleanEmptyArt title={`Nada fora da ${branchChanges.data.base}`} hint="Os commits e as alterações desta branch aparecem aqui." />
+            ) : (
+              <p className="px-3 py-2 text-xs text-muted-foreground">Não achei a main (nem a master) para comparar.</p>
+            )
           ) : shown.length === 0 ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">Nenhum arquivo com “{query.trim()}”.</p>
           ) : (
