@@ -191,7 +191,44 @@ export type GithubReview = {
 /** Um check do último commit, com o resultado já resumido: passou, falhou, rodando ou neutro (pulado, cancelado). */
 export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pending' | 'neutral'; url: string | null };
 
-export type GithubFile = { path: string; additions: number; deletions: number; change: string };
+/** `viewed`: você marcou o arquivo como visto nesta versão do PR (o GitHub desmarca quando ele muda). */
+export type GithubFile = { path: string; additions: number; deletions: number; change: string; viewed: boolean };
+
+/** Um comentário de uma conversa de revisão; `pending`: está na sua revisão ainda não enviada (só você vê). */
+export type GithubThreadComment = {
+  id: string;
+  author: string | null;
+  avatar: string | null;
+  role: string;
+  body: string;
+  createdAt: string;
+  url: string;
+  pending: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+};
+
+/**
+ * Uma conversa de revisão presa a uma linha (ou a um trecho, de `startLine` a `line`) de um arquivo, do
+ * lado novo (`RIGHT`) ou do antigo (`LEFT`) do diff. `line` é nulo quando o código mudou depois e ela não
+ * aponta mais para a versão atual (`outdated`); aí vale o `hunk`, o trecho do diff de quando foi escrita.
+ */
+export type GithubThread = {
+  id: string;
+  path: string;
+  line: number | null;
+  startLine: number | null;
+  side: 'LEFT' | 'RIGHT';
+  originalLine: number | null;
+  outdated: boolean;
+  resolved: boolean;
+  resolvedBy: string | null;
+  canReply: boolean;
+  canResolve: boolean;
+  canUnresolve: boolean;
+  hunk: string;
+  comments: GithubThreadComment[];
+};
 
 /** Um commit do PR, para a aba de commits e para a linha do tempo. */
 export type GithubCommit = { sha: string; short: string; headline: string; author: string | null; avatar: string | null; date: string; url: string };
@@ -223,6 +260,8 @@ export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
 export type GithubPullDetail = ItemBase & {
   kind: 'pr';
+  /** O id do PR na API GraphQL, para as ações de revisão. */
+  id: string;
   draft: boolean;
   base: string;
   branch: string;
@@ -247,6 +286,10 @@ export type GithubPullDetail = ItemBase & {
   defaultMethod: MergeMethod;
   /** O repositório apaga a branch sozinho depois do merge. */
   deleteBranchOnMerge: boolean;
+  /** As conversas de revisão nas linhas dos arquivos (as 100 primeiras), com as suas pendentes. */
+  threads: GithubThread[];
+  /** A sua revisão começada e ainda não enviada: os comentários dela só você vê. */
+  pendingReview: { id: string; comments: number } | null;
 };
 
 /** `viewer`: o login do `gh` deste PC; `repoLabels`: as etiquetas do repositório, para pôr e tirar. */
@@ -293,7 +336,13 @@ const PULL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
         ... on CheckRun { name conclusion status detailsUrl }
         ... on StatusContext { context state targetUrl }
       } } } } } }
-      files(first: 100) { nodes { path additions deletions changeType } }
+      id
+      files(first: 100) { nodes { path additions deletions changeType viewerViewedState } }
+      pending: reviews(states: PENDING, first: 1) { nodes { id comments { totalCount } } }
+      reviewThreads(first: 100) { nodes {
+        id path line startLine diffSide originalLine isOutdated isResolved resolvedBy { login } viewerCanReply viewerCanResolve viewerCanUnresolve
+        comments(first: 50) { nodes { id author { login avatarUrl(size: 64) } authorAssociation body createdAt url diffHunk state viewerCanUpdate viewerCanDelete } }
+      } }
       reviews(last: 30) { nodes { author { login avatarUrl(size: 64) } state body submittedAt } }
       commitList: commits(last: 50) { nodes { commit {
         oid abbreviatedOid messageHeadline committedDate url author { name user { login avatarUrl(size: 64) } }
@@ -343,7 +392,28 @@ type RawPullDetail = RawCommon & {
   deletions: number;
   changedFiles: number;
   commits: { totalCount: number; nodes: { commit: { statusCheckRollup: { contexts: { nodes: RawContext[] } } | null } }[] };
-  files: { nodes: { path: string; additions: number; deletions: number; changeType: string }[] } | null;
+  id: string;
+  files: { nodes: { path: string; additions: number; deletions: number; changeType: string; viewerViewedState: string }[] } | null;
+  pending: { nodes: { id: string; comments: { totalCount: number } }[] };
+  reviewThreads: {
+    nodes: {
+      id: string;
+      path: string;
+      line: number | null;
+      startLine: number | null;
+      diffSide: 'LEFT' | 'RIGHT';
+      originalLine: number | null;
+      isOutdated: boolean;
+      isResolved: boolean;
+      resolvedBy: { login: string } | null;
+      viewerCanReply: boolean;
+      viewerCanResolve: boolean;
+      viewerCanUnresolve: boolean;
+      comments: {
+        nodes: (RawComment & { id: string; diffHunk: string; state: 'PENDING' | 'SUBMITTED'; viewerCanUpdate: boolean; viewerCanDelete: boolean })[];
+      };
+    }[];
+  };
   reviews: { nodes: { author: RawAuthor; state: GithubReview['state']; body: string; submittedAt: string | null }[] };
   commitList: {
     nodes: {
@@ -457,6 +527,7 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
       item: {
         ...common(raw),
         kind: 'pr',
+        id: raw.id,
         draft: raw.isDraft,
         base: raw.baseRefName,
         branch: raw.headRefName,
@@ -467,7 +538,13 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
         changedFiles: raw.changedFiles,
         commitCount: raw.commits.totalCount,
         checks: raw.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes.map(checkOf) ?? [],
-        files: (raw.files?.nodes ?? []).map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions, change: f.changeType })),
+        files: (raw.files?.nodes ?? []).map((f) => ({
+          path: f.path,
+          additions: f.additions,
+          deletions: f.deletions,
+          change: f.changeType,
+          viewed: f.viewerViewedState === 'VIEWED',
+        })),
         reviews: raw.reviews.nodes.map((r) => ({
           author: r.author?.login ?? null,
           avatar: r.author?.avatarUrl ?? null,
@@ -489,6 +566,36 @@ async function loadItem(cwd: string, kind: 'issue' | 'pr', number: number): Prom
         mergeMethods: methods,
         defaultMethod: methods.includes(suggested) ? suggested : (methods[0] ?? 'merge'),
         deleteBranchOnMerge: rules.deleteBranchOnMerge,
+        threads: raw.reviewThreads.nodes
+          .filter((t) => t.comments.nodes.length)
+          .map((t) => ({
+            id: t.id,
+            path: t.path,
+            line: t.line,
+            startLine: t.startLine,
+            side: t.diffSide,
+            originalLine: t.originalLine,
+            outdated: t.isOutdated,
+            resolved: t.isResolved,
+            resolvedBy: t.resolvedBy?.login ?? null,
+            canReply: t.viewerCanReply,
+            canResolve: t.viewerCanResolve,
+            canUnresolve: t.viewerCanUnresolve,
+            hunk: t.comments.nodes[0]!.diffHunk,
+            comments: t.comments.nodes.map((c) => ({
+              id: c.id,
+              author: c.author?.login ?? null,
+              avatar: c.author?.avatarUrl ?? null,
+              role: c.authorAssociation ?? 'NONE',
+              body: c.body,
+              createdAt: c.createdAt,
+              url: c.url,
+              pending: c.state === 'PENDING',
+              canEdit: c.viewerCanUpdate,
+              canDelete: c.viewerCanDelete,
+            })),
+          })),
+        pendingReview: raw.pending.nodes[0] ? { id: raw.pending.nodes[0].id, comments: raw.pending.nodes[0].comments.totalCount } : null,
       },
       fetchedAt,
       quota,
@@ -638,10 +745,14 @@ export function githubItem(cwd: string, kind: 'issue' | 'pr', number: number, re
 // ---- ações: o que dá para fazer no GitHub sem sair do painel ----
 
 /**
- * Uma ação numa issue ou num PR, feita pelo `gh` deste PC, com o login dele. `review` e `merge` e
- * `draft` são só de PR. No merge, a branch é apagada pela API, e não pelo `--delete-branch` do `gh`:
- * ele também apaga a branch local e troca de branch na pasta do projeto, onde pode ter uma conversa
- * trabalhando.
+ * Uma ação numa issue ou num PR, feita pelo `gh` deste PC, com o login dele. Revisar, dar merge, o
+ * rascunho e tudo das linhas são só de PR. No merge, a branch é apagada pela API, e não pelo
+ * `--delete-branch` do `gh`: ele também apaga a branch local e troca de branch na pasta do projeto, onde
+ * pode ter uma conversa trabalhando.
+ *
+ * Nas linhas, como no GitHub: um comentário vai na hora (`now`) ou entra na sua revisão pendente (que
+ * nasce com ele), e só sai com o `review`, junto com o veredito. `line` e `side` são a linha e o lado do
+ * diff (`RIGHT`, o arquivo novo; `LEFT`, o antigo); com `startLine`, o comentário pega o trecho.
  */
 export type GithubAction =
   | { type: 'comment'; body: string }
@@ -651,9 +762,113 @@ export type GithubAction =
   | { type: 'review'; event: 'approve' | 'request-changes' | 'comment'; body?: string }
   | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
   | { type: 'draft'; draft: boolean }
-  | { type: 'edit'; title?: string; body?: string };
+  | { type: 'edit'; title?: string; body?: string }
+  | ({ type: 'line-comment'; now: boolean } & LineComment)
+  /** Vários de uma vez na revisão pendente (os que um agente escreveu, ver pull-review-plan.ts). */
+  | { type: 'line-comments'; comments: LineComment[] }
+  | { type: 'reply'; thread: string; body: string }
+  | { type: 'resolve'; thread: string; resolved: boolean }
+  | { type: 'edit-comment'; comment: string; body: string }
+  | { type: 'delete-comment'; comment: string }
+  | { type: 'discard-review' }
+  | { type: 'viewed'; path: string; viewed: boolean };
 
-const PR_ONLY = new Set<GithubAction['type']>(['review', 'merge', 'draft']);
+export type DiffSide = 'LEFT' | 'RIGHT';
+/** Um comentário numa linha (ou no trecho de `startLine` a `line`) de um arquivo, num lado do diff. */
+export type LineComment = { path: string; line: number; side: DiffSide; startLine?: number; startSide?: DiffSide; body: string };
+
+const PR_ONLY = new Set<GithubAction['type']>(['review', 'merge', 'draft', 'line-comment', 'line-comments', 'reply', 'resolve', 'edit-comment', 'delete-comment', 'discard-review', 'viewed']);
+
+// O id do PR e o da sua revisão pendente, que as mutações da revisão pedem: sempre de agora, porque a
+// pendente nasce e some com as ações (e de outro aparelho).
+const IDS_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { id pending: reviews(states: PENDING, first: 1) { nodes { id } } } }
+}`;
+
+const THREAD_FIELDS = `path: $path, line: $line, side: $side, startLine: $startLine, startSide: $startSide, body: $body`;
+const THREAD_VARS = `$path: String!, $line: Int!, $side: DiffSide!, $startLine: Int, $startSide: DiffSide, $body: String!`;
+// Sem revisão pendente: uma nova com o comentário, que fica pendente ou (com `event`) já sai como um comentário só.
+const NEW_REVIEW = (submit: boolean) => `mutation($pr: ID!, ${THREAD_VARS}) {
+  addPullRequestReview(input: {pullRequestId: $pr, ${submit ? 'event: COMMENT, ' : ''}threads: [{${THREAD_FIELDS}}]}) { pullRequestReview { id } }
+}`;
+const NEW_REVIEW_MANY = `mutation($pr: ID!, $threads: [DraftPullRequestReviewThread]) {
+  addPullRequestReview(input: {pullRequestId: $pr, threads: $threads}) { pullRequestReview { id } }
+}`;
+const ADD_THREAD = `mutation($review: ID!, ${THREAD_VARS}) {
+  addPullRequestReviewThread(input: {pullRequestReviewId: $review, ${THREAD_FIELDS}}) { thread { id } }
+}`;
+const REPLY = `mutation($thread: ID!, $body: String!, $review: ID) {
+  addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body, pullRequestReviewId: $review}) { comment { id } }
+}`;
+const RESOLVE = (resolved: boolean) => `mutation($thread: ID!) {
+  ${resolved ? 'resolveReviewThread' : 'unresolveReviewThread'}(input: {threadId: $thread}) { thread { id } }
+}`;
+const EDIT_COMMENT = `mutation($comment: ID!, $body: String!) {
+  updatePullRequestReviewComment(input: {pullRequestReviewCommentId: $comment, body: $body}) { pullRequestReviewComment { id } }
+}`;
+const DELETE_COMMENT = `mutation($comment: ID!) { deletePullRequestReviewComment(input: {id: $comment}) { clientMutationId } }`;
+const SUBMIT_REVIEW = `mutation($review: ID!, $event: PullRequestReviewEvent!, $body: String) {
+  submitPullRequestReview(input: {pullRequestReviewId: $review, event: $event, body: $body}) { pullRequestReview { id } }
+}`;
+const DISCARD_REVIEW = `mutation($review: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $review}) { clientMutationId } }`;
+const VIEWED = (viewed: boolean) => `mutation($pr: ID!, $path: String!) {
+  ${viewed ? 'markFileAsViewed' : 'unmarkFileAsViewed'}(input: {pullRequestId: $pr, path: $path}) { clientMutationId }
+}`;
+
+/** O erro do `gh` como ele veio, para a tela. */
+function actionError(err: unknown): HttpError {
+  const f = failure(err, Date.now());
+  const message = f.reason === 'no_gh' ? 'O GitHub CLI (gh) não está instalado no PC.' : f.reason === 'gh_auth' ? 'O gh do PC não está logado.' : (f.message ?? 'O GitHub recusou.');
+  return new HttpError(422, 'github_action_failed', { message: message.replace(/^gh: /, '') });
+}
+
+/** Uma mutação da API GraphQL; as variáveis sem valor ficam de fora (valem nulas). */
+async function mutate(cwd: string, query: string, vars: Record<string, string | number | undefined>): Promise<void> {
+  const given = Object.fromEntries(Object.entries(vars).filter(([, v]) => v !== undefined)) as Record<string, string | number>;
+  try {
+    await graphql(cwd, query, given);
+  } catch (err) {
+    throw actionError(err);
+  }
+}
+
+/** Uma mutação com variáveis que não cabem no `-f` do `gh` (uma lista de objetos): o corpo vai pela entrada padrão. */
+async function mutateInput(cwd: string, query: string, variables: Record<string, unknown>): Promise<void> {
+  try {
+    const call = exec('gh', ['api', 'graphql', '--input', '-'], { cwd, timeout: 60_000, maxBuffer: 16 * 1024 * 1024 });
+    call.child.stdin?.end(JSON.stringify({ query, variables }));
+    await call;
+  } catch (err) {
+    throw actionError(err);
+  }
+}
+
+/** O comentário como o GitHub pede: o começo do trecho só quando há trecho. */
+const threadOf = (c: LineComment) => ({
+  path: c.path,
+  line: c.line,
+  side: c.side,
+  startLine: c.startLine,
+  startSide: c.startLine ? (c.startSide ?? c.side) : undefined,
+  body: c.body,
+});
+
+async function pullIds(cwd: string, owner: string, name: string, number: number): Promise<{ pr: string; pending: string | null }> {
+  type Raw = { data?: { repository: { pullRequest: { id: string; pending: { nodes: { id: string }[] } } | null } | null } };
+  let raw: Raw;
+  try {
+    raw = await graphql<Raw>(cwd, IDS_QUERY, { owner, name, number });
+  } catch (err) {
+    throw actionError(err);
+  }
+  const pr = raw.data?.repository?.pullRequest;
+  if (!pr) throw new HttpError(404, 'github_action_failed', { message: `PR #${number} não encontrado no GitHub.` });
+  return { pr: pr.id, pending: pr.pending.nodes[0]?.id ?? null };
+}
+
+const needBody = (body: string) => {
+  if (!body.trim()) throw new HttpError(400, 'github_action_failed', { message: 'Escreva o comentário.' });
+};
 
 /** Roda o `gh`; o erro dele (sem permissão, PR bloqueado, conflito) volta para a tela como está. */
 async function run(cwd: string, args: string[]): Promise<string> {
@@ -661,9 +876,7 @@ async function run(cwd: string, args: string[]): Promise<string> {
     const { stdout } = await exec('gh', args, { cwd, timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
     return stdout;
   } catch (err) {
-    const f = failure(err, Date.now());
-    const message = f.reason === 'no_gh' ? 'O GitHub CLI (gh) não está instalado no PC.' : f.reason === 'gh_auth' ? 'O gh do PC não está logado.' : (f.message ?? 'O GitHub recusou.');
-    throw new HttpError(422, 'github_action_failed', { message });
+    throw actionError(err);
   }
 }
 
@@ -694,11 +907,75 @@ export async function githubAct(cwd: string, kind: 'issue' | 'pr', number: numbe
     case 'assign':
       await run(cwd, [cmd, 'edit', String(number), '--repo', repo, action.me ? '--add-assignee' : '--remove-assignee', '@me']);
       break;
-    case 'review':
-      if (action.event !== 'approve' && !action.body?.trim())
+    case 'review': {
+      // Com revisão pendente, ela é que sai, com os comentários das linhas: aí o texto pode ficar vazio.
+      const { pending } = await pullIds(cwd, at.owner, at.name, number);
+      if (action.event !== 'approve' && !action.body?.trim() && !pending)
         throw new HttpError(400, 'github_action_failed', { message: 'Escreva o que precisa mudar ou o comentário da revisão.' });
-      await run(cwd, ['pr', 'review', String(number), '--repo', repo, `--${action.event}`, ...(action.body?.trim() ? ['--body', action.body] : [])]);
+      if (pending) {
+        const event = action.event === 'approve' ? 'APPROVE' : action.event === 'request-changes' ? 'REQUEST_CHANGES' : 'COMMENT';
+        await mutate(cwd, SUBMIT_REVIEW, { review: pending, event, body: action.body?.trim() || undefined });
+      } else {
+        await run(cwd, ['pr', 'review', String(number), '--repo', repo, `--${action.event}`, ...(action.body?.trim() ? ['--body', action.body] : [])]);
+      }
       break;
+    }
+    case 'line-comment': {
+      needBody(action.body);
+      const ids = await pullIds(cwd, at.owner, at.name, number);
+      const thread = threadOf(action);
+      // Com uma revisão pendente, o GitHub não deixa comentar na hora: o comentário entra nela.
+      if (ids.pending) await mutate(cwd, ADD_THREAD, { review: ids.pending, ...thread });
+      else await mutate(cwd, NEW_REVIEW(action.now), { pr: ids.pr, ...thread });
+      break;
+    }
+    case 'line-comments': {
+      const list = action.comments.filter((c) => c.body.trim());
+      if (!list.length) break;
+      const ids = await pullIds(cwd, at.owner, at.name, number);
+      // Sem revisão pendente, uma nova já com todos (num pedido só, que entra inteiro ou nada); com ela, um a um.
+      if (!ids.pending) await mutateInput(cwd, NEW_REVIEW_MANY, { pr: ids.pr, threads: list.map(threadOf) });
+      else for (const c of list) await mutate(cwd, ADD_THREAD, { review: ids.pending, ...threadOf(c) });
+      break;
+    }
+    case 'reply': {
+      needBody(action.body);
+      // Como no GitHub: com uma revisão pendente, a resposta entra nela; sem, vai na hora.
+      const { pending } = await pullIds(cwd, at.owner, at.name, number);
+      await mutate(cwd, REPLY, { thread: action.thread, body: action.body, review: pending ?? undefined });
+      break;
+    }
+    case 'resolve':
+      await mutate(cwd, RESOLVE(action.resolved), { thread: action.thread });
+      break;
+    case 'edit-comment':
+      needBody(action.body);
+      await mutate(cwd, EDIT_COMMENT, { comment: action.comment, body: action.body });
+      break;
+    case 'delete-comment':
+      await mutate(cwd, DELETE_COMMENT, { comment: action.comment });
+      break;
+    case 'discard-review': {
+      const { pending } = await pullIds(cwd, at.owner, at.name, number);
+      if (pending) await mutate(cwd, DISCARD_REVIEW, { review: pending });
+      break;
+    }
+    case 'viewed': {
+      // O id do PR não muda: do que já está na tela, sem gastar outra consulta.
+      const key = `pr\n${number}\n${cwd}`;
+      const loaded = await (cache.get(key)?.value as Promise<GithubItem> | undefined)?.catch(() => null);
+      const id = loaded?.ok && loaded.item.kind === 'pr' ? loaded.item.id : (await pullIds(cwd, at.owner, at.name, number)).pr;
+      await mutate(cwd, VIEWED(action.viewed), { pr: id, path: action.path });
+      // Marcar como visto não muda mais nada no PR: a resposta é a de antes com o arquivo marcado, sem
+      // buscar o PR de novo (marcar os arquivos um a um gastaria uma consulta cada).
+      if (loaded?.ok && loaded.item.kind === 'pr') {
+        const pr = loaded.item;
+        const next: GithubItem = { ...loaded, item: { ...pr, files: pr.files.map((f) => (f.path === action.path ? { ...f, viewed: action.viewed } : f)) } };
+        cache.set(key, { at: cache.get(key)?.at ?? Date.now(), value: Promise.resolve(next), failed: false });
+        return next;
+      }
+      break;
+    }
     case 'merge': {
       // A branch, do PR já carregado na tela (sem gastar outra consulta); sem ele, pergunta ao GitHub.
       const loaded = await (cache.get(`pr\n${number}\n${cwd}`)?.value as Promise<GithubItem> | undefined)?.catch(() => null);

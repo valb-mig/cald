@@ -12,7 +12,7 @@ export type PartialPlan = { title?: string; body?: string; branch?: string };
  * O valor de um campo de texto num JSON ainda pela metade, até onde já veio (com os escapes já
  * desfeitos); `undefined` se o campo ainda não começou.
  */
-function partialString(json: string, key: string): string | undefined {
+export function partialString(json: string, key: string): string | undefined {
   const start = new RegExp(`"${key}"\\s*:\\s*"`).exec(json);
   if (!start) return undefined;
   const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' };
