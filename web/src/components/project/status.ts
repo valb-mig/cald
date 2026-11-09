@@ -1,15 +1,4 @@
-import { File, FileCode, FileImage, FileJson, FileText, type LucideIcon } from 'lucide-react'
 import type { DiffSide, GitFile } from '@/lib/types'
-
-const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|rs|py|go|java|kt|swift|c|cc|cpp|h|hpp|cs|php|rb|sh|zsh|bash|css|scss|html|vue|svelte|sql|toml|yaml|yml|xml|lua|dart)$/i
-
-export function fileIcon(name: string): LucideIcon {
-  if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(name)) return FileImage
-  if (/\.json5?$/i.test(name)) return FileJson
-  if (/\.(md|mdx|txt|rst)$/i.test(name)) return FileText
-  if (CODE.test(name)) return FileCode
-  return File
-}
 
 /** Nome e pasta de um caminho do projeto. */
 export function splitPath(path: string): { name: string; dir: string } {

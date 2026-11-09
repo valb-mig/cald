@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api, errorMessage } from '@/lib/api'
@@ -8,7 +8,8 @@ import { openAt } from '@/lib/reveal'
 import { cn } from '@/lib/utils'
 import { useWorkbench } from '@/lib/workbench'
 import { focusSearch } from './search'
-import { fileIcon, splitPath } from './status'
+import { FileIcon } from './file-icons'
+import { splitPath } from './status'
 
 /**
  * Abrir um arquivo do projeto pelo nome, como o Ctrl+P do VSCode: a mesma busca da menção `@` (o
@@ -111,7 +112,7 @@ function Palette({ project, onClose }: { project: PanelProject; onClose: () => v
               onClick={() => pick(path)}
               className={cn('flex w-full min-w-0 items-center gap-2 px-4 py-1.5 text-left text-[13px]', i === active && 'bg-muted')}
             >
-              {createElement(fileIcon(name), { className: 'size-4 shrink-0 text-muted-foreground' })}
+              <FileIcon name={name} className="size-4 text-muted-foreground" />
               <span className="shrink-0">{name}</span>
               <span className="min-w-0 truncate text-xs text-muted-foreground">{dir}</span>
             </button>

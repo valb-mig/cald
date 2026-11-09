@@ -12,7 +12,7 @@ import {
   Save,
   WrapText,
 } from 'lucide-react'
-import { Fragment, Suspense, createElement, lazy, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, Suspense, lazy, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Veil } from '@/components/wallpaper/veil'
 import { CopyButton, Markdown } from '@/components/markdown'
@@ -39,7 +39,8 @@ import { blocksOf, ChangeNavBar, ChangePeek, KIND_LABEL, MARK_BAR, type Block, t
 import { Code, CODE_TEXT, DiffLines, parseDiff } from './diff-lines'
 import type { EditorHandle, EditorStatus } from './editor'
 import { CodeMinimap, type MinimapToken } from './minimap'
-import { DIFF_LABEL, fileIcon, splitPath } from './status'
+import { FileIcon } from './file-icons'
+import { DIFF_LABEL, splitPath } from './status'
 
 const MAX_LINES = 5_000
 const MAX_DIFF_ROWS = 4_000
@@ -612,7 +613,11 @@ export function ViewerBody({ viewing, dialog }: { viewing: Viewing; dialog: bool
             <ArrowLeft />
           </Button>
         )}
-        {createElement(diff ? FileDiff : fileIcon(name), { className: cn('size-4 shrink-0 text-muted-foreground', !dialog && 'ml-1.5') })}
+        {diff ? (
+          <FileDiff className={cn('size-4 shrink-0 text-muted-foreground', !dialog && 'ml-1.5')} />
+        ) : (
+          <FileIcon name={name} className={cn('size-4 text-muted-foreground', !dialog && 'ml-1.5')} />
+        )}
         <div className="min-w-0 flex-1 pl-1">
           <Title className="truncate font-mono text-sm font-normal">{name}</Title>
           <div className="truncate font-mono text-xs text-muted-foreground">
