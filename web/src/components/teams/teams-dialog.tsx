@@ -99,7 +99,7 @@ function Body({ machine, onChange, onSaved }: { machine: string; onChange?: (tea
     api.teamTrash(machine).then(setTrash, (err) => setTrash(isOutdatedServer(err) ? null : []))
   }, [machine])
   useEffect(load, [load])
-  // O Claude de uma conversa montou ou mudou um time (o MCP do cald), ou outro aparelho mexeu. Quem
+  // O Claude de uma conversa montou ou mudou um time (o MCP do edit.r), ou outro aparelho mexeu. Quem
   // está no editor fica como está: o rascunho é dele.
   useOnChanged(machine, 'teams', load)
   useEffect(() => {

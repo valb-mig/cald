@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { innerChange, MarkedCode } from './changes'
 
 /**
- * O desenho de um diff no cald, o mesmo no visualizador de arquivos e nos diffs de PR e de commit:
+ * O desenho de um diff no edit.r, o mesmo no visualizador de arquivos e nos diffs de PR e de commit:
  * cada bloco de linhas que entraram ou saíram é um cartão de cantos arredondados, na cor dele, com uma
  * bolinha no começo (+, − ou ±) que o recolhe e abre, e um tracejado até onde ele vai. O cabeçalho de
  * cada trecho (a linha em que começa e a função em volta) recolhe o trecho inteiro.

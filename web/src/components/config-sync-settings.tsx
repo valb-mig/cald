@@ -23,7 +23,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export function ConfigSyncSettings({ machine }: { machine: string }) {
   const [status, setStatus] = useState<ConfigSyncStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [repo, setRepo] = useState('cald-config')
+  const [repo, setRepo] = useState('editr-config')
   const [kinds, setKinds] = useState(loadKinds)
   const [busy, setBusy] = useState<Busy>(null)
   const [preview, setPreview] = useState<ConfigSyncReport | null>(null)
@@ -110,7 +110,7 @@ export function ConfigSyncSettings({ machine }: { machine: string }) {
             void connect(true)
           }}
         >
-          <Input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="cald-config ou dono/nome" aria-label="Repositório" className="flex-1" />
+          <Input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="editr-config ou dono/nome" aria-label="Repositório" className="flex-1" />
           <div className="flex gap-1.5">
             <Button type="submit" disabled={busy !== null || !repo.trim()}>
               {busy === 'create' && <Loader2 className="animate-spin" />}
@@ -194,9 +194,9 @@ function Report({ report, busy, onConfirm, onCancel }: { report: ConfigSyncRepor
   const notes = [
     push && skipped.some((s) => s.reason === 'newer-there') && 'Há itens mais novos no repositório: traga antes, senão eles ficam de fora do envio.',
     report.missingProjects.length > 0 &&
-      `Projetos que não existem aqui: ${report.missingProjects.join(', ')}. Clone-os (o cald acha o projeto pelo remoto do git) e traga de novo.`,
+      `Projetos que não existem aqui: ${report.missingProjects.join(', ')}. Clone-os (o edit.r acha o projeto pelo remoto do git) e traga de novo.`,
     !report.dry && report.commit && `Commit ${report.commit}.`,
-    !report.dry && !push && total > 0 && 'O que foi trocado aqui ficou copiado antes, em ~/.local/share/cald/config-backup.',
+    !report.dry && !push && total > 0 && 'O que foi trocado aqui ficou copiado antes, em ~/.local/share/editr/config-backup.',
   ].filter(Boolean)
 
   return (

@@ -56,7 +56,7 @@ import { NewChatView } from './new-chat'
 import { ChatInMachine } from './split'
 
 /** Tipo do arrasto de uma aba; só ele é aceito pelas barras de abas e pelos grupos. */
-const TAB_DRAG = 'application/x-cald-tab'
+const TAB_DRAG = 'application/x-editr-tab'
 const KEY_STEP = 0.05
 
 /** A aba sendo arrastada, para os grupos saberem mostrar onde ela cai. */
@@ -433,7 +433,7 @@ function FileTabContent({ tab, active }: { tab: Extract<Tab, { kind: 'file' }>; 
  */
 function GithubTabContent({ tab, visible, focused }: { tab: Extract<Tab, { kind: 'github' }>; visible: boolean; focused: boolean }) {
   useShowProject(tab.machine, tab.cwd, null, focused)
-  // O PR no desenho do cald (ver project/pull-view.tsx); a issue segue no de antes.
+  // O PR no desenho do edit.r (ver project/pull-view.tsx); a issue segue no de antes.
   if (tab.item === 'pr') return <PullView machine={tab.machine} cwd={tab.cwd} number={tab.number} title={tab.title} active={visible} />
   return <GithubItemView machine={tab.machine} cwd={tab.cwd} kind={tab.item} number={tab.number} title={tab.title} active={visible} />
 }

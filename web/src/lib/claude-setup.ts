@@ -93,7 +93,7 @@ export const togglePlugin = (machine: string, cwd: string | undefined, key: stri
     () => api.togglePlugin(machine, key, enabled),
   )
 
-/** Para a lixeira do cald; devolve o id lá, para o Desfazer da própria lista. */
+/** Para a lixeira do edit.r; devolve o id lá, para o Desfazer da própria lista. */
 export async function trashClaude(machine: string, cwd: string | undefined, what: { path: string } | { mcp: { name: string; scope: McpScope; project?: string } }): Promise<string | null> {
   let id: string | null = null
   await act(

@@ -24,9 +24,10 @@ export type Question = {
 
 /**
  * Por onde, de que máquina e quando uma mensagem sua saiu (ver server/src/origins.ts). `mobile`: o
- * aparelho é um celular ou tablet. Cada campo falta quando não se sabe.
+ * aparelho é um celular ou tablet. Cada campo falta quando não se sabe. `via: 'cald'` é o app, vindo
+ * de uma máquina com o servidor de antes da troca de nome.
  */
-export type Sent = { via?: 'cald' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
+export type Sent = { via?: 'editr' | 'cald' | 'terminal' | 'vscode' | 'desktop'; device?: string; mobile?: boolean; at?: number };
 
 export type PanelEvent =
   /**
@@ -192,7 +193,7 @@ export type ConfigSyncReport = {
   appearance: Record<string, string> | null
 }
 
-/** `project`: o projeto de que o worktree é cópia; branch e origem só quando foi o cald que criou. */
+/** `project`: o projeto de que o worktree é cópia; branch e origem só quando foi o edit.r que criou. */
 export type WorktreeTag = { name: string; project: string; branch?: string; base?: string }
 
 export type WorktreeStatus = {
@@ -217,7 +218,7 @@ export type WorktreeStatus = {
 
 /**
  * Um worktree de um repositório, na seção Worktrees do Computador. `managed`: em `.claude/worktrees` (do
- * cald ou do `claude --worktree`); `missing`: a pasta sumiu; `usable`: dá para abrir conversa e terminal.
+ * edit.r ou do `claude --worktree`); `missing`: a pasta sumiu; `usable`: dá para abrir conversa e terminal.
  */
 export type ListedWorktree = WorktreeStatus & { managed: boolean; missing: boolean; usable: boolean }
 
@@ -271,8 +272,8 @@ export type RunOptions = {
 export type CommandInfo = { name: string; description: string; argumentHint: string; builtin: boolean }
 
 /**
- * Uma habilidade do cald (ver server/src/habilidades.ts): uma skill do próprio cald, global
- * (`project: null`) ou de um projeto, que o Claude vê nas conversas do painel como `/cald:nome`.
+ * Uma habilidade do edit.r (ver server/src/habilidades.ts): uma skill do próprio edit.r, global
+ * (`project: null`) ou de um projeto, que o Claude vê nas conversas do painel como `/editr:nome`.
  */
 export type Habilidade = { id: string; name: string; description: string; body: string; project: string | null; createdAt: number; updatedAt: number }
 export type HabilidadeList = { global: Habilidade[]; project: Habilidade[]; trash: (Habilidade & { deletedAt: number })[] }
@@ -379,7 +380,7 @@ export type PrototypeOpen = { id: string; entry: string; name: string; mtime: nu
 export type ArtefatoVersao = { n: number; at: number; entry: string; files: number; bytes: number; label?: string }
 
 /**
- * Uma página que o Claude publicou pelo MCP do cald (`publicar_artefato`): `versions` em ordem crescente (a
+ * Uma página que o Claude publicou pelo MCP do edit.r (`publicar_artefato`): `versions` em ordem crescente (a
  * última é a atual), `link` o caminho do link fixo na tailnet (`/a/<id>/`) e `public` o link na internet
  * (o Funnel), com a versão `n` que está lá, que só muda quando você publica de novo.
  */
@@ -716,7 +717,7 @@ export type ReviewPartial = { summary?: string; comments: number }
 
 export type PullPlan = { title: string; body: string; branch: string; commits: PlannedCommit[]; labels?: string[] }
 
-/** Um item do TODO do projeto, a lista simples do próprio cald (ver server/src/todos.ts). */
+/** Um item do TODO do projeto, a lista simples do próprio edit.r (ver server/src/todos.ts). */
 /** Um anexo de um item do TODO, guardado no PC (ver server/src/todos.ts). */
 export type TodoFile = { id: string; name: string; mediaType: string; size: number }
 

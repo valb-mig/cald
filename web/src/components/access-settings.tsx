@@ -231,7 +231,7 @@ function LinkGroup({ machine, link, phone, remote }: { machine: string; link: Li
               {remote ? (
                 <>
                   Os aparelhos da tailnet saem agora, este também. Para religar, abra <code>localhost:7337</code> no PC ou rode{' '}
-                  <code>cald -link on</code>.
+                  <code>editr -link on</code>.
                 </>
               ) : (
                 'Os aparelhos da tailnet saem agora. Religue aqui quando quiser.'
@@ -263,7 +263,7 @@ function Address({ url, shortcut, phone }: { url: string; shortcut?: string; pho
       () => toast.error('Não deu para copiar.'),
     )
   }
-  const share = () => navigator.share({ title: 'cald', url }).catch(() => {})
+  const share = () => navigator.share({ title: 'edit.r', url }).catch(() => {})
   return (
     <>
       <div className="flex min-w-0 items-center gap-1">

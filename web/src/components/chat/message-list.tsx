@@ -79,7 +79,7 @@ function withMentions(text: string): React.ReactNode[] {
   return out
 }
 
-const VIA: Record<NonNullable<Sent['via']>, string> = { cald: 'cald', terminal: 'Terminal', vscode: 'VSCode', desktop: 'Claude Desktop' }
+const VIA: Record<NonNullable<Sent['via']>, string> = { editr: 'edit.r', cald: 'edit.r', terminal: 'Terminal', vscode: 'VSCode', desktop: 'Claude Desktop' }
 
 /**
  * Por onde, de que máquina e quando a mensagem saiu: "Terminal · archlinux · 14:32". Com isso não
@@ -88,7 +88,7 @@ const VIA: Record<NonNullable<Sent['via']>, string> = { cald: 'cald', terminal: 
 function SentLine({ sent }: { sent: Sent }) {
   const parts = [sent.via && VIA[sent.via], sent.device, sent.at !== undefined && messageTime(sent.at)].filter(Boolean)
   if (!parts.length) return null
-  // Do app sem saber o aparelho (mensagens de antes de o cald guardar isso), fica sem ícone.
+  // Do app sem saber o aparelho (mensagens de antes de o edit.r guardar isso), fica sem ícone.
   const Icon = sent.via === 'terminal' ? SquareTerminal : sent.via === 'vscode' ? Code : sent.mobile ? Smartphone : sent.via === 'desktop' || sent.mobile === false ? Monitor : null
   return (
     <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground" title={sent.at !== undefined ? new Date(sent.at).toLocaleString('pt-BR') : undefined}>

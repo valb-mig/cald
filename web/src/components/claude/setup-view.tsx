@@ -24,7 +24,7 @@ import { Chip, Chips, Fold, SearchField, Tag, UndoBar } from './bits'
 /**
  * O que o Claude Code carrega numa pasta (ver lib/claude-setup.ts): sem `cwd`, o que vale em todo
  * projeto (o painel Computador); com, o de um projeto. Dá para ligar e
- * desligar e mandar para a lixeira do cald o que é seu ou do projeto.
+ * desligar e mandar para a lixeira do edit.r o que é seu ou do projeto.
  */
 type Props = { machine: string; cwd?: string }
 
@@ -96,7 +96,7 @@ function useTrash(machine: string, cwd?: string) {
   }
   const bar = undo && (
     <UndoBar
-      text="Na lixeira do cald"
+      text="Na lixeira do edit.r"
       onUndo={() => {
         void restoreClaude(machine, cwd, undo)
         setUndo(null)
@@ -322,7 +322,7 @@ function ItemRow({ item: i, machine, cwd, onTrash }: Props & { item: ClaudeItem;
   )
 }
 
-/** A lixeira do cald para skills e servidores: o que saiu daqui volta igual; some sozinho depois de 30 dias. */
+/** A lixeira do edit.r para skills e servidores: o que saiu daqui volta igual; some sozinho depois de 30 dias. */
 function ClaudeTrash({ machine, cwd, items }: Props & { items: ClaudeTrashed[] }) {
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)

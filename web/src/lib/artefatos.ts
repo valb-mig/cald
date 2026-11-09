@@ -11,7 +11,7 @@ import type { Artefato, ArtefatoList, ArtefatoVersao } from './types'
 import { openPanelTab } from './workbench'
 
 /**
- * Os artefatos de cada máquina: as páginas que o Claude publica pelo MCP do cald (`publicar_artefato`),
+ * Os artefatos de cada máquina: as páginas que o Claude publica pelo MCP do edit.r (`publicar_artefato`),
  * cada uma com versões congeladas, um link fixo na tailnet e, se você ligar, um link público. Carregados
  * uma vez por máquina e atualizados a cada `changed: artefatos`: o cartão no chat, a aba, a galeria e a
  * paleta leem daqui.
@@ -183,8 +183,8 @@ export const versionSize = (v: ArtefatoVersao) => `${v.files === 1 ? '1 arquivo'
 
 // ---- o que a ferramenta publicou ----
 
-/** A ferramenta do MCP do cald que publica (o nome do servidor pode vir com o prefixo do plugin). */
-const PUBLISH_TOOL = /^mcp__[\w-]*cald[\w-]*__publicar_artefato$/
+/** A ferramenta do MCP do edit.r que publica (o nome do servidor pode vir com o prefixo do plugin). */
+const PUBLISH_TOOL = /^mcp__[\w-]*(?:editr|cald)[\w-]*__publicar_artefato$/
 export const isPublishTool = (name: string) => PUBLISH_TOOL.test(name)
 
 /** Uma publicação no chat: o artefato, a versão que ela criou, o arquivo de origem e o link fixo. */

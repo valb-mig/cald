@@ -10,7 +10,7 @@ export type SyncKindInfo = { key: ConfigSyncKind; label: string; hint: string }
 /** As categorias na ordem da tela, em grupos. */
 export const SYNC_GROUPS: { title: string; kinds: SyncKindInfo[] }[] = [
   {
-    title: 'Do cald',
+    title: 'Do edit.r',
     kinds: [
       { key: 'teams', label: 'Times', hint: 'Os subagentes de cada time.' },
       { key: 'workspaces', label: 'Workspaces', hint: 'Com os arquivos de contexto.' },

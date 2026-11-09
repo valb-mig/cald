@@ -91,7 +91,7 @@ function Panel() {
   const glass = useGlass()
 
   useEffect(() => {
-    // Outras máquinas suas com o cald (ver lib/machines.ts); a lista guardada vale até a resposta.
+    // Outras máquinas suas com o edit.r (ver lib/machines.ts); a lista guardada vale até a resposta.
     const refresh = () => void loadMachines().catch(() => {})
     refresh()
     const machines = setInterval(refresh, 60_000)

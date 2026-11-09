@@ -28,7 +28,7 @@ export function loadMemorySuggestions(sessionId: string): Promise<void> {
     (list) => {
       if (latest.get(sessionId) === n) setList(sessionId, () => list)
     },
-    // Máquina com o cald de antes, sem sugestões: o botão só não aparece.
+    // Máquina com o edit.r de antes, sem sugestões: o botão só não aparece.
     () => {},
   )
 }
@@ -92,12 +92,14 @@ export async function restoreMemorySuggestion(sessionId: string, id: string): Pr
  * O começo dos recados que o Claude recebe (MEMORY_SUGGESTED e INDEX_HELD, no servidor): a memória
  * virou sugestão, ou a linha dela no índice ficou para quando ela for salva.
  */
-const SUGGESTED = '[cald] Memória não gravada'
-const HELD = '[cald] MEMORY.md não mudado'
+const SUGGESTED = 'Memória não gravada'
+const HELD = 'MEMORY.md não mudado'
+// O recado começa com o nome entre colchetes; as conversas de antes da troca de nome têm `[cald]`.
+const said = (text: string, what: string) => text.includes(`[edit.r] ${what}`) || text.includes(`[cald] ${what}`)
 type Result = { isError: boolean; text: string }
 
 /** A ferramenta que ia gravar uma memória e virou sugestão. */
-export const isMemorySuggested = (result?: Result) => Boolean(result?.isError && result.text.includes(SUGGESTED))
+export const isMemorySuggested = (result?: Result) => Boolean(result?.isError && said(result.text, SUGGESTED))
 
-/** Negada pelo cald por causa de uma sugestão (a memória ou a linha dela no índice): no chat, não é erro. */
-export const isMemoryHeld = (result?: Result) => Boolean(result?.isError && (result.text.includes(SUGGESTED) || result.text.includes(HELD)))
+/** Negada pelo edit.r por causa de uma sugestão (a memória ou a linha dela no índice): no chat, não é erro. */
+export const isMemoryHeld = (result?: Result) => Boolean(result?.isError && (said(result.text, SUGGESTED) || said(result.text, HELD)))

@@ -17,7 +17,7 @@ import { registerTerminal, setTermActivity, setTerminalHere, useTerminals, type 
  * cinzas (preto e branco do ANSI) saem do tema do GitHub, que puxa para o azul, e ficam os neutros do
  * app. A barra de rolagem é um traço discreto, como o resto.
  */
-// O laranja do Claude, o mesmo do `›` do prompt do painel (ver server/src/shell/cald.zsh).
+// O laranja do Claude, o mesmo do `›` do prompt do painel (ver server/src/shell/editr.zsh).
 const CLAUDE = '#d97757'
 
 const THEMES: Record<'dark' | 'light', ITheme> = {
@@ -127,7 +127,7 @@ function paintHead(node: HTMLElement, b: Block): void {
 
 /**
  * Os blocos do terminal do painel, pelas marcas OSC 133 que o zsh dele escreve (ver
- * server/src/shell/cald.zsh): `A` abre o cabeçalho de um bloco, `C` diz que o comando rodou e
+ * server/src/shell/editr.zsh): `A` abre o cabeçalho de um bloco, `C` diz que o comando rodou e
  * `D;n`, que saiu com `n`. Cada cabeçalho ganha uma faixa por baixo do texto, com o resultado e o tempo
  * do comando à direita. Sem as marcas (outro shell), o terminal fica como é. `onPrompt` avisa de cada
  * prompt novo, o sinal de que o shell está esperando um comando.
@@ -209,7 +209,7 @@ function handleClipboard(t: Terminal): void {
 /**
  * Uma aba do terminal, no painel de baixo: o shell do PC na pasta dela, interativo (ver
  * server/src/terminal.ts). Fica montada enquanto a aba existe, mesmo escondida, e o shell vive no PC
- * além dela: se a conexão cai (o app travou, a rede piscou, o PC reiniciou o cald), volta sozinha pelo
+ * além dela: se a conexão cai (o app travou, a rede piscou, o PC reiniciou o edit.r), volta sozinha pelo
  * id da aba e recebe só o que perdeu. Fechar a aba encerra o shell. `active` é quando ela está à vista
  * (aí ajusta o tamanho e pega o foco).
  */
@@ -310,7 +310,7 @@ export function TerminalView({ id, machine, cwd, active }: { id: string; machine
           const msg = JSON.parse(e.data) as ServerMsg
           if (msg.t === 'attach') {
             tries = 0
-            // O PC não tinha mais este shell (o cald reiniciou): a tela antiga fica, e o novo segue embaixo.
+            // O PC não tinha mais este shell (o edit.r reiniciou): a tela antiga fica, e o novo segue embaixo.
             if (msg.fresh && received) t.write(note('O shell anterior foi encerrado no PC; este é um novo, na mesma pasta.'))
             // O que a tela já viu não está mais guardado lá: recomeça do que ficou.
             else if (!msg.fresh && msg.from !== received) t.reset()

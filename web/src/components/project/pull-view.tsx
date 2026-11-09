@@ -16,7 +16,7 @@ import { PatchFiles, usePatches } from './patch-list'
 import { ReviewFiles, type ReviewFocus } from './pull-review'
 
 /**
- * Um PR como aba, no desenho do cald: no topo, o título (que dá para editar), o estado, de que branch
+ * Um PR como aba, no desenho do edit.r: no topo, o título (que dá para editar), o estado, de que branch
  * para qual e o tamanho; abas de visão geral, commits e arquivos, com os diffs ali mesmo; e, à direita,
  * o que se acompanha (o estado do merge com os botões, os checks, quem fez e quem revisou, as etiquetas)
  * e a conversa, com a caixa de comentar no pé. Numa coluna estreita, o lado desce para baixo.

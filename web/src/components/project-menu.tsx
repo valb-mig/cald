@@ -28,7 +28,7 @@ const MAX_BYTES = 20 * 1024 * 1024
 /**
  * Menu de um projeto, no ponto onde foi pedido (botão direito ou dedo segurado no cabeçalho dele na
  * lista, na aba dele no celular ou na linha dele em Projetos): os detalhes dele (ver
- * components/project/detalhes.tsx), escolher a logo dele, quando o cald não acha uma no repositório ou a
+ * components/project/detalhes.tsx), escolher a logo dele, quando o edit.r não acha uma no repositório ou a
  * achada não serve, e tirar a escolhida. A logo fica no PC do projeto, fora do repositório, e vale em
  * todos os aparelhos.
  */

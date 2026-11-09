@@ -59,7 +59,7 @@ export function PushSettings() {
         />
       )}
       {status === 'denied' && (
-        <SettingRow label="Bloqueadas" hint="Libere nas configurações do aparelho (Apps → cald → Notificações) e volte aqui." />
+        <SettingRow label="Bloqueadas" hint="Libere nas configurações do aparelho (Apps → edit.r → Notificações) e volte aqui." />
       )}
       {status === 'off' && (
         <SettingRow label="Avisos neste aparelho" hint="Mesmo com o app fechado; tocar no aviso abre a conversa.">
