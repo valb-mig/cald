@@ -121,6 +121,28 @@ export class TeamStore extends EventEmitter {
     return team;
   }
 
+  /**
+   * Times vindos de outra máquina (ver config-sync.ts): entram com o mesmo id e a data da edição de lá,
+   * por cima do daqui e da lixeira. Um que não passa na validação fica de fora e volta na lista.
+   */
+  async importTeams(list: Team[]): Promise<string[]> {
+    const skipped: string[] = [];
+    const incoming: Team[] = [];
+    for (const t of list) {
+      try {
+        incoming.push({ ...clean(t, t.id), updatedAt: t.updatedAt });
+      } catch {
+        skipped.push(t.id);
+      }
+    }
+    if (!incoming.length) return skipped;
+    const ids = new Set(incoming.map((t) => t.id));
+    this.teams = [...this.teams.filter((t) => !ids.has(t.id)), ...incoming].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    this.trash = this.trash.filter((t) => !ids.has(t.id));
+    await this.persist();
+    return skipped;
+  }
+
   /** Os apagados, do mais recente ao mais antigo. */
   trashed(): TrashedTeam[] {
     return [...this.trash].sort((a, b) => b.deletedAt - a.deletedAt);

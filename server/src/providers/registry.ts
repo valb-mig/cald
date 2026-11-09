@@ -5,8 +5,9 @@ import { STATE_DIR } from '../config.ts';
 import { HttpError } from '../errors.ts';
 import type { AgentProvider, AgentProviderInfo } from './types.ts';
 
-/** Quais agentes estão ligados e qual abre as conversas novas. */
-type Prefs = { enabled: Record<string, boolean>; default?: string };
+/** Quais agentes estão ligados e qual abre as conversas novas; `updatedAt`, quando você mudou por último. */
+export type AgentPrefs = { enabled: Record<string, boolean>; default?: string; updatedAt?: number };
+type Prefs = AgentPrefs;
 
 const FILE = process.env.AGENTS_FILE ?? join(STATE_DIR, 'agents.json');
 
@@ -32,7 +33,11 @@ export class ProviderRegistry extends EventEmitter {
     try {
       const data = JSON.parse(await readFile(FILE, 'utf8')) as Partial<Prefs>;
       const enabled = data.enabled && typeof data.enabled === 'object' ? data.enabled : {};
-      this.prefs = { enabled, default: typeof data.default === 'string' ? data.default : undefined };
+      this.prefs = {
+        enabled,
+        default: typeof data.default === 'string' ? data.default : undefined,
+        updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : undefined,
+      };
     } catch {
       // Primeiro uso ou arquivo ilegível: vale o padrão.
     }
@@ -103,9 +108,33 @@ export class ProviderRegistry extends EventEmitter {
     if (change.default) fallback = id;
     // O padrão desligado passa para o primeiro que ficou ligado.
     else if (change.enabled === false && this.default().id === id) fallback = undefined;
-    this.prefs = { enabled, default: fallback };
+    this.prefs = { enabled, default: fallback, updatedAt: Date.now() };
     await this.save();
     this.emit('change', was !== this.isEnabled(id) ? provider : undefined);
+  }
+
+  /** O que você escolheu, para levar a outra máquina (ver config-sync.ts). */
+  prefsSnapshot(): AgentPrefs {
+    return this.prefs;
+  }
+
+  /**
+   * O que veio de outra máquina: liga só os agentes que existem e estão prontos aqui, e sempre fica
+   * ao menos um ligado (o que valer pelas regras de `enabled` e `default`).
+   */
+  async adopt(prefs: AgentPrefs): Promise<void> {
+    const enabled: Record<string, boolean> = {};
+    for (const p of this.providers) {
+      const wanted = prefs.enabled?.[p.id];
+      if (wanted === undefined) continue;
+      if (wanted && !(await p.status().catch(() => ({ available: false }))).available) continue;
+      enabled[p.id] = wanted;
+    }
+    if (!this.providers.some((p) => enabled[p.id] ?? p.id === this.providers[0]!.id)) enabled[this.providers[0]!.id] = true;
+    const fallback = prefs.default && (enabled[prefs.default] ?? prefs.default === this.providers[0]!.id) ? prefs.default : undefined;
+    this.prefs = { enabled, default: fallback, updatedAt: prefs.updatedAt ?? Date.now() };
+    await this.save();
+    this.emit('change');
   }
 
   private save(): Promise<void> {

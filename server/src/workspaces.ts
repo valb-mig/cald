@@ -152,6 +152,32 @@ export class WorkspaceStore extends EventEmitter {
     return ws;
   }
 
+  /**
+   * Workspaces vindos de outra máquina (ver config-sync.ts), com os projetos já nos caminhos daqui:
+   * entram com o mesmo id, a data da edição de lá e os arquivos de contexto, que trocam os daqui.
+   * O projeto de que um deles é o padrão deixa de ser padrão de outro.
+   */
+  async importWorkspaces(list: { ws: Workspace; files: { id: string; name: string; data: Buffer }[] }[]): Promise<void> {
+    if (!list.length) return;
+    for (const { ws, files } of list) {
+      const dir = join(FILES_DIR, ws.id);
+      await rm(dir, { recursive: true, force: true });
+      for (const f of files) {
+        if (!/^[\w-]{1,64}$/.test(f.id)) continue;
+        await mkdir(join(dir, f.id), { recursive: true });
+        await writeFile(join(dir, f.id, safeName(f.name)), f.data);
+      }
+      const projects = unique(ws.projects).slice(0, MAX_PROJECTS);
+      const defaultFor = ws.defaultFor.filter((p) => projects.includes(p));
+      const next: Workspace = { ...ws, projects, defaultFor, files: ws.files.filter((f) => files.some((x) => x.id === f.id)) };
+      this.workspaces = [
+        ...this.workspaces.filter((w) => w.id !== ws.id).map((w) => ({ ...w, defaultFor: w.defaultFor.filter((p) => !defaultFor.includes(p)) })),
+        next,
+      ].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    }
+    await this.persist();
+  }
+
   async remove(id: string): Promise<void> {
     this.workspaces = this.workspaces.filter((w) => w.id !== id);
     await this.persist();

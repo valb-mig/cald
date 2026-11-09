@@ -9,6 +9,9 @@ import type {
   ArtefatoList,
   AttachmentPayload,
   CommandInfo,
+  ConfigSyncKind,
+  ConfigSyncReport,
+  ConfigSyncStatus,
   Habilidade,
   HabilidadeList,
   ClaudeSetup,
@@ -453,6 +456,14 @@ export const api = {
   /** Liga, desliga ou faz padrão um agente; devolve a lista como ficou. */
   setAgent: (m: string, id: string, patch: { enabled?: boolean; default?: boolean }) =>
     post<AgentProviderInfo[]>(`${at(m)}/agents/${encodeURIComponent(id)}`, patch),
+  /** O repositório de configuração da máquina (ver lib/config-sync.ts); servidor de antes dele responde 404. */
+  configSync: (m: string) => request<ConfigSyncStatus>('GET', `${at(m)}/config-sync`),
+  /** Liga a um repositório (`dono/nome` no GitHub, ou endereço git); `create` cria, privado. */
+  connectConfigRepo: (m: string, repo: string, create: boolean) => post<ConfigSyncStatus>(`${at(m)}/config-sync/connect`, { repo, create }),
+  disconnectConfigRepo: (m: string) => post<ConfigSyncStatus>(`${at(m)}/config-sync/disconnect`),
+  /** Envia ou traz; `dry` é a prévia, que não muda nada. `appearance`: a deste aparelho. */
+  runConfigSync: (m: string, body: { direction: 'push' | 'pull'; kinds: ConfigSyncKind[]; appearance?: Record<string, string>; dry: boolean }) =>
+    post<ConfigSyncReport>(`${at(m)}/config-sync/run`, body),
   /** Tarefa em segundo plano (monitor, comando): o fim da saída e parar. */
   taskOutput: (id: string, taskId: string) =>
     request<{ output: string; totalBytes: number }>('GET', `${sid(id)}/tasks/${encodeURIComponent(taskId)}/output`),
@@ -726,6 +737,22 @@ export function errorMessage(err: unknown): string {
       return 'Esse agente não existe nesta máquina.'
     case 'agent_unavailable':
       return err.details.problem ? `Esse agente não está pronto no PC: ${String(err.details.problem)}` : 'Esse agente não está pronto no PC.'
+    case 'no_gh':
+      return 'O GitHub CLI (gh) não está instalado no PC.'
+    case 'gh_auth':
+      return 'O gh do PC não está logado. Rode `gh auth login` lá.'
+    case 'config_repo_failed':
+      return String(err.details.message || 'O GitHub recusou.')
+    case 'config_repo_public':
+      return `O ${String(err.details.repo ?? 'repositório')} é público. A configuração leva memória e TODOs: use um privado.`
+    case 'config_repo_missing':
+      return 'Ligue um repositório antes.'
+    case 'config_repo_create_github':
+      return 'Só dá para criar repositório no GitHub: escreva dono/nome.'
+    case 'invalid_config_repo':
+      return 'Escreva dono/nome (no GitHub) ou o endereço git do repositório.'
+    case 'config_sync_busy':
+      return 'Já tem um envio ou um "Trazer" em andamento. Espere terminar.'
     case 'push_failed':
       return `O serviço de push recusou o aviso${err.details.status ? ` (HTTP ${String(err.details.status)})` : ''}.`
     default:

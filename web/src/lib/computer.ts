@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 /** As seções do painel (ver SECTIONS em components/computer-sheet.tsx). */
-export type ComputerSection = 'status' | 'agents' | 'worktrees' | 'access' | 'alerts' | 'look' | 'about'
+export type ComputerSection = 'status' | 'agents' | 'worktrees' | 'access' | 'alerts' | 'look' | 'sync' | 'about'
 
 /** As abas da página de um agente, na seção Agentes: só aparecem as que ele oferece (ver lib/providers.ts). */
 export type AgentTab = 'geral' | 'usage' | 'memory' | 'skills' | 'mcp'
@@ -69,6 +69,7 @@ const SLUGS: Record<string, ComputerSection | ClaudeSection> = {
   acesso: 'access',
   avisos: 'alerts',
   aparencia: 'look',
+  sincronizar: 'sync',
   sobre: 'about',
 }
 

@@ -135,6 +135,27 @@ Instale o cald em outra máquina sua da mesma tailnet (o mesmo login do Tailscal
 
 As notificações passam pela máquina de onde o app foi instalado: o celular só se inscreve nela, e as outras repassam os avisos para ela. Com ela desligada, os avisos das outras não chegam.
 
+### Levar a configuração a outra máquina
+
+Em **Computador → Sincronizar**, a configuração de uma máquina vai para um repositório privado seu no GitHub, e outra máquina (o PC do trabalho, o de casa) traz de lá. Vale também entre máquinas fora da mesma tailnet: o caminho é o GitHub, pelo login do `gh` de cada uma.
+
+1. Na primeira máquina, escreva o nome do repositório (`cald-config`, ou `dono/nome`) e toque em **Criar privado**; um que já existe entra por **Usar existente** (também aceita um endereço git qualquer). Repositório público é recusado: a memória e os TODOs são seus.
+2. Escolha o que vai junto e toque em **Enviar daqui**.
+3. Na outra máquina, ligue o mesmo repositório e toque em **Trazer para cá**.
+
+O que vai: times, workspaces (com os arquivos de contexto), habilidades do cald, comandos salvos, os agentes ligados; de cada projeto, TODOs (sem os anexos), detalhes e a memória do Claude; do Claude Code, o `settings.json`, o `CLAUDE.md`, os scripts soltos em `~/.claude` (como o da linha de status), os hooks, os seus agentes, skills e comandos; e a aparência do aparelho de onde você envia (tema, fundo, sons, fonte do código e outras preferências do app).
+
+- **Fica o mais novo.** Cada item leva a data da última edição, e enviar ou trazer só troca o que é mais velho do outro lado. Antes de fazer, o app mostra a prévia: o que entra, o que muda e o que fica como está, e por quê (o do repositório é mais novo, você apagou aqui, o projeto não existe aqui).
+- **Nada é apagado.** Apagar numa máquina não apaga no repositório nem nas outras; e o que você apagou aqui depois de ele passar por esta máquina não volta no próximo "Trazer".
+- **Os projetos são achados pelo remoto do git**, então podem estar em pastas diferentes em cada máquina (`~/Projects/cald` aqui, `~/work/cald` lá). Sem remoto, pelo caminho ou pelo nome da pasta. Projeto que não existe na máquina fica de fora, com o nome dele na prévia: clone e traga de novo.
+- **Os números dos TODOs são de cada máquina:** dois itens criados em máquinas diferentes com o mesmo número ficam com números diferentes quando se encontram.
+- **Segredos ficam no PC:** nada de PIN, chaves das notificações ou credenciais do Claude Code; do `settings.json`, as variáveis de ambiente com cara de segredo (`*_TOKEN`, `*_KEY`, `*_SECRET`…) não vão, e as da máquina que traz continuam. Os servidores MCP (`~/.claude.json`) também não vão, porque costumam levar tokens. Caminhos da pasta pessoal viram `{{HOME}}` no repositório e voltam como a pasta pessoal da outra máquina.
+- **O que um "Trazer" troca fica copiado antes** em `~/.local/share/cald/config-backup` (as últimas 10 vezes). O histórico do git no repositório guarda o resto.
+
+O repositório é legível no GitHub: `times/`, `workspaces/`, `habilidades/` e `comandos/` com o que vale em todo projeto, `projetos/<nome>/` com o de cada projeto, `claude/` com o de `~/.claude`, e o `cald.json`, o índice que o cald segue. O clone fica em `~/.local/share/cald/config-repo`.
+
+Cuidado com quem pode escrever no repositório: o `settings.json` e os hooks que vêm de lá rodam comandos na máquina que traz.
+
 ### Configuração
 
 | Variável | Padrão | Para quê |
@@ -156,6 +177,8 @@ As notificações passam pela máquina de onde o app foi instalado: o celular s�
 | `MEMORY_TRASH_DIR` | `~/.local/share/cald/memory-trash` | Lixeira das memórias do Claude apagadas pelo app (ver **O que o Claude carrega**) |
 | `MEMORY_SUGGESTIONS_FILE` | `~/.local/share/cald/memory-suggestions.json` | As memórias que o Claude quis guardar e esperam você (ver **Sugestões de memória**) |
 | `CLAUDE_TRASH_DIR` | `~/.local/share/cald/claude-trash` | Lixeira das skills, comandos, agentes e configurações de servidores MCP tirados pelo app |
+| `CONFIG_REPO_DIR` | `~/.local/share/cald/config-repo` | O clone do repositório de configuração (ver [Levar a configuração a outra máquina](#levar-a-configuração-a-outra-máquina)) |
+| `CONFIG_SYNC_FILE` | `~/.local/share/cald/config-sync.json` | Que repositório é, quando você enviou e trouxe por último e o que esta máquina já viu dele |
 | `WAKATIME_CLI` | `~/.wakatime/wakatime-cli` | Binário do WakaTime, para o seu tempo no painel contar lá (ver [WakaTime](#wakatime)); `WAKATIME=0` desliga |
 | `WAKATIME_GOAL_HOURS` | `4` | Quantas horas de hoje enchem a medida do WakaTime no PC |
 | `EXTRA_MACHINES` | (nenhuma) | Outras máquinas além das achadas no Tailscale (ex.: uma instância de teste, `http://127.0.0.1:7338`), separadas por `,` |
@@ -573,6 +596,10 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | GET | `/api/sessions` | Catálogo: salvas + vivas no PC + do painel, com `owner`, `state` e `provider` (o agente da conversa) |
 | GET | `/api/agents` | Os agentes: `[{id, name, description, enabled, default, available, problem?, version?, features}]` |
 | POST | `/api/agents/:id` | `{enabled?, default?}`: liga, desliga ou torna padrão das conversas novas → a lista atualizada (`409 last_agent` ao desligar o último, `409 agent_unavailable` se ele não está pronto) |
+| GET | `/api/config-sync` | O repositório de configuração: `{repo, url, machine, lastPush, lastPull, remote}` (`remote`: o último envio que o clone conhece, de qualquer máquina) |
+| POST | `/api/config-sync/connect` | `{repo, create?}`: liga a `dono/nome` (ou só `nome`) no GitHub, pelo `gh`, ou a um endereço git; `create` cria, privado (`409 config_repo_public`, `422 gh_auth`) |
+| POST | `/api/config-sync/disconnect` | Esquece o repositório e apaga o clone (o repositório fica como está) |
+| POST | `/api/config-sync/run` | `{direction: push\|pull, kinds, appearance?, dry?}`: envia ou traz as categorias; `dry` é a prévia. Devolve, por categoria, o que entrou, mudou e ficou (com o motivo), os projetos que não existem aqui, o commit e, ao trazer, a aparência de lá (`409 config_sync_busy`) |
 | GET | `/api/projects` | Diretórios disponíveis para sessões novas |
 | GET | `/api/sessions/:id/history` | Histórico salvo, normalizado |
 | GET | `/api/sessions/:id/tasks/:taskId/output` | Fim da saída (até 8 KiB) de um comando ou monitor em segundo plano da conversa aberta no painel |
