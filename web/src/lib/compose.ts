@@ -63,13 +63,15 @@ export function attachInto(id: string, files: File[]): boolean {
 /**
  * Os arquivos de uma colagem, sem repetir. `files` e `items` trazem a mesma coisa quase sempre, mas
  * alguns navegadores e programas (capturas, gerenciador de arquivos) põem nos itens o que falta na lista.
+ * A chave não usa `lastModified`: imagem copiada não tem data, o navegador cria um `File` novo a cada
+ * leitura com a hora de agora, e a mesma imagem vinha duas vezes.
  */
 export function pastedFiles(data: DataTransfer): File[] {
   const out: File[] = []
   const seen = new Set<string>()
   const push = (f: File | null) => {
     if (!f) return
-    const key = `${f.name}\n${f.size}\n${f.type}\n${f.lastModified}`
+    const key = `${f.name}\n${f.size}\n${f.type}`
     if (seen.has(key)) return
     seen.add(key)
     out.push(f)
