@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
+import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { autostartEnabled, setAutostart } from './autostart.ts';
 import { Notifications } from './notifications.ts';
 import { BASE, ICON, PACKAGED, PRELOAD, SERVER_LOG, TRAY_ICON } from './paths.ts';
@@ -18,6 +18,15 @@ app.setName('edit.r');
 // Aberto pelo autostart (ver autostart.ts): só a bandeja, sem a janela.
 const startHidden = process.argv.includes('--hidden');
 
+/**
+ * `--open=/s/<id>`: a rota do app para abrir, de quem chama o app de fora (a barra do sistema abre
+ * assim uma conversa). Só caminho do próprio app: `//host` ou URL inteira não passam.
+ */
+function openArg(argv: string[]): string | undefined {
+  const route = argv.find((a) => a.startsWith('--open='))?.slice('--open='.length);
+  return route && route.startsWith('/') && !route.startsWith('//') ? route : undefined;
+}
+
 const settings = new Settings();
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -26,6 +35,10 @@ let notifications: Notifications | null = null;
 const updates = new Updates();
 let quitting = false;
 let serverStopped = false;
+// A rota pedida antes de o app web ouvir (a janela escondida do autostart, que ainda não pintou nada):
+// vai quando ele avisa que está ouvindo (ver preload.ts), senão se perde.
+let navReady = false;
+let pendingRoute: string | undefined;
 
 const sameOrigin = (url: string) => {
   try {
@@ -59,7 +72,9 @@ function showWindow(url?: string): void {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
-  if (url) win.webContents.send('navigate', url);
+  if (!url) return;
+  if (navReady) win.webContents.send('navigate', url);
+  else pendingRoute = url;
 }
 
 function createWindow(): BrowserWindow {
@@ -207,7 +222,7 @@ function grantPermissions(): void {
 
 /** O que a tela de notificações do app web pede (ver preload.ts); só a janela do app pode. */
 function handleIpc(): void {
-  const fromApp = (e: IpcMainInvokeEvent) => sameOrigin(e.senderFrame?.url ?? '');
+  const fromApp = (e: IpcMainInvokeEvent | IpcMainEvent) => sameOrigin(e.senderFrame?.url ?? '');
   ipcMain.handle('notifications:get', (e) => (fromApp(e) ? notifications?.prefs : null));
   ipcMain.handle('notifications:set', (e, next: NotificationPrefs) => {
     if (!fromApp(e) || !notifications) return null;
@@ -217,6 +232,12 @@ function handleIpc(): void {
   ipcMain.handle('notifications:test', (e) => {
     if (fromApp(e)) notifications?.test();
   });
+  ipcMain.on('navigate:ready', (e) => {
+    if (!fromApp(e)) return;
+    navReady = true;
+    if (pendingRoute) e.sender.send('navigate', pendingRoute);
+    pendingRoute = undefined;
+  });
 }
 
 async function boot(): Promise<void> {
@@ -224,6 +245,10 @@ async function boot(): Promise<void> {
   grantPermissions();
   handleIpc();
   win = createWindow();
+  // Página nova (o splash, o app, um recarregar): até o app web ouvir de novo, a rota espera.
+  win.webContents.on('did-start-loading', () => {
+    navReady = false;
+  });
   void win.loadURL(splash('Iniciando o edit.r…'));
   createTray();
 
@@ -249,7 +274,7 @@ async function boot(): Promise<void> {
     void win.loadURL(splash('O servidor do edit.r não respondeu.', err instanceof Error ? err.message : String(err)));
     return;
   }
-  await win.loadURL(BASE);
+  await win.loadURL(new URL(openArg(process.argv) ?? '/', BASE).href);
 
   notifications = new Notifications(
     settings,
@@ -263,7 +288,11 @@ if (!app.requestSingleInstanceLock()) {
   // Já aberto: o outro traz a janela (ver `second-instance`).
   app.quit();
 } else {
-  app.on('second-instance', () => showWindow());
+  // O autostart de novo (o Hyprland recarregado) não abre a janela; `--open` leva à rota pedida.
+  app.on('second-instance', (_e, argv) => {
+    const route = openArg(argv);
+    if (route || !argv.includes('--hidden')) showWindow(route);
+  });
   // Na bandeja, sem janela: o app continua.
   app.on('window-all-closed', () => {});
   app.on('before-quit', (e) => {
