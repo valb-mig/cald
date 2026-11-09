@@ -3,12 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { setMinimap, useMinimap } from '@/lib/minimap'
 import { cn } from '@/lib/utils'
 import type { Item } from './items'
-
-/** Texto curto do pedido: menções @caminho viram só o nome do arquivo. */
-const plain = (text: string) =>
-  text
-    .replace(/(^|\s)@([^\s]+)/g, (_, space: string, path: string) => `${space}@${path.replace(/\/$/, '').split('/').pop()!.replace(/^\d{13}-/, '')}`)
-    .trim()
+import { plain } from './trail'
 
 // Abaixo disso a coluna da conversa encosta na borda, e a linha do tempo ficaria por cima do texto.
 const MIN_WIDTH = 860

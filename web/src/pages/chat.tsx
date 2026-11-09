@@ -39,6 +39,9 @@ import { liveKey, useAutoScroll, useConversation } from '@/components/chat/feed'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList, wipeTime } from '@/components/chat/message-list'
 import { ChatTimeline } from '@/components/chat/timeline'
+import { CodingLayout } from '@/components/chat/coding-layout'
+import { CodeScreen, StepsScreen } from '@/components/chat/trail-pane'
+import { useChatView } from '@/lib/chat-view'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
@@ -311,7 +314,11 @@ export function ChatPage({ id }: { id: string }) {
     if (!attachInto(id, list)) toast('Esta conversa não recebe mensagens daqui agora')
   })
   const areaWidth = useWidth(areaRef)
-  const roomy = areaWidth >= 1000
+  // Medido na linha de fora, que não encolhe quando o painel de passos abre: na área, abrir o painel
+  // a deixaria estreita, o `roomy` cairia e o painel fecharia, em laço.
+  const rowRef = useRef<HTMLDivElement>(null)
+  const roomy = useWidth(rowRef) >= 1000
+  const coding = useChatView(id) === 'coding'
   // Estreita (várias lado a lado no PC): só o essencial no topo, o resto vai para o menu. No celular, o
   // topo fica quase como no zen: o voltar, a conversa, o mapa mental e os arquivos e o git, sem menu.
   const slim = areaWidth < 480 || !tabs
@@ -426,462 +433,482 @@ export function ChatPage({ id }: { id: string }) {
       toast.success('Conversa bifurcada', { description: 'A original continua na lista, com tudo o que já estava escrito.' })
     })
 
+  // O painel do modo coding: só no PC, com espaço, sem o mapa ao lado nem o zen.
+  const windows = coding && tabs && roomy && shown === 'chat' && !zen
+
   return (
     <AgentsContext value={agentsContext}>
       <div className="flex min-h-0 flex-1 flex-col">
-        {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. */}
-        <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background', zen && 'hidden')}>
-          <header
-            // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
-            draggable={handle}
-            onDragStart={(e) => {
-              e.dataTransfer.setData(CHAT_DRAG, id)
-              e.dataTransfer.effectAllowed = 'move'
-              useDraggingChat.setState({ id })
-            }}
-            onDragEnd={() => useDraggingChat.setState({ id: null })}
-            className={cn(
-              // Sem linha: no PC, a aba aberta desce até ele, na mesma cor; no celular, ele é o alto da janela.
-              // Sem fundo próprio: o do invólucro é a cor da aba aberta (ou, com o fundo animado, o vidro dela; ver .tab-glass em index.css).
-              'flex items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2 compact:py-1',
-              handle && 'cursor-grab active:cursor-grabbing',
-              // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
-              handle && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
-            )}
-          >
-            {/* No PC a lista de conversas já está ao lado. */}
-            <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
-              <Link href={backHref()}>
-                <ArrowLeft />
-              </Link>
-            </Button>
-            <span {...nameMenu} className="mx-1 flex shrink-0 select-none [-webkit-touch-callout:none]">
-              <Claudinho seed={id} name={name} state={shownState} size={30} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                {/* No cabeçalho porque é o único lugar sempre à vista: a tarja lá embaixo fica no topo
-                    de um histórico longo, que a conversa nem chega a mostrar ao abrir. */}
-                {entry?.forkedFrom && (
-                  <GitFork
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-label={`Bifurcada de ${entry.forkedFrom.title || 'outra conversa'}`}
-                  />
-                )}
-                <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
-              </div>
-              {/* Corta o que não couber em vez de vazar para baixo dos botões ao lado. Só na largura: na
-                  altura, o toque no workspace (no celular) vai além da linha. */}
-              <div className="flex min-w-0 items-center gap-1.5 overflow-x-clip text-xs text-muted-foreground">
-                <span className="shrink-0 font-medium text-foreground/70">{name}</span>
-                <span>·</span>
-                {/* Conversa de um workspace: a cor e o nome dele antes do projeto. No celular, o trecho todo
-                    abre o menu do workspace (no PC ele fica na caixa, ao lado do time). */}
-                {phone && wsProject ? (
-                  <WorkspaceMenu machine={machine} project={wsProject} value={entry?.workspace} onChange={changeWorkspace} label="Trocar o workspace" side="bottom">
-                    <button
-                      type="button"
-                      aria-label={entry?.workspace ? `Workspace: ${entry.workspace.name}` : 'Escolher um workspace'}
-                      className="-my-1.5 flex min-w-0 shrink items-center gap-1 py-1.5"
-                    >
-                      {workspaceLabel}
-                      <span className="min-w-0 truncate">{projectName(cwd)}</span>
-                      <ChevronDown className="size-3 shrink-0" />
-                    </button>
-                  </WorkspaceMenu>
-                ) : (
-                  <>
-                    {workspaceLabel}
-                    <span className="min-w-0 truncate">{projectName(cwd)}</span>
-                  </>
-                )}
-                {machineLabel && (
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    <Server className="size-3" />
-                    {machineLabel}
-                  </span>
-                )}
-                {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
-                {/* No celular, aberta aqui e concluída são o normal: ficam sem marca, como na lista. */}
-                {owner === 'panel' && !slim && <Smartphone className="size-3 shrink-0" />}
-                {(!slim || stateTone !== 'done') && (
-                  <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
-                )}
-                {/* Quem mais trabalha agora nos mesmos arquivos; estreito, só os claudinhos. */}
-                <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
-              </div>
-            </div>
-            {/* Memórias que o Claude quis guardar e esperam você: só aparece com alguma. */}
-            <MemorySuggestionsButton sessionId={id} />
-            {speechSupported && !slim && (
-              <Button
-                variant={autoSpeech ? 'default' : 'ghost'}
-                size="icon"
-                className={cn(autoSpeech && 'rounded-full')}
-                onClick={toggleAutoSpeech}
-                aria-pressed={autoSpeech}
-                aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
-              >
-                {autoSpeech ? <Volume2 /> : <VolumeOff />}
-              </Button>
-            )}
-            {!slim && (
-              <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
-                <Minimize2 />
-              </Button>
-            )}
-            {/* O mapa mental fica no topo também no celular, ao lado dos arquivos e do git. */}
-            {(!slim || !tabs) && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
-                aria-pressed={shown !== 'chat'}
-                aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
-              >
-                {shown === 'chat' ? <Network /> : <MessagesSquare />}
-              </Button>
-            )}
-            {/* Num worktree: o que falta trazer para a de origem, e o "Trazer" e o "Remover" no menu. */}
-            {entry?.worktree && cwd && <WorktreeMenu machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
-            {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
-            {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
-            {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
-            {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: apagar, no toque longo da lista. */}
-            {tabs && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Mais ações">
-                    <EllipsisVertical />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-56">
-                  {/* Estreita, os botões do topo que não couberam. */}
-                  {slim && (
-                    <>
-                      {speechSupported && (
-                        <DropdownMenuItem onSelect={toggleAutoSpeech}>
-                          {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
-                        {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setZen(id)}>
-                        <Minimize2 /> Modo zen
-                      </DropdownMenuItem>
-                      {project && git.status?.remote && (
-                        <DropdownMenuItem asChild>
-                          <a href={git.status.remote} target="_blank" rel="noreferrer">
-                            <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
-                          </a>
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
-                  {owner === 'panel' && (
-                    <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
-                      <LogOut /> Liberar para o PC
-                    </DropdownMenuItem>
-                  )}
-                  {owner !== 'panel' && canFork && (
-                    <DropdownMenuItem disabled={busy} onSelect={fork}>
-                      <GitFork /> Continuar numa cópia
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
-                    <ListChecks /> Resumo da sessão
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      split.canAdd
-                        ? setBesideOpen(true)
-                        : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
-                    }
-                  >
-                    <Columns2 /> Abrir outra ao lado
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={busy || !entry}
-                    onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
-                  >
-                    {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
-                    <Pencil /> Renomear
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
-                    <Copy /> Copiar comando de retomada
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
-                    <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {handle && (
-              <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
-                <X />
-              </Button>
-            )}
-          </header>
-        </div>
-
-        <div
-          ref={areaRef}
-          {...drop.bind}
-          className={cn(
-            'relative flex min-h-0 flex-1',
-            // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
-            zen && 'pt-[var(--safe-top)]',
-            pane.collapsed && 'hidden',
-          )}
-        >
-          <DropOverlay show={drop.over} />
-          {/* Os agentes da conversa: uma aba que sai da borda esquerda (a linha do tempo fica à direita),
-              por cima do chat, que fica com a largura toda. Sem nenhum agente, não aparece. */}
-          {agents.all.length > 0 && (
-            <AgentRail
-              sessionId={id}
-              name={name}
-              state={shownState}
-              tree={agents}
-              focused={focused?.id ?? null}
-              onFocus={(agent) => (agent ? openAgent(agent) : leaveAgent())}
-              // No PC a casca em volta da janela é sempre opaca, e a aba é ela; no celular, com a cena, vidro.
-              glass={glass && !tabs}
-              inert={shown === 'map'}
-              className={cn(
-                // Logo abaixo do cabeçalho; no zen, abaixo do entalhe. O máximo deixa espaço para a curva de baixo.
-                zen ? 'top-[calc(var(--safe-top)+0.5rem)] max-h-[calc(100%-var(--safe-top)-2rem)]' : 'top-2 max-h-[calc(100%-2rem)]',
-                shown === 'map' && 'invisible',
-              )}
-            />
-          )}
-          {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
-              vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
-          <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
-            {/* O escurecido embaixo das mensagens, de lado a lado. Fica fora do scroller para não rolar
-                junto com o texto. */}
-            {scrim !== null && <Veil dim={scrim} />}
-            {/* Com um agente em foco, o chat principal também segue montado por baixo, sem perder a rolagem. */}
-            <div className={cn('absolute inset-0', focused && 'invisible')} inert={agentOpen}>
-              <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
-                <div ref={contentRef} className="mx-auto w-full max-w-3xl">
-                  {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
-                  {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da limpeza. */}
-                  {history.events === null && !history.error && cut < 0 ? (
-                    <div className="space-y-4 p-4">
-                      <Skeleton className="ml-auto h-10 w-2/3" />
-                      <Skeleton className="h-24 w-full" />
-                      <Skeleton className="h-16 w-full" />
-                    </div>
-                  ) : (
-                    <>
-                      {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
-                      {items.length === 0 && queued.length === 0 && !working && !history.error && (
-                        <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
-                      )}
-                      <MessageList
-                        items={wipe?.items ?? items}
-                        wipe={wipe?.elapsed}
-                        queued={wipe ? [] : queued}
-                        sessionId={id}
-                        actionable={panelOpen && !wipe}
-                        working={working}
-                        background={background}
-                        uses={uses}
-                        cwd={cwd}
-                        onBranch={canFork && !wipe ? branch : undefined}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Fora do zen: no canto dela fica o botão de sair dele. */}
-              {!zen && <ChatTimeline scrollRef={scrollRef} items={items} />}
-              <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
-                {!atBottom && (
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    onClick={jumpToBottom}
-                    aria-label="Ir para a última mensagem"
-                    className="pointer-events-auto size-10 rounded-full border shadow-lg"
-                  >
-                    <ChevronDown />
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  onClick={() => setFollow(!follow)}
-                  aria-pressed={follow}
-                  aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+        {/* No modo coding, chat, código e passos são janelas à parte em três lugares (a principal e duas à
+            direita), que se trocam arrastando pela barra: a aba fica transparente (`data-windows`) e a folga
+            entre elas mostra a margem escura da casca. */}
+        <CodingLayout
+          rowRef={rowRef}
+          windows={windows}
+          glass={glass}
+          code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} /> : null}
+          steps={windows ? <StepsScreen sessionId={id} items={items} cwd={cwd ?? ''} agent={name} live={state === 'running' || state === 'waiting'} /> : null}
+          chat={
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. */}
+              <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background', zen && 'hidden')}>
+                <header
+                  // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
+                  draggable={handle}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(CHAT_DRAG, id)
+                    e.dataTransfer.effectAllowed = 'move'
+                    useDraggingChat.setState({ id })
+                  }}
+                  onDragEnd={() => useDraggingChat.setState({ id: null })}
                   className={cn(
-                    'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
-                    follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+                    // Sem linha: no PC, a aba aberta desce até ele, na mesma cor; no celular, ele é o alto da janela.
+                    // Sem fundo próprio: o do invólucro é a cor da aba aberta (ou, com o fundo animado, o vidro dela; ver .tab-glass em index.css).
+                    'flex items-center gap-1 px-2 pt-[max(0.5rem,var(--safe-top))] pb-2 compact:py-1',
+                    handle && 'cursor-grab active:cursor-grabbing',
+                    // Lado a lado: a conversa em foco (a que recebe o que é escolhido na lista) ganha uma faixa no topo.
+                    handle && pane.focused && 'shadow-[inset_0_2px_0_var(--color-primary)]',
                   )}
                 >
-                  {follow ? <Lock /> : <LockOpen />}
-                </Button>
+                  {/* No PC a lista de conversas já está ao lado. */}
+                  <Button variant="ghost" size="icon" asChild aria-label="Voltar" className="wide:hidden">
+                    <Link href={backHref()}>
+                      <ArrowLeft />
+                    </Link>
+                  </Button>
+                  <span {...nameMenu} className="mx-1 flex shrink-0 select-none [-webkit-touch-callout:none]">
+                    <Claudinho seed={id} name={name} state={shownState} size={30} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      {/* No cabeçalho porque é o único lugar sempre à vista: a tarja lá embaixo fica no topo
+                          de um histórico longo, que a conversa nem chega a mostrar ao abrir. */}
+                      {entry?.forkedFrom && (
+                        <GitFork
+                          className="size-3.5 shrink-0 text-muted-foreground"
+                          aria-label={`Bifurcada de ${entry.forkedFrom.title || 'outra conversa'}`}
+                        />
+                      )}
+                      <div className="truncate text-sm font-medium">{entry?.title ?? 'Sessão'}</div>
+                    </div>
+                    {/* Corta o que não couber em vez de vazar para baixo dos botões ao lado. Só na largura: na
+                        altura, o toque no workspace (no celular) vai além da linha. */}
+                    <div className="flex min-w-0 items-center gap-1.5 overflow-x-clip text-xs text-muted-foreground">
+                      <span className="shrink-0 font-medium text-foreground/70">{name}</span>
+                      <span>·</span>
+                      {/* Conversa de um workspace: a cor e o nome dele antes do projeto. No celular, o trecho todo
+                          abre o menu do workspace (no PC ele fica na caixa, ao lado do time). */}
+                      {phone && wsProject ? (
+                        <WorkspaceMenu machine={machine} project={wsProject} value={entry?.workspace} onChange={changeWorkspace} label="Trocar o workspace" side="bottom">
+                          <button
+                            type="button"
+                            aria-label={entry?.workspace ? `Workspace: ${entry.workspace.name}` : 'Escolher um workspace'}
+                            className="-my-1.5 flex min-w-0 shrink items-center gap-1 py-1.5"
+                          >
+                            {workspaceLabel}
+                            <span className="min-w-0 truncate">{projectName(cwd)}</span>
+                            <ChevronDown className="size-3 shrink-0" />
+                          </button>
+                        </WorkspaceMenu>
+                      ) : (
+                        <>
+                          {workspaceLabel}
+                          <span className="min-w-0 truncate">{projectName(cwd)}</span>
+                        </>
+                      )}
+                      {machineLabel && (
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          <Server className="size-3" />
+                          {machineLabel}
+                        </span>
+                      )}
+                      {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
+                      {/* No celular, aberta aqui e concluída são o normal: ficam sem marca, como na lista. */}
+                      {owner === 'panel' && !slim && <Smartphone className="size-3 shrink-0" />}
+                      {(!slim || stateTone !== 'done') && (
+                        <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
+                      )}
+                      {/* Quem mais trabalha agora nos mesmos arquivos; estreito, só os claudinhos. */}
+                      <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
+                    </div>
+                  </div>
+                  {/* Memórias que o Claude quis guardar e esperam você: só aparece com alguma. */}
+                  <MemorySuggestionsButton sessionId={id} />
+                  {speechSupported && !slim && (
+                    <Button
+                      variant={autoSpeech ? 'default' : 'ghost'}
+                      size="icon"
+                      className={cn(autoSpeech && 'rounded-full')}
+                      onClick={toggleAutoSpeech}
+                      aria-pressed={autoSpeech}
+                      aria-label={autoSpeech ? 'Leitura automática ligada: tocar para desligar' : 'Ler as respostas novas em voz alta'}
+                    >
+                      {autoSpeech ? <Volume2 /> : <VolumeOff />}
+                    </Button>
+                  )}
+                  {!slim && (
+                    <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
+                      <Minimize2 />
+                    </Button>
+                  )}
+                  {/* O mapa mental fica no topo também no celular, ao lado dos arquivos e do git. */}
+                  {(!slim || !tabs) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
+                      aria-pressed={shown !== 'chat'}
+                      aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+                      title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
+                    >
+                      {shown === 'chat' ? <Network /> : <MessagesSquare />}
+                    </Button>
+                  )}
+                  {/* Num worktree: o que falta trazer para a de origem, e o "Trazer" e o "Remover" no menu. */}
+                  {entry?.worktree && cwd && <WorktreeMenu machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
+                  {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
+                  {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
+                  {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
+                  {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: apagar, no toque longo da lista. */}
+                  {tabs && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="Mais ações">
+                          <EllipsisVertical />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-56">
+                        {/* Estreita, os botões do topo que não couberam. */}
+                        {slim && (
+                          <>
+                            {speechSupported && (
+                              <DropdownMenuItem onSelect={toggleAutoSpeech}>
+                                {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
+                              {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setZen(id)}>
+                              <Minimize2 /> Modo zen
+                            </DropdownMenuItem>
+                            {project && git.status?.remote && (
+                              <DropdownMenuItem asChild>
+                                <a href={git.status.remote} target="_blank" rel="noreferrer">
+                                  <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
+                                </a>
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
+                        {owner === 'panel' && (
+                          <DropdownMenuItem disabled={busy || state === 'running' || state === 'waiting' || agentsWorking > 0} onSelect={release}>
+                            <LogOut /> Liberar para o PC
+                          </DropdownMenuItem>
+                        )}
+                        {owner !== 'panel' && canFork && (
+                          <DropdownMenuItem disabled={busy} onSelect={fork}>
+                            <GitFork /> Continuar numa cópia
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
+                          <ListChecks /> Resumo da sessão
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            split.canAdd
+                              ? setBesideOpen(true)
+                              : toast(`Cabem ${split.max} conversas lado a lado nesta tela. Feche uma para abrir outra.`)
+                          }
+                        >
+                          <Columns2 /> Abrir outra ao lado
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={busy || !entry}
+                          onSelect={() => run(() => api.pin(id, !entry?.pinned), entry?.pinned ? 'Desafixada' : 'Fixada no topo')}
+                        >
+                          {entry?.pinned ? <PinOff /> : <Pin />} {entry?.pinned ? 'Desafixar' : 'Fixar no topo'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled={busy} onSelect={() => setRenaming(entry?.title ?? '')}>
+                          <Pencil /> Renomear
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(resumeCommand).then(() => toast.success('Comando copiado'))}>
+                          <Copy /> Copiar comando de retomada
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem variant="destructive" disabled={busy || owner === 'pc'} onSelect={() => setConfirmDelete(true)}>
+                          <Trash2 /> {owner === 'pc' ? 'Apagar (feche no PC antes)' : 'Apagar conversa'}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  {handle && (
+                    <Button variant="ghost" size="icon" onClick={() => closeChat(id)} aria-label="Tirar esta conversa da tela">
+                      <X />
+                    </Button>
+                  )}
+                </header>
               </div>
-            </div>
-            {focused && (
-              <AgentChat
-                key={focused.id}
-                sessionId={id}
-                node={focused}
-                task={panelOpen ? background.find((t) => t.toolUseId === focused.id) : undefined}
-                onOpen={openAgent}
-                onClose={leaveAgent}
-                onAnswer={answerAgent}
-                // No zen, o botão de sair dele fica no canto de cima.
-                headerClassName={zen ? 'pr-14' : undefined}
-              />
-            )}
-            {zen && (
-              // Onde o cabeçalho estava. Fica sempre na tela, só apagado: um botão que some de vez
-              // deixaria sem saída quem não sabe do Esc nem do voltar.
-              <Button
-                variant="secondary"
-                size="icon"
-                onClick={() => setZen(null)}
-                aria-label="Sair do modo zen"
-                title="Sair do modo zen"
-                className="absolute top-[max(0.75rem,var(--safe-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"
-              >
-                <Maximize2 />
-              </Button>
-            )}
-          </div>
-          {mapRoot && (
-            <MapPane beside={shown === 'both'}>
-              <Suspense>
-                <MindMap
-                  sessionId={id}
-                  root={mapRoot}
-                  title={entry?.title ?? 'Conversa'}
-                  onJump={jumpTo}
-                  onAgent={openAgent}
-                  onRequest={openRequest}
-                  side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
-                />
-              </Suspense>
-            </MapPane>
-          )}
-        </div>
 
-        {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
-        <div className={cn('relative flex shrink-0 flex-col', pane.collapsed && 'hidden')}>
-          {/* O véu continua atrás da barra de texto até o fim da tela; sem isto ele parava no topo dela,
-              e em volta da barra a cena aparecia sem escurecer. */}
-          {scrim !== null && <Veil dim={scrim} />}
-          {/* Posicionado para ficar por cima do véu, que é absoluto. */}
-          <div className="relative flex flex-col">
-            {shown === 'map' && owner === 'panel' && requests.length > 0 && (
-              <div
-                ref={dockRef}
-                className={cn(
-                  'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
-                  glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
-                )}
-              >
-                {requests.map((r) =>
-                  r.type === 'approval' ? (
-                    <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
-                  ) : (
-                    <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
-                  ),
-                )}
-              </div>
-            )}
-            <SpeechPlayer sessionId={id} />
+              {/* A conversa: mensagens e caixa de texto. */}
+              <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', pane.collapsed && 'hidden')}>
+                <div
+                  ref={areaRef}
+                  {...drop.bind}
+                  className={cn(
+                    'relative flex min-h-0 flex-1',
+                    // Sem o cabeçalho, quem segura a conversa longe do entalhe do celular é isto.
+                    zen && 'pt-[var(--safe-top)]',
+                    pane.collapsed && 'hidden',
+                  )}
+                >
+                  <DropOverlay show={drop.over} />
+                  {/* Os agentes da conversa: uma aba que sai da borda esquerda (a linha do tempo fica à direita),
+                      por cima do chat, que fica com a largura toda. Sem nenhum agente, não aparece. */}
+                  {agents.all.length > 0 && (
+                    <AgentRail
+                      sessionId={id}
+                      name={name}
+                      state={shownState}
+                      tree={agents}
+                      focused={focused?.id ?? null}
+                      onFocus={(agent) => (agent ? openAgent(agent) : leaveAgent())}
+                      // No PC a casca em volta da janela é sempre opaca, e a aba é ela; no celular, com a cena, vidro.
+                      glass={glass && !tabs}
+                      inert={shown === 'map'}
+                      className={cn(
+                        // Logo abaixo do cabeçalho; no zen, abaixo do entalhe. O máximo deixa espaço para a curva de baixo.
+                        zen ? 'top-[calc(var(--safe-top)+0.5rem)] max-h-[calc(100%-var(--safe-top)-2rem)]' : 'top-2 max-h-[calc(100%-2rem)]',
+                        shown === 'map' && 'invisible',
+                      )}
+                    />
+                  )}
+                  {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
+                      vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
+                  <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
+                    {/* O escurecido embaixo das mensagens, de lado a lado. Fica fora do scroller para não rolar
+                        junto com o texto. */}
+                    {scrim !== null && <Veil dim={scrim} />}
+                    {/* Com um agente em foco, o chat principal também segue montado por baixo, sem perder a rolagem. */}
+                    <div className={cn('absolute inset-0', focused && 'invisible')} inert={agentOpen}>
+                      <div ref={scrollRef} onScroll={onScroll} className="absolute inset-0 overflow-y-auto">
+                        <div ref={contentRef} className="mx-auto w-full max-w-3xl">
+                          {entry?.forkedFrom && <ForkBanner from={entry.forkedFrom} />}
+                          {/* Depois de um /clear, o histórico de antes não aparece: carregá-lo só piscaria por cima da limpeza. */}
+                          {history.events === null && !history.error && cut < 0 ? (
+                            <div className="space-y-4 p-4">
+                              <Skeleton className="ml-auto h-10 w-2/3" />
+                              <Skeleton className="h-24 w-full" />
+                              <Skeleton className="h-16 w-full" />
+                            </div>
+                          ) : (
+                            <>
+                              {history.error && <p className="p-4 text-sm text-red-600 dark:text-red-400">{history.error}</p>}
+                              {items.length === 0 && queued.length === 0 && !working && !history.error && (
+                                <p className="p-4 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+                              )}
+                              <MessageList
+                                items={wipe?.items ?? items}
+                                wipe={wipe?.elapsed}
+                                queued={wipe ? [] : queued}
+                                sessionId={id}
+                                actionable={panelOpen && !wipe}
+                                working={working}
+                                background={background}
+                                uses={uses}
+                                cwd={cwd}
+                                onBranch={canFork && !wipe ? branch : undefined}
+                              />
+                            </>
+                          )}
+                        </div>
+                      </div>
 
-            {owner === 'panel' ? (
-              <Composer
-                sessionId={id}
-                cwd={cwd}
-                provider={provider}
-                branch={git.status?.branch}
-                working={working || state === 'waiting'}
-                // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-                settings={Object.keys(view.settings).length ? view.settings : pending}
-                context={context}
-                onChangeSettings={async (patch) => {
-                  await api.settings(id, patch)
-                }}
-                onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
-                // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
-                onEdit={pin}
-                extra={
-                  // No celular a barra não tem espaço: o workspace se troca pelo topo, e o que o time faz
-                  // aparece no trilho de agentes, ao lado do chat.
-                  <>
-                    {wsProject && (
-                      <WorkspacePill
-                        machine={machine}
-                        project={wsProject}
-                        value={entry?.workspace}
-                        label="Trocar o workspace"
-                        className="max-sm:hidden"
-                        onChange={changeWorkspace}
+                      {/* Fora do zen: no canto dela fica o botão de sair dele. */}
+                      {!zen && <ChatTimeline scrollRef={scrollRef} items={items} />}
+                      <div className="pointer-events-none absolute right-3 bottom-3 z-10 flex flex-col items-end gap-2">
+                        {!atBottom && (
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            onClick={jumpToBottom}
+                            aria-label="Ir para a última mensagem"
+                            className="pointer-events-auto size-10 rounded-full border shadow-lg"
+                          >
+                            <ChevronDown />
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          onClick={() => setFollow(!follow)}
+                          aria-pressed={follow}
+                          aria-label={follow ? 'Acompanhando o fim: tocar para soltar o scroll' : 'Scroll solto: tocar para travar no fim'}
+                          className={cn(
+                            'pointer-events-auto size-9 rounded-full border shadow-md backdrop-blur',
+                            follow ? 'bg-background/70 text-muted-foreground' : 'bg-background text-foreground',
+                          )}
+                        >
+                          {follow ? <Lock /> : <LockOpen />}
+                        </Button>
+                      </div>
+                    </div>
+                    {focused && (
+                      <AgentChat
+                        key={focused.id}
+                        sessionId={id}
+                        node={focused}
+                        task={panelOpen ? background.find((t) => t.toolUseId === focused.id) : undefined}
+                        onOpen={openAgent}
+                        onClose={leaveAgent}
+                        onAnswer={answerAgent}
+                        // No zen, o botão de sair dele fica no canto de cima.
+                        headerClassName={zen ? 'pr-14' : undefined}
                       />
                     )}
-                    <TeamPill
-                      machine={machine}
-                      current={entry?.team}
-                      className="max-sm:hidden"
-                      onChange={(teamId) => {
-                        if ((teamId ?? null) === (entry?.team?.id ?? null)) return
-                        toast.promise(api.setTeam(id, teamId ?? null), {
-                          loading: teamId ? 'Trocando o time…' : 'Tirando o time…',
-                          success: teamId ? 'Time trocado: vale a partir da próxima mensagem.' : 'Conversa sem time.',
-                          error: (err) => errorMessage(err),
-                        })
-                      }}
-                    />
-                  </>
-                }
-                onSend={(text, attachments) => {
-                  pin()
-                  return enqueue(id, text, attachments)
-                }}
-                onInterrupt={() => api.interrupt(id).then(() => undefined)}
-              />
-            ) : (
-              <Composer
-                sessionId={id}
-                cwd={cwd}
-                provider={provider}
-                branch={git.status?.branch}
-                working={false}
-                // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa e no terminal) e a
-                // continua aqui; cada mensagem mostra de onde saiu, então não há botão de assumir.
-                hint={
-                  owner !== 'pc'
-                    ? 'Enviar retoma esta conversa aqui pelo celular.'
-                    : state === 'idle'
-                      ? 'Aberta no PC. Enviar a encerra lá e a continua aqui, com todo o contexto.'
-                      : 'Trabalhando no PC. Dá para mandar daqui quando ela parar.'
-                }
-                settings={pending}
-                context={null}
-                onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
-                onEdit={pin}
-                onSend={(text, attachments) => {
-                  pin()
-                  return enqueue(id, text, attachments, pending)
-                }}
-              />
-            )}
-          </div>
-        </div>
+                    {zen && (
+                      // Onde o cabeçalho estava. Fica sempre na tela, só apagado: um botão que some de vez
+                      // deixaria sem saída quem não sabe do Esc nem do voltar.
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        onClick={() => setZen(null)}
+                        aria-label="Sair do modo zen"
+                        title="Sair do modo zen"
+                        className="absolute top-[max(0.75rem,var(--safe-top))] right-3 z-20 size-9 rounded-full border opacity-30 shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        <Maximize2 />
+                      </Button>
+                    )}
+                  </div>
+                  {mapRoot && (
+                    <MapPane beside={shown === 'both'}>
+                      <Suspense>
+                        <MindMap
+                          sessionId={id}
+                          root={mapRoot}
+                          title={entry?.title ?? 'Conversa'}
+                          onJump={jumpTo}
+                          onAgent={openAgent}
+                          onRequest={openRequest}
+                          side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
+                        />
+                      </Suspense>
+                    </MapPane>
+                  )}
+                </div>
+
+                {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
+                <div className={cn('relative flex shrink-0 flex-col', pane.collapsed && 'hidden')}>
+                  {/* O véu continua atrás da barra de texto até o fim da tela; sem isto ele parava no topo dela,
+                      e em volta da barra a cena aparecia sem escurecer. */}
+                  {scrim !== null && <Veil dim={scrim} />}
+                  {/* Posicionado para ficar por cima do véu, que é absoluto. */}
+                  <div className="relative flex flex-col">
+                    {shown === 'map' && owner === 'panel' && requests.length > 0 && (
+                      <div
+                        ref={dockRef}
+                        className={cn(
+                          'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
+                          glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
+                        )}
+                      >
+                        {requests.map((r) =>
+                          r.type === 'approval' ? (
+                            <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
+                          ) : (
+                            <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
+                          ),
+                        )}
+                      </div>
+                    )}
+                    <SpeechPlayer sessionId={id} />
+
+                    {owner === 'panel' ? (
+                      <Composer
+                        sessionId={id}
+                        cwd={cwd}
+                        provider={provider}
+                        branch={git.status?.branch}
+                        working={working || state === 'waiting'}
+                        // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+                        settings={Object.keys(view.settings).length ? view.settings : pending}
+                        context={context}
+                        onChangeSettings={async (patch) => {
+                          await api.settings(id, patch)
+                        }}
+                        onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
+                        // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
+                        onEdit={pin}
+                        extra={
+                          // No celular a barra não tem espaço: o workspace se troca pelo topo, e o que o time faz
+                          // aparece no trilho de agentes, ao lado do chat.
+                          <>
+                            {wsProject && (
+                              <WorkspacePill
+                                machine={machine}
+                                project={wsProject}
+                                value={entry?.workspace}
+                                label="Trocar o workspace"
+                                className="max-sm:hidden"
+                                onChange={changeWorkspace}
+                              />
+                            )}
+                            <TeamPill
+                              machine={machine}
+                              current={entry?.team}
+                              className="max-sm:hidden"
+                              onChange={(teamId) => {
+                                if ((teamId ?? null) === (entry?.team?.id ?? null)) return
+                                toast.promise(api.setTeam(id, teamId ?? null), {
+                                  loading: teamId ? 'Trocando o time…' : 'Tirando o time…',
+                                  success: teamId ? 'Time trocado: vale a partir da próxima mensagem.' : 'Conversa sem time.',
+                                  error: (err) => errorMessage(err),
+                                })
+                              }}
+                            />
+                          </>
+                        }
+                        onSend={(text, attachments) => {
+                          pin()
+                          return enqueue(id, text, attachments)
+                        }}
+                        onInterrupt={() => api.interrupt(id).then(() => undefined)}
+                      />
+                    ) : (
+                      <Composer
+                        sessionId={id}
+                        cwd={cwd}
+                        provider={provider}
+                        branch={git.status?.branch}
+                        working={false}
+                        // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa e no terminal) e a
+                        // continua aqui; cada mensagem mostra de onde saiu, então não há botão de assumir.
+                        hint={
+                          owner !== 'pc'
+                            ? 'Enviar retoma esta conversa aqui pelo celular.'
+                            : state === 'idle'
+                              ? 'Aberta no PC. Enviar a encerra lá e a continua aqui, com todo o contexto.'
+                              : 'Trabalhando no PC. Dá para mandar daqui quando ela parar.'
+                        }
+                        settings={pending}
+                        context={null}
+                        onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}
+                        onEdit={pin}
+                        onSend={(text, attachments) => {
+                          pin()
+                          return enqueue(id, text, attachments, pending)
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
+        />
 
         <MemorySuggestionsSheet sessionId={id} />
         <SummaryDialog sessionId={id} items={items} cwd={cwd} context={context} open={summaryOpen} onOpenChange={setSummaryOpen} />
