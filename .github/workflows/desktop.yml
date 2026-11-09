@@ -41,6 +41,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
+      # O Electron e as ferramentas do empacotamento vêm pela API, autenticados: os downloads
+      # anônimos dos Releases do GitHub podem falhar em massa (ver o script).
+      - name: Electron e ferramentas, pela API
+        run: desktop/scripts/seed-downloads.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: A tag é a versão do app
         if: github.event_name == 'push'
         run: |
