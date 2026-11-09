@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { insertInto } from './compose'
 import { WIDE_QUERY } from './hooks'
@@ -57,6 +57,30 @@ function load(): Saved {
 }
 
 export const useProjectPanel = create<State>(() => ({ ...load(), sheet: false, docked: false, project: null, viewing: null }))
+
+/**
+ * "A barra mostra outro worktree do mesmo repositório no lugar da pasta da conversa": `from` é a pasta da
+ * conversa e `to` o worktree. Só em memória: não vai para o localStorage e vale só enquanto a conversa é a mesma.
+ */
+export const useWorktreeSwap = create<{ swap: { machine: string; from: string; to: string } | null }>(() => ({ swap: null }))
+
+/** Mostra o worktree `to` na barra; `to === from` volta para a pasta da conversa. */
+export function showWorktree(machine: string, from: string, to: string): void {
+  useWorktreeSwap.setState({ swap: to === from ? null : { machine, from, to } })
+}
+
+/** Volta a barra para a pasta da conversa. */
+export const showOwnFolder = () => useWorktreeSwap.setState({ swap: null })
+
+/** O projeto que a barra mostra de fato: o da conversa, ou o worktree escolhido no lugar dele. */
+export function useShownProject(): ShownProject | null {
+  const project = useProjectPanel((s) => s.project)
+  const swap = useWorktreeSwap((s) => s.swap)
+  return useMemo(
+    () => (project && swap && swap.machine === project.machine && swap.from === project.cwd ? { ...project, cwd: swap.to } : project),
+    [project, swap],
+  )
+}
 
 /** Grava aberta/fechada, a aba e a largura; a largura só no fim do arrasto, não a cada movimento. */
 export function savePanel(): void {
@@ -140,7 +164,11 @@ export function useShowProject(machine: string, cwd: string | undefined, chat: s
  */
 export function mentionInChat(path: string, at: { dir?: boolean; lines?: [number, number] } = {}): boolean {
   const [from, to] = at.lines ?? []
-  const ref = at.dir ? `${path}/` : from ? `${path}#L${from}${to && to !== from ? `-${to}` : ''}` : path
+  // Vendo outro worktree na barra: o caminho vai inteiro, para o Claude ler aquela cópia e não a da pasta dele.
+  const { project } = useProjectPanel.getState()
+  const { swap } = useWorktreeSwap.getState()
+  const full = project && swap && swap.machine === project.machine && swap.from === project.cwd ? `${swap.to}/${path}` : path
+  const ref = at.dir ? `${full}/` : from ? `${full}#L${from}${to && to !== from ? `-${to}` : ''}` : full
   return insertInChat(`@${ref} `)
 }
 

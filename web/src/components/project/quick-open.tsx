@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api, errorMessage } from '@/lib/api'
 import { WIDE_QUERY } from '@/lib/hooks'
-import { openViewer, setPanelShown, setPanelTab, useProjectPanel, type PanelProject } from '@/lib/project-panel'
+import { openViewer, setPanelShown, setPanelTab, useProjectPanel, useShownProject, type PanelProject } from '@/lib/project-panel'
 import { openAt } from '@/lib/reveal'
 import { cn } from '@/lib/utils'
 import { useWorkbench } from '@/lib/workbench'
@@ -128,7 +128,7 @@ function Palette({ project, onClose }: { project: PanelProject; onClose: () => v
 
 /** A paleta do projeto na barra, e os atalhos dela (Ctrl+P e Ctrl+Shift+F), valendo no app todo. */
 export function QuickOpen() {
-  const project = useProjectPanel((s) => s.project)
+  const project = useShownProject()
   const open = useQuickOpen((s) => s.open)
 
   useEffect(() => {

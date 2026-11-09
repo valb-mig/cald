@@ -24,6 +24,8 @@ import {
   setPanelWidth,
   togglePanel,
   useProjectPanel,
+  useShownProject,
+  showOwnFolder,
   type PanelProject,
   type PanelTab,
 } from '@/lib/project-panel'
@@ -77,6 +79,9 @@ const COUNT_BADGE = 'bg-zinc-500'
  */
 function ProjectTitle({ project }: { project: PanelProject }) {
   const worktree = worktreeOf(project.cwd)
+  // Barra trocada para outro worktree (não é a pasta da conversa): o chip leva um X para voltar a ela.
+  const own = useProjectPanel((s) => s.project)
+  const swapped = own !== null && own.machine === project.machine && own.cwd !== project.cwd
   const cwd = worktree?.project ?? project.cwd
   const name = projectName(cwd)
   const [menu, setMenu] = useState<ProjectMenuAt | null>(null)
@@ -89,10 +94,21 @@ function ProjectTitle({ project }: { project: PanelProject }) {
     <div {...press} title={shortPath(project.cwd)} className="flex min-w-0 flex-1 items-center gap-2 px-1 select-none">
       <ProjectMark machine={project.machine} cwd={cwd} name={name} className="size-5 rounded-md text-[11px]" />
       <span className="shrink-0 text-[13px] font-medium">{name}</span>
-      {worktree && (
+      {(worktree || swapped) && (
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <GitBranch className="size-3 shrink-0" />
-          <span className="truncate">{worktree.name}</span>
+          <span className="truncate">{worktree?.name ?? projectName(project.cwd)}</span>
+          {swapped && (
+            <button
+              type="button"
+              onClick={showOwnFolder}
+              title="Voltar para a pasta da conversa"
+              aria-label="Voltar para a pasta da conversa"
+              className="-mr-1 shrink-0 rounded p-0.5 pointer-coarse:p-1.5 hover:bg-foreground/10 hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          )}
         </span>
       )}
       <ProjectMenu at={menu} open={menuOpen} onOpenChange={setMenuOpen} />
@@ -251,7 +267,7 @@ function ProjectRail({ project }: { project: PanelProject }) {
  * some tudo, alça incluída.
  */
 export function ProjectBar({ hidden }: { hidden: boolean }) {
-  const project = useProjectPanel((s) => s.project)
+  const project = useShownProject()
   const open = useProjectPanel((s) => s.open)
   const sheet = useProjectPanel((s) => s.sheet)
   const width = useProjectPanel((s) => s.width)
