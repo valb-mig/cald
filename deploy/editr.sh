@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# cald — utilitário de linha de comando do cald.
-# Instalado como alias pelo deploy/install.sh. Uso: cald -link [on|off]
+# edit.r — utilitário de linha de comando do edit.r.
+# Instalado como alias pelo deploy/install.sh. Uso: editr -link [on|off]
 set -euo pipefail
 
 PORT="${PORT:-7337}"
 SERVER_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../server" && pwd)"
 
-cald_link() {
+editr_link() {
   if ! command -v tailscale >/dev/null 2>&1; then
     echo "tailscale não encontrado. Instale-o e rode 'tailscale serve --bg ${PORT}'." >&2
     return 1
@@ -42,7 +42,7 @@ cald_link() {
 
 # PIN do painel (ver server/src/pin.ts): pedido duas vezes sem eco e passado ao node pela entrada
 # padrão, para não ficar no histórico nem na lista de processos.
-cald_pin() {
+editr_pin() {
   if [ "${1:-}" = "off" ]; then
     node "$SERVER_DIR/src/pin-cli.ts" off
     return
@@ -57,28 +57,28 @@ cald_pin() {
   printf '%s' "$pin" | node "$SERVER_DIR/src/pin-cli.ts"
 }
 
-cald_help() {
+editr_help() {
   cat <<'EOF'
-cald — painel mobile do Claude Code
+edit.r — painel mobile do Claude Code
 
 Uso:
-  cald -link      mostra o link de acesso remoto (o endereço da tailnet que o celular abre)
-  cald -link off  desliga o link remoto (o painel só abre no próprio PC)
-  cald -link on   liga de novo
-  cald -pin       define (ou troca) o PIN pedido para abrir o painel
-  cald -pin off   remove o PIN
-  cald -help      esta ajuda
+  editr -link      mostra o link de acesso remoto (o endereço da tailnet que o celular abre)
+  editr -link off  desliga o link remoto (o painel só abre no próprio PC)
+  editr -link on   liga de novo
+  editr -pin       define (ou troca) o PIN pedido para abrir o painel
+  editr -pin off   remove o PIN
+  editr -help      esta ajuda
 EOF
 }
 
 case "${1:-}" in
-  -link|--link|link) cald_link "${2:-}" ;;
-  -pin|--pin|pin) cald_pin "${2:-}" ;;
-  -help|--help|help|"") cald_help ;;
+  -link|--link|link) editr_link "${2:-}" ;;
+  -pin|--pin|pin) editr_pin "${2:-}" ;;
+  -help|--help|help|"") editr_help ;;
   *)
     echo "Opção desconhecida: $1" >&2
     echo >&2
-    cald_help >&2
+    editr_help >&2
     exit 1
     ;;
 esac
