@@ -34,6 +34,7 @@ import {
   type DiffSide,
 } from './git.ts';
 import { planPull, type PartialPlan } from './pull-plan.ts';
+import { planReview, type PartialReview } from './pull-review-plan.ts';
 import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
@@ -1246,6 +1247,39 @@ app.post<{ Body: { cwd: string; title: string; body: string; base: string; branc
   },
 );
 
+/**
+ * A resposta de um agente aos poucos, uma linha JSON por vez: o que ele já escreveu (`partial`), no máximo
+ * a cada 80 ms, e no fim o resultado (`plan`) ou o erro. Os cabeçalhos do guard (CORS) vão junto. A tela
+ * desistir (o "Parar", ou a aba fechou) para o agente: sem ninguém para receber, não há por que seguir.
+ */
+async function streamAssist<P>(reply: FastifyReply, failed: string, run: (cancel: AbortSignal, partial: (p: P) => void) => Promise<unknown>): Promise<void> {
+  reply.hijack();
+  const headers = Object.fromEntries(Object.entries(reply.getHeaders()).filter(([, v]) => v !== undefined)) as Record<string, string | number | string[]>;
+  reply.raw.writeHead(200, { ...headers, 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+  const line = (data: unknown) => reply.raw.write(`${JSON.stringify(data)}\n`);
+  const cancel = new AbortController();
+  reply.raw.once('close', () => !reply.raw.writableFinished && cancel.abort());
+  let latest: P | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  const flush = () => {
+    timer = null;
+    if (latest) line({ partial: latest });
+  };
+  try {
+    const plan = await run(cancel.signal, (p) => {
+      latest = p;
+      timer ??= setTimeout(flush, 80);
+    });
+    if (timer) clearTimeout(timer);
+    line({ plan });
+  } catch (err) {
+    if (timer) clearTimeout(timer);
+    line(err instanceof HttpError ? { error: err.code, ...err.details } : { error: failed });
+  } finally {
+    reply.raw.end();
+  }
+}
+
 // O PR organizado por um agente, no seu jeito (as suas skills de commit e PR valem): a tela preenche, você abre.
 app.post<{ Body: { cwd: string; agent?: string; model?: string; effort?: string; base: string; title?: string; body?: string; labels?: string[] } }>(
   '/api/github/draft/plan',
@@ -1271,35 +1305,34 @@ app.post<{ Body: { cwd: string; agent?: string; model?: string; effort?: string;
     const { cwd, agent, ...draft } = req.body;
     const dir = await manager.knownCwd(cwd);
     const provider = agent ? providers.get(agent) : providers.default();
-    // A resposta vem aos poucos, uma linha JSON por vez: os textos enquanto ele escreve (`partial`), no
-    // máximo a cada 80 ms, e no fim o PR inteiro (`plan`) ou o erro. Os cabeçalhos do guard (CORS) vão junto.
-    reply.hijack();
-    const headers = Object.fromEntries(Object.entries(reply.getHeaders()).filter(([, v]) => v !== undefined)) as Record<string, string | number | string[]>;
-    reply.raw.writeHead(200, { ...headers, 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
-    const line = (data: unknown) => reply.raw.write(`${JSON.stringify(data)}\n`);
-    // A tela desistiu (o "Parar", ou a aba fechou): sem ninguém para receber, o agente para.
-    const cancel = new AbortController();
-    reply.raw.once('close', () => !reply.raw.writableFinished && cancel.abort());
-    let latest: PartialPlan | null = null;
-    let timer: NodeJS.Timeout | null = null;
-    const flush = () => {
-      timer = null;
-      if (latest) line({ partial: latest });
-    };
-    const partial = (p: PartialPlan) => {
-      latest = p;
-      timer ??= setTimeout(flush, 80);
-    };
-    try {
-      const plan = await planPull(provider, dir, draft, cancel.signal, partial);
-      if (timer) clearTimeout(timer);
-      line({ plan });
-    } catch (err) {
-      if (timer) clearTimeout(timer);
-      line(err instanceof HttpError ? { error: err.code, ...err.details } : { error: 'assist_failed' });
-    } finally {
-      reply.raw.end();
-    }
+    await streamAssist<PartialPlan>(reply, 'assist_failed', (cancel, partial) => planPull(provider, dir, draft, cancel, partial));
+  },
+);
+
+// A revisão de um PR por um agente, no seu jeito (as suas skills de revisão valem): a tela põe os
+// comentários na sua revisão pendente, e você edita, apaga e envia.
+app.post<{ Body: { cwd: string; number: number; agent?: string; model?: string; effort?: string } }>(
+  '/api/github/review/plan',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'number'],
+        properties: {
+          cwd: { type: 'string' },
+          number: { type: 'integer', minimum: 1 },
+          agent: { type: 'string', maxLength: 40 },
+          model: { type: 'string', maxLength: 100 },
+          effort: { type: 'string', maxLength: 20 },
+        },
+      },
+    },
+  },
+  async (req, reply) => {
+    const { cwd, number, agent, ...opts } = req.body;
+    const dir = await manager.knownCwd(cwd);
+    const provider = agent ? providers.get(agent) : providers.default();
+    await streamAssist<PartialReview>(reply, 'review_failed', (cancel, partial) => planReview(provider, dir, number, opts, cancel, partial));
   },
 );
 
@@ -1320,7 +1353,10 @@ app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: Gi
             type: 'object',
             required: ['type'],
             properties: {
-              type: { type: 'string', enum: ['comment', 'labels', 'state', 'assign', 'review', 'merge', 'draft', 'edit'] },
+              type: {
+                type: 'string',
+                enum: ['comment', 'labels', 'state', 'assign', 'review', 'merge', 'draft', 'edit', 'line-comment', 'line-comments', 'reply', 'resolve', 'edit-comment', 'delete-comment', 'discard-review', 'viewed'],
+              },
               body: { type: 'string', maxLength: 65_000 },
               title: { type: 'string', maxLength: 300 },
               add: { type: 'array', items: { type: 'string' }, maxItems: 50 },
@@ -1332,6 +1368,33 @@ app.post<{ Body: { cwd: string; kind: 'issue' | 'pr'; number: number; action: Gi
               method: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
               deleteBranch: { type: 'boolean' },
               draft: { type: 'boolean' },
+              // Nas linhas: o arquivo, a linha (e o começo do trecho) e o lado do diff; a conversa ou o comentário.
+              path: { type: 'string', minLength: 1, maxLength: 1000 },
+              line: { type: 'integer', minimum: 1 },
+              startLine: { type: 'integer', minimum: 1 },
+              side: { type: 'string', enum: ['LEFT', 'RIGHT'] },
+              startSide: { type: 'string', enum: ['LEFT', 'RIGHT'] },
+              now: { type: 'boolean' },
+              thread: { type: 'string', minLength: 1, maxLength: 200 },
+              comment: { type: 'string', minLength: 1, maxLength: 200 },
+              resolved: { type: 'boolean' },
+              viewed: { type: 'boolean' },
+              comments: {
+                type: 'array',
+                maxItems: 100,
+                items: {
+                  type: 'object',
+                  required: ['path', 'line', 'side', 'body'],
+                  properties: {
+                    path: { type: 'string', minLength: 1, maxLength: 1000 },
+                    line: { type: 'integer', minimum: 1 },
+                    startLine: { type: 'integer', minimum: 1 },
+                    side: { type: 'string', enum: ['LEFT', 'RIGHT'] },
+                    startSide: { type: 'string', enum: ['LEFT', 'RIGHT'] },
+                    body: { type: 'string', minLength: 1, maxLength: 65_000 },
+                  },
+                },
+              },
             },
           },
         },

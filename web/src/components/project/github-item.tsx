@@ -743,7 +743,7 @@ export function GithubItemView({
               )}
 
               <div className={cn('mt-5 grid gap-x-8 gap-y-5 @4xl:grid-cols-[minmax(0,1fr)_15rem]')}>
-                <aside className="space-y-3 @4xl:order-last @max-4xl:grid @max-4xl:grid-cols-3 @max-4xl:gap-4 @max-4xl:space-y-0 @max-md:grid-cols-1">
+                <aside className="space-y-3 @4xl:sticky @4xl:top-5 @4xl:order-last @4xl:self-start @max-4xl:grid @max-4xl:grid-cols-3 @max-4xl:gap-4 @max-4xl:space-y-0 @max-md:grid-cols-1">
                   {item.kind === 'pr' && (
                     <Side title="Revisões">
                       <Reviewers pr={item} />

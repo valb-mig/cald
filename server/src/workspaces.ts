@@ -160,6 +160,8 @@ export class WorkspaceStore extends EventEmitter {
   async importWorkspaces(list: { ws: Workspace; files: { id: string; name: string; data: Buffer }[] }[]): Promise<void> {
     if (!list.length) return;
     for (const { ws, files } of list) {
+      // O id vira pasta: um que não seja só letras, números e hífen sairia de FILES_DIR.
+      if (!/^[\w-]{1,64}$/.test(ws.id)) continue;
       const dir = join(FILES_DIR, ws.id);
       await rm(dir, { recursive: true, force: true });
       for (const f of files) {
