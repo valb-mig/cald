@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do edit.r, uma gota branca dando oi no meio de um pulinho">
+<img src="web/public/pwa-192.png" width="96" alt="Logo do edit.r: um “.r” preto num quadrado arredondado branco">
 
 # edit.r
 
