@@ -1,9 +1,12 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { closeSync, mkdirSync, openSync, renameSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { BASE, PACKAGED, PORT, SERVER_ENTRY, SERVER_LOG, WEB_DIST } from './paths.ts';
+
+const execFileAsync = promisify(execFile);
 
 /** `own`: o servidor é deste app; `attached`: outro já respondia na porta (o serviço do systemd, por exemplo). */
 export type ServerMode = 'own' | 'attached';
@@ -13,6 +16,11 @@ const START_TIMEOUT_MS = 30_000;
 // Como o `TimeoutStopSec` do serviço: o servidor encerra as conversas do painel com calma.
 const STOP_TIMEOUT_MS = 20_000;
 const LOG_MAX_BYTES = 5 * 1024 * 1024;
+// O serviço de uma instalação pelo git (ver deploy/editr.service).
+const SERVICE = 'editr.service';
+// De pé, voltando de um reinício (o `auto-restart` do `RestartSec` conta como `activating`) ou
+// encerrando: em nenhum desses a porta fica livre para um servidor deste app.
+const SERVICE_UP = new Set(['active', 'activating', 'deactivating', 'reloading']);
 
 /** O servidor responde na porta, e é um edit.r. */
 export async function healthy(): Promise<boolean> {
@@ -25,10 +33,31 @@ export async function healthy(): Promise<boolean> {
 }
 
 /**
+ * O serviço do systemd cuida desta porta e está de pé ou voltando. No reinício da atualização ele
+ * fica uns segundos fora do ar; um servidor deste app que pegasse a porta nesse meio o deixaria preso
+ * em `EADDRINUSE`, com dois edit.r de versões diferentes se revezando no celular.
+ */
+async function serviceHoldsPort(): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('systemctl', ['--user', 'show', SERVICE, '--property=LoadState,ActiveState,Environment'], {
+      timeout: 2_000,
+    });
+    const props = Object.fromEntries(stdout.trim().split('\n').map((line) => line.split(/=(.*)/s, 2)));
+    if (props.LoadState !== 'loaded' || !SERVICE_UP.has(props.ActiveState)) return false;
+    // Sem `PORT=` no serviço, ele usa a de sempre (ver server/src/config.ts).
+    const port = /(?:^|[\s"])PORT=(\d+)/.exec(props.Environment ?? '')?.[1];
+    return Number(port ?? 7337) === PORT;
+  } catch {
+    // Sem o systemd: só conta o que responde na porta.
+    return false;
+  }
+}
+
+/**
  * O servidor do app: se já há um edit.r na porta (o serviço de uma instalação pelo git), o app só
  * abre a janela nele; senão, sobe o que vem junto, no Node do próprio Electron. Como o systemd com
  * `Restart=on-failure`, sobe de novo quando ele sai (o reinício da atualização sai de propósito) e,
- * se o de fora some, assume a porta.
+ * se o de fora some, assume a porta; o serviço voltando de um reinício, ele só espera.
  */
 export class ServerSupervisor extends EventEmitter {
   mode: ServerMode | null = null;
@@ -64,7 +93,7 @@ export class ServerSupervisor extends EventEmitter {
     if (this.stopping || this.checking || this.child) return;
     this.checking = true;
     try {
-      if (await healthy()) this.setMode('attached');
+      if ((await healthy()) || (await serviceHoldsPort())) this.setMode('attached');
       else this.spawn();
     } finally {
       this.checking = false;
