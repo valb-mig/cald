@@ -446,6 +446,9 @@ export function ChatPage({ id }: { id: string }) {
           rowRef={rowRef}
           windows={windows}
           glass={glass}
+          sessionId={id}
+          items={items}
+          live={state === 'running' || state === 'waiting'}
           code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} /> : null}
           steps={windows ? <StepsScreen sessionId={id} items={items} cwd={cwd ?? ''} agent={name} live={state === 'running' || state === 'waiting'} /> : null}
           chat={

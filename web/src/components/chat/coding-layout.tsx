@@ -1,4 +1,6 @@
-import { useRef, useState } from 'react'
+import { CodeXml, Footprints } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Claudinho } from '@/components/claudinho'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import {
   saveTrailSplit,
@@ -16,6 +18,8 @@ import {
   type Slot,
 } from '@/lib/chat-view'
 import { cn } from '@/lib/utils'
+import { collectEdits, filesOf } from './code-files'
+import { AGENT_TOOLS, type ActivityEntry, type Item } from './items'
 import { ScreenCtx, useDraggingScreen } from './screen-ctx'
 
 /** Menor espaço de cada lado: a coluna da direita não passa de MIN_PANE para baixo, e a principal fica com MIN_MAIN. */
@@ -24,6 +28,8 @@ const MIN_MAIN = 480
 const MIN_TOP = 120
 const MIN_BOTTOM = 160
 const KEY_STEP = 40
+/** A largura do trilho em que a coluna da direita vira quando as duas telas dela estão recolhidas. */
+const RAIL = '2.75rem'
 
 const SLOT_NAMES: Record<Slot, string> = { main: 'Principal', top: 'Em cima', bottom: 'Embaixo' }
 
@@ -58,6 +64,44 @@ function DropZone({ screen, slot }: { screen: Screen; slot: Slot }) {
   )
 }
 
+/** Alguma ferramenta ainda sem resultado, nas entradas e nas dos subagentes. */
+function hasPending(entries: ActivityEntry[]): boolean {
+  return entries.some((e) => e.kind === 'tool' && (!e.result || (AGENT_TOOLS.has(e.use.name) && !!e.inner && hasPending(e.inner))))
+}
+
+const RAIL_META = {
+  code: { Icon: CodeXml, label: 'Abrir o código' },
+  steps: { Icon: Footprints, label: 'Abrir os passos' },
+} as const
+
+/** O trilho: as telas recolhidas da direita, como botões de ícone; o claudinho no canto diz que há trabalho nelas. */
+function Rail({ order, busy, sessionId }: { order: ('code' | 'steps')[]; busy: Record<'code' | 'steps', boolean>; sessionId: string }) {
+  return (
+    <div style={{ gridArea: 'rail' }} className="flex min-h-0 flex-col items-center gap-1 overflow-hidden rounded-pane bg-background py-2">
+      {order.map((screen) => {
+        const { Icon, label } = RAIL_META[screen]
+        return (
+          <button
+            key={screen}
+            type="button"
+            title={label}
+            aria-label={label}
+            onClick={() => setScreenCollapsed(screen, false)}
+            className="relative grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <Icon className="size-4" />
+            {busy[screen] && (
+              <span className="absolute -top-0.5 -right-0.5 animate-pulse">
+                <Claudinho seed={sessionId} size={12} />
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
  * O chão do modo coding: uma grade de áreas fixas (principal à esquerda; em cima e embaixo, à direita) e as
  * três telas como filhos sempre na mesma ordem, que só trocam a área. Por isso trocar de lugar não remonta
@@ -71,6 +115,9 @@ export function CodingLayout({
   chat,
   code,
   steps,
+  sessionId,
+  items,
+  live,
 }: {
   rowRef: React.RefObject<HTMLDivElement | null>
   windows: boolean
@@ -78,6 +125,10 @@ export function CodingLayout({
   chat: React.ReactNode
   code: React.ReactNode
   steps: React.ReactNode
+  sessionId: string
+  items: Item[]
+  /** A conversa está trabalhando ou esperando. */
+  live: boolean
 }) {
   const { slots, collapsed } = useCodingSlots()
   const width = useTrailWidth((s) => s.width)
@@ -89,12 +140,22 @@ export function CodingLayout({
   const topShut = shut(slots.top)
   const bottomShut = shut(slots.bottom)
 
+  // As duas da direita recolhidas (nenhuma é o chat, que não recolhe): a coluna vira um trilho.
+  const railed = windows && topShut && bottomShut
+  const busy = useMemo(() => {
+    if (!railed || !live) return { code: false, steps: false }
+    const entries = items.flatMap((i) => (i.type === 'activity' ? i.entries : []))
+    return { code: filesOf(collectEdits(items), live).some((f) => f.state === 'running'), steps: hasPending(entries) }
+  }, [railed, live, items])
+
   let rows = `minmax(0,${split}fr) var(--gap) minmax(0,${1 - split}fr) 0px`
   if (topShut && bottomShut) rows = 'auto var(--gap) auto minmax(0,1fr)'
   else if (topShut) rows = 'auto var(--gap) minmax(0,1fr) 0px'
   else if (bottomShut) rows = 'minmax(0,1fr) var(--gap) auto 0px'
 
-  const gridStyle: React.CSSProperties = windows
+  const gridStyle: React.CSSProperties = railed
+    ? { gridTemplateColumns: `minmax(0,1fr) var(--gap) ${RAIL}`, gridTemplateRows: 'minmax(0,1fr)', gridTemplateAreas: '"main vdiv rail"' }
+    : windows
     ? {
         gridTemplateColumns: `minmax(0,1fr) var(--gap) clamp(${MIN_PANE}px, ${width}px, calc(100% - ${MIN_MAIN}px - var(--gap)))`,
         gridTemplateRows: rows,
@@ -108,6 +169,7 @@ export function CodingLayout({
   const cell = (screen: Screen, node: React.ReactNode) => {
     const slot = windows ? slotOf(screen) : 'main'
     const isShut = windows && shut(screen)
+    // No trilho, as janelas ficam escondidas mas montadas: o arquivo, o ao vivo e o "já visto" continuam.
     return (
       <div
         ref={(el) => {
@@ -116,6 +178,7 @@ export function CodingLayout({
         style={{ gridArea: windows ? slot : 'main' }}
         className={cn(
           'relative flex min-h-0 min-w-0 flex-col',
+          railed && screen !== 'chat' && 'hidden',
           windows && 'overflow-hidden rounded-pane',
           windows && slot === 'main' && 'in-data-[hole=flush]:rounded-tl-none',
           // O vidro do chat é o do fundo animado; sem ele, a janela tem a cor da aba.
@@ -133,9 +196,10 @@ export function CodingLayout({
       {cell('chat', chat)}
       {windows && cell('code', code)}
       {windows && cell('steps', steps)}
+      {railed && <Rail order={[slots.top, slots.bottom].filter((x): x is 'code' | 'steps' => x !== 'chat')} busy={busy} sessionId={sessionId} />}
       {windows && (
         <div className="flex" style={{ gridArea: 'vdiv' }}>
-          <ResizeHandle
+          {railed ? <div className="w-gap" /> : <ResizeHandle
             between="windows"
             label="Tamanho da coluna da direita"
             value={50}
@@ -155,10 +219,10 @@ export function CodingLayout({
             }}
             onReset={() => setTrailWidth(TRAIL_WIDTH)}
             onEnd={saveTrailWidth}
-          />
+          />}
         </div>
       )}
-      {windows && (
+      {windows && !railed && (
         <div style={{ gridArea: 'hdiv' }}>
           {topShut || bottomShut ? (
             <div className="h-gap" />
