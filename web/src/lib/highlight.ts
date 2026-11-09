@@ -151,8 +151,10 @@ const MAX_LINES = 5_000
  * Os tokens de cada linha de `code`, para o arquivo em `path`. `null` enquanto carrega, para
  * linguagem desconhecida, texto grande demais ou sem rede: quem usa mostra o texto puro.
  */
-export function useTokens(code: string | null, path: string): ThemedToken[][] | null {
-  const dark = useDarkMode()
+export function useTokens(code: string | null, path: string, forceDark?: boolean): ThemedToken[][] | null {
+  const app = useDarkMode()
+  // `forceDark`: para o que fica sobre fundo preto nos dois temas (o painel de passos).
+  const dark = forceDark ?? app
   const lang = languageOf(path)
   const [done, setDone] = useState<{ code: string; lang: string; dark: boolean; lines: ThemedToken[][] } | null>(null)
 
