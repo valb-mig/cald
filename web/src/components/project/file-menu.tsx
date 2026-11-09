@@ -1,4 +1,4 @@
-import { AppWindow, AtSign, Copy, FileText } from 'lucide-react'
+import { AppWindow, AtSign, Copy, FileText, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -6,8 +6,11 @@ import { mentionInChat, openViewer, type PanelProject } from '@/lib/project-pane
 import { isHtmlPath, showPrototype } from '@/lib/prototype'
 import { splitPath } from './status'
 
-/** Arquivo (ou pasta) e o ponto da tela (o do clique ou do dedo) onde o menu abre. */
-export type FileMenuAt = { path: string; dir?: boolean; deleted?: boolean; x: number; y: number }
+/**
+ * Arquivo (ou pasta) e o ponto da tela (o do clique ou do dedo) onde o menu abre. Com `discard`, o
+ * arquivo tem alterações não commitadas, e o menu oferece descartá-las.
+ */
+export type FileMenuAt = { path: string; dir?: boolean; deleted?: boolean; discard?: () => void; x: number; y: number }
 
 /** Mencionar no chat (um arquivo, pasta ou trecho), com o aviso quando a conversa não tem campo de mensagem. */
 export function mention(path: string, at?: { dir?: boolean; lines?: [number, number] }): void {
@@ -67,6 +70,14 @@ export function useFileMenu(project: PanelProject) {
             >
               <Copy /> Copiar caminho
             </DropdownMenuItem>
+            {at.discard && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={at.discard}>
+                  <Undo2 /> Descartar alterações
+                </DropdownMenuItem>
+              </>
+            )}
           </>
         )}
       </DropdownMenuContent>

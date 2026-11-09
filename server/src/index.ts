@@ -24,12 +24,14 @@ import {
   gitCreateBranch,
   gitDeleteBranch,
   gitDiff,
+  gitDiscard,
   gitPull,
   gitStage,
   gitStatus,
   gitSummaries,
   gitSwitch,
   gitSync,
+  gitUndoDiscard,
   gitUnstage,
   type DiffSide,
 } from './git.ts';
@@ -1007,8 +1009,7 @@ app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
   diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
 }));
 
-// Controle de código-fonte pelo painel: preparar, tirar do stage, commit e sincronizar. Descartar
-// alterações fica de fora de propósito: é a única ação daqui que não teria volta.
+// Controle de código-fonte pelo painel: preparar, tirar do stage, descartar (com volta), commit e sincronizar.
 type GitPathsBody = { Body: { cwd: string; paths: string[] } };
 const gitPathsBody = {
   schema: {
@@ -1029,6 +1030,18 @@ app.post<GitPathsBody>('/api/git/unstage', gitPathsBody, async (req) => {
   await gitUnstage(await manager.knownCwd(req.body.cwd), req.body.paths);
   return { ok: true };
 });
+
+// Descartar guarda antes como cada arquivo estava: o `undo` devolvido desfaz, por uma hora (ver gitDiscard).
+app.post<GitPathsBody>('/api/git/discard', gitPathsBody, async (req) => gitDiscard(await manager.knownCwd(req.body.cwd), req.body.paths));
+
+app.post<{ Body: { cwd: string; undo: string } }>(
+  '/api/git/discard/undo',
+  { schema: { body: { type: 'object', required: ['cwd', 'undo'], properties: { cwd: { type: 'string' }, undo: { type: 'string', maxLength: 64 } } } } },
+  async (req) => {
+    await gitUndoDiscard(await manager.knownCwd(req.body.cwd), req.body.undo);
+    return { ok: true };
+  },
+);
 
 app.post<{ Body: { cwd: string; message: string; all?: boolean } }>(
   '/api/git/commit',
