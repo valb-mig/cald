@@ -15,6 +15,8 @@ import { innerChange, MarkedCode } from './changes'
 // Números da margem desenhados pelo CSS (`data-n`): fora da seleção e do que se copia. Em `em`, para
 // crescerem com a fonte do código.
 const GUTTER = 'w-[3.4em] shrink-0 pr-[0.5em] text-right text-muted-foreground/60 select-none before:content-[attr(data-n)]'
+// O número que se toca para comentar na linha: no PC, vira um "+" sob o ponteiro, como no GitHub.
+const PICKABLE = "cursor-pointer rounded-[0.4em] hover:bg-foreground/10 hover:text-foreground hover:before:content-['+']"
 // O tamanho vem da variável posta no contêiner (`--code-font`), e não por propriedade: mudar a fonte não
 // redesenha as milhares de linhas. A altura da linha acompanha (20 px nos 12 px).
 export const CODE_TEXT = 'font-mono text-[length:var(--code-font)] leading-[1.667] select-none'
@@ -143,6 +145,9 @@ export function DiffLines({
   wrap,
   className,
   children,
+  onPick,
+  picked,
+  below,
 }: {
   rows: DiffRow[]
   oldTokens: ThemedToken[][] | null
@@ -151,6 +156,12 @@ export function DiffLines({
   className?: string
   /** Depois das linhas (o aviso de diff cortado). */
   children?: React.ReactNode
+  /** Para comentar (num PR): tocar no número de uma linha a escolhe; com Shift, estende até ela. */
+  onPick?: (row: number, extend: boolean) => void
+  /** As linhas escolhidas, da primeira à última (índices em `rows`), em destaque. */
+  picked?: readonly [number, number] | null
+  /** O que vai embaixo de uma linha: as conversas presas a ela e a caixa de comentar. */
+  below?: (row: number) => React.ReactNode
 }) {
   // Recolhidos, pelo índice da primeira linha: os blocos (pela bolinha) e os trechos (pelo cabeçalho).
   const [folded, setFolded] = useState<Set<number>>(() => new Set())
@@ -242,6 +253,7 @@ export function DiffLines({
     }
     const first = block?.start === i
     const last = block?.end === i + 1
+    const chosen = picked != null && i >= picked[0] && i <= picked[1]
     out.push(
       <div
         key={i}
@@ -251,13 +263,24 @@ export function DiffLines({
         data-code=""
         className={cn(
           'mx-2 flex',
-          r.kind !== 'ctx' && TINT[r.kind],
+          chosen ? 'bg-foreground/[0.12]' : r.kind !== 'ctx' && TINT[r.kind],
           first && 'mt-1 rounded-t-[0.6em]',
           last && 'mb-1 rounded-b-[0.6em]',
         )}
       >
         {/* Um número só, como no GitHub em linha: o do arquivo novo, ou o do antigo numa linha que saiu. */}
-        <span data-n={r.kind === 'del' ? r.old : r.new} className={GUTTER} />
+        {onPick ? (
+          <span
+            role="button"
+            tabIndex={-1}
+            data-n={r.kind === 'del' ? r.old : r.new}
+            title="Comentar nesta linha (Shift: até ela)"
+            onClick={(e) => onPick(at, e.shiftKey)}
+            className={cn(GUTTER, PICKABLE)}
+          />
+        ) : (
+          <span data-n={r.kind === 'del' ? r.old : r.new} className={GUTTER} />
+        )}
         {/* A bolinha fica na altura da primeira linha (`h-[1lh]`), também quando ela quebra em várias. */}
         <span className="relative flex w-[1.8em] shrink-0 justify-center">
           {block && first && (
@@ -282,6 +305,16 @@ export function DiffLines({
         </span>
       </div>,
     )
+    const extra = below?.(at)
+    if (extra) {
+      // Na largura da área à vista (`100cqw`, ver `usePatchRows`), presa à esquerda: a linha de código pode
+      // ser mais larga que a tela, a conversa não.
+      out.push(
+        <div key={`below-${i}`} className="sticky left-0 w-[100cqw] px-2 py-1.5 font-sans text-sm leading-normal whitespace-normal select-text">
+          {extra}
+        </div>,
+      )
+    }
   }
   return (
     <pre className={cn('w-max min-w-full', CODE_TEXT, className)}>
@@ -291,16 +324,28 @@ export function DiffLines({
   )
 }
 
-/** O trecho do diff de um arquivo que o GitHub manda (um PR, um commit), no mesmo desenho, com as cores de sintaxe. */
-export function PatchDiff({ patch, path }: { patch: string; path: string }) {
+/** As linhas do trecho de diff que o GitHub manda, com as cores de sintaxe dos dois lados. */
+export function usePatchRows(patch: string, path: string) {
   const parsed = useMemo(() => parseDiff(patch), [patch])
   const oldText = useMemo(() => parsed.old.join('\n'), [parsed])
   const newText = useMemo(() => parsed.new.join('\n'), [parsed])
   const oldTokens = useTokens(oldText, path)
   const newTokens = useTokens(newText, path)
+  return { rows: parsed.rows, oldTokens, newTokens }
+}
+
+/**
+ * Onde o diff de um arquivo de PR ou de commit rola de lado. É contêiner de largura: o que vai embaixo
+ * de uma linha (`below`) usa a largura à vista dele.
+ */
+export const PATCH_SCROLL = 'overflow-x-auto [container-type:inline-size] [--code-font:12px]'
+
+/** O trecho do diff de um arquivo que o GitHub manda (um PR, um commit), no mesmo desenho, com as cores de sintaxe. */
+export function PatchDiff({ patch, path }: { patch: string; path: string }) {
+  const { rows, oldTokens, newTokens } = usePatchRows(patch, path)
   return (
-    <div className="overflow-x-auto [--code-font:12px]">
-      <DiffLines rows={parsed.rows} oldTokens={oldTokens} newTokens={newTokens} wrap={false} />
+    <div className={PATCH_SCROLL}>
+      <DiffLines rows={rows} oldTokens={oldTokens} newTokens={newTokens} wrap={false} />
     </div>
   )
 }

@@ -204,13 +204,27 @@ export function mergeWarning(pr: GithubPullDetail): string | null {
 
 /**
  * Revisar o PR, como o "Review changes" do GitHub: aprovar, comentar ou pedir mudanças, com um texto.
- * O próprio PR só aceita comentário: o GitHub não deixa aprovar nem pedir mudanças no que você abriu.
+ * Com uma revisão pendente (comentários nas linhas, ver pull-review.tsx), ela é que sai, e o texto pode
+ * ficar vazio. O próprio PR só aceita comentário: o GitHub não deixa aprovar nem pedir mudanças no que
+ * você abriu.
  */
-function ReviewDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ReviewDialog({
+  pr,
+  open,
+  onOpenChange,
+  initial,
+}: {
+  pr: GithubPullDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** O veredito e o texto já escritos (a revisão de um agente, ver pull-review.tsx), para você conferir e enviar. */
+  initial?: { event: 'approve' | 'comment' | 'request-changes'; body: string }
+}) {
   const { busy, act } = useGithubAct()
-  const [event, setEvent] = useState<'approve' | 'comment' | 'request-changes'>(pr.mine ? 'comment' : 'approve')
-  const [body, setBody] = useState('')
-  const needsBody = event !== 'approve'
+  const [event, setEvent] = useState<'approve' | 'comment' | 'request-changes'>(pr.mine ? 'comment' : (initial?.event ?? 'approve'))
+  const [body, setBody] = useState(initial?.body ?? '')
+  const pending = pr.pendingReview?.comments ?? 0
+  const needsBody = event !== 'approve' && !pending
   const own = 'O GitHub não deixa fazer isso no PR que você abriu'
   const submit = async () => {
     const ok = await act(
@@ -239,10 +253,21 @@ function ReviewDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: 
           ]}
         />
         {pr.mine && <p className="-mt-2 text-xs text-muted-foreground">Este PR é seu: o GitHub só deixa comentar.</p>}
+        {pending > 0 && (
+          <p className="-mt-2 text-xs text-muted-foreground">
+            {pending === 1 ? 'O comentário pendente nas linhas vai junto.' : `Os ${pending} comentários pendentes nas linhas vão juntos.`}
+          </p>
+        )}
         <Textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder={event === 'approve' ? 'Um comentário, se quiser' : event === 'request-changes' ? 'O que precisa mudar' : 'O comentário da revisão'}
+          placeholder={
+            event === 'approve' || pending
+              ? 'Um comentário geral, se quiser'
+              : event === 'request-changes'
+                ? 'O que precisa mudar'
+                : 'O comentário da revisão'
+          }
           className="min-h-24"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && (!needsBody || body.trim())) void submit()
@@ -329,7 +354,7 @@ export function PullActions({ pr }: { pr: GithubPullDetail }) {
           <GitMerge /> Dar merge
         </Button>
         <Button size="sm" variant="secondary" onClick={() => setReview(true)}>
-          Revisar
+          {pr.pendingReview ? `Enviar revisão · ${pr.pendingReview.comments}` : 'Revisar'}
         </Button>
       </div>
       {/* A chave recomeça o diálogo a cada vez, com o jeito e o texto do zero. */}

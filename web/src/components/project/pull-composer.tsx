@@ -68,11 +68,11 @@ type Organizer = { agent: AgentProviderInfo; models: ModelOption[] }
 /** O modelo e o esforço escolhidos para um agente; `default` e `null` são os das suas configurações. */
 type Pick = { model: string; effort: string | null }
 
-// O modelo e o esforço de cada agente, lembrados neste aparelho para a próxima vez.
+// O modelo e o esforço de cada agente, lembrados neste aparelho para a próxima vez (cada uso do menu, a sua chave).
 const PICKS_KEY = 'cr:pr-agent'
-const savedPicks = (): Record<string, Pick> => {
+const savedPicks = (key: string): Record<string, Pick> => {
   try {
-    const raw = JSON.parse(localStorage.getItem(PICKS_KEY) ?? '{}') as unknown
+    const raw = JSON.parse(localStorage.getItem(key) ?? '{}') as unknown
     return raw && typeof raw === 'object' ? (raw as Record<string, Pick>) : {}
   } catch {
     return {}
@@ -90,21 +90,44 @@ const current = (models: ModelOption[]) => {
   return [...(aliases.length ? aliases : named.slice(0, 4)), ...(fallback ? [fallback] : [])]
 }
 
-/** Sem escolha ainda: o Sonnet com esforço baixo, que fica em uns 20 s e segue bem as convenções. */
-const firstPick = (models: ModelOption[]): Pick => {
-  const model = models.find((m) => m.value === 'sonnet') ?? models[0]
-  return { model: model?.value ?? 'default', effort: model?.efforts.includes('low') ? 'low' : null }
+/** Sem escolha ainda: o Sonnet com esforço baixo, que fica em uns 20 s e segue bem as convenções (ou o `prefer` de quem usa). */
+const firstPick = (models: ModelOption[], prefer: Pick = { model: 'sonnet', effort: 'low' }): Pick => {
+  const model = models.find((m) => m.value === prefer.model) ?? models[0]
+  return { model: model?.value ?? 'default', effort: prefer.effort && model?.efforts.includes(prefer.effort) ? prefer.effort : null }
 }
 
 const modelName = (m: ModelOption) => (m.value === 'default' ? 'Padrão' : m.displayName)
 
 /**
- * O "Chamar agente": cada agente com a marca dele, que já organiza ao tocar; passar o mouse abre ao lado o
- * mesmo seletor da barra do chat (o esforço em cima, os modelos embaixo). O que você escolhe fica para a próxima.
+ * O "Chamar agente": cada agente com a marca dele, que já faz o trabalho ao tocar; passar o mouse abre ao
+ * lado o mesmo seletor da barra do chat (o esforço em cima, os modelos embaixo). O que você escolhe fica
+ * para a próxima. Por padrão, é o de organizar o PR; a revisão (ver pull-review.tsx) troca os textos, a
+ * chave do que se lembra e o modelo de partida.
  */
-function AgentMenu({ machine, disabled, onRun }: { machine: string; disabled: boolean; onRun: (agent: AgentProviderInfo, model: ModelOption, effort: string | null) => void }) {
+export function AgentMenu({
+  machine,
+  disabled,
+  onRun,
+  label = 'Chamar agente',
+  title = 'Um agente organiza o título, a descrição, as etiquetas e os commits no jeito das suas skills',
+  heading = 'Organizar o PR com',
+  verb = 'Organizar o PR com',
+  storageKey = PICKS_KEY,
+  prefer,
+}: {
+  machine: string
+  disabled: boolean
+  onRun: (agent: AgentProviderInfo, model: ModelOption, effort: string | null) => void
+  label?: string
+  title?: string
+  heading?: string
+  /** O começo da dica de cada agente ("Organizar o PR com Claude Code"). */
+  verb?: string
+  storageKey?: string
+  prefer?: Pick
+}) {
   const [organizers, setOrganizers] = useState<Organizer[] | null>(null)
-  const [picks, setPicks] = useState(savedPicks)
+  const [picks, setPicks] = useState(() => savedPicks(storageKey))
   const [open, setOpen] = useState(false)
   const load = () =>
     api
@@ -121,7 +144,7 @@ function AgentMenu({ machine, disabled, onRun }: { machine: string; disabled: bo
     const next = { ...picks, [agent]: pick }
     setPicks(next)
     try {
-      localStorage.setItem(PICKS_KEY, JSON.stringify(next))
+      localStorage.setItem(storageKey, JSON.stringify(next))
     } catch {
       // localStorage indisponível: a escolha vale só até fechar a aba.
     }
@@ -135,21 +158,21 @@ function AgentMenu({ machine, disabled, onRun }: { machine: string; disabled: bo
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={disabled} title="Um agente organiza o título, a descrição, as etiquetas e os commits no jeito das suas skills">
-          <Sparkles /> Chamar agente
+        <Button variant="ghost" size="sm" disabled={disabled} title={title}>
+          <Sparkles /> {label}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Organizar o PR com</DropdownMenuLabel>
+        <DropdownMenuLabel>{heading}</DropdownMenuLabel>
         {organizers === null ? (
           <div className="flex justify-center py-2">
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
           </div>
         ) : organizers.length === 0 ? (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum agente ligado organiza PRs (ou o servidor do PC é da versão anterior).</p>
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum agente ligado faz isto (ou o servidor do PC é da versão anterior).</p>
         ) : (
           organizers.map(({ agent, models }) => {
-            const pick = picks[agent.id] ?? firstPick(models)
+            const pick = picks[agent.id] ?? firstPick(models, prefer)
             const model = models.find((m) => m.value === pick.model) ?? models[0]
             if (!model) return null
             const efforts = agent.features.effort ? model.efforts : []
@@ -159,7 +182,7 @@ function AgentMenu({ machine, disabled, onRun }: { machine: string; disabled: bo
                 {/* Passar o mouse abre o modelo e o esforço ao lado; tocar no agente já organiza, com o que está escolhido. */}
                 <DropdownMenuSubTrigger
                   className="gap-2"
-                  title={`Organizar o PR com ${agent.name}`}
+                  title={`${verb} ${agent.name}`}
                   onClick={(e) => {
                     e.preventDefault()
                     setOpen(false)

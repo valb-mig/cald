@@ -8,11 +8,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { relativeTime } from '@/lib/format'
 import { GITHUB_REASON, useGithubItem } from '@/lib/github'
 import { insertInChat } from '@/lib/project-panel'
-import type { GithubCommit, GithubComment, GithubPullDetail, GithubReview } from '@/lib/types'
+import type { GithubCommit, GithubComment, GithubPullDetail, GithubReview, GithubThread } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CommentBox, GithubTarget, ItemMenu, LabelsEditor, mergeBlock, mergeWarning, PullActions, QuotaNote, useGithubAct } from './github-actions'
 import { Assignees, Avatar, BranchChip, CHECK, DiffBar, Labels, REVIEW, Reviewers, StatePill, when } from './github-item'
 import { PatchFiles, usePatches } from './patch-list'
+import { ReviewFiles, type ReviewFocus } from './pull-review'
 
 /**
  * Um PR como aba, no desenho do cald: no topo, o título (que dá para editar), o estado, de que branch
@@ -240,11 +241,6 @@ function Commits({ pr, machine, cwd }: { pr: GithubPullDetail; machine: string; 
   )
 }
 
-function Files({ pr, machine, cwd }: { pr: GithubPullDetail; machine: string; cwd: string }) {
-  const { files, error } = usePatches(machine, cwd, { pr: pr.number })
-  return <PatchFiles files={files} error={error} />
-}
-
 /** O estado do PR numa frase, com a cor dele: pronto, com aviso, em conflito, rascunho, mesclado ou fechado. */
 function MergeState({ pr }: { pr: GithubPullDetail }) {
   const block = mergeBlock(pr)
@@ -281,15 +277,23 @@ function MergeState({ pr }: { pr: GithubPullDetail }) {
   )
 }
 
-type Talk = { at: string; comment?: GithubComment; review?: GithubReview }
+type Talk = { at: string; comment?: GithubComment; review?: GithubReview; thread?: GithubThread }
 
-/** Comentários e revisões com texto (ou que aprovaram e pediram mudanças), na ordem em que vieram. */
-function Conversation({ pr }: { pr: GithubPullDetail }) {
+/**
+ * Comentários, revisões com texto (ou que aprovaram e pediram mudanças) e as conversas no código, na
+ * ordem em que vieram. A do código mostra onde está e o primeiro comentário; tocar leva até ela, na aba
+ * Arquivos. As suas ainda pendentes ficam de fora: só existem na revisão que você não enviou.
+ */
+function Conversation({ pr, onOpenThread }: { pr: GithubPullDetail; onOpenThread: (thread: GithubThread) => void }) {
   const talks: Talk[] = [
     ...pr.comments.map((c) => ({ at: c.createdAt, comment: c })),
     ...pr.reviews
       .filter((r) => r.submittedAt && (r.body.trim() || r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED'))
       .map((r) => ({ at: r.submittedAt!, review: r })),
+    ...(pr.threads ?? []).flatMap((t) => {
+      const first = t.comments.find((c) => !c.pending)
+      return first ? [{ at: first.createdAt, thread: t }] : []
+    }),
   ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
   return (
     <div className="space-y-3">
@@ -300,6 +304,7 @@ function Conversation({ pr }: { pr: GithubPullDetail }) {
         </a>
       )}
       {talks.map((t) => {
+        if (t.thread) return <ThreadTalk key={t.thread.id} thread={t.thread} onOpen={() => onOpenThread(t.thread!)} />
         const author = t.comment?.author ?? t.review?.author ?? null
         const avatar = t.comment?.avatar ?? t.review?.avatar
         const body = t.comment?.body ?? t.review?.body ?? ''
@@ -325,10 +330,53 @@ function Conversation({ pr }: { pr: GithubPullDetail }) {
   )
 }
 
+/** Uma conversa no código, na lateral: onde está, o primeiro comentário e quantas respostas. */
+function ThreadTalk({ thread, onOpen }: { thread: GithubThread; onOpen: () => void }) {
+  const shown = thread.comments.filter((c) => !c.pending)
+  const first = shown[0]!
+  const place = thread.line ?? thread.originalLine
+  const replies = shown.length - 1
+  return (
+    <article className={cn('rounded-2xl bg-foreground/[0.03] px-3.5 py-3', thread.resolved && 'opacity-70')}>
+      <header className="mb-1.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <Avatar login={first.author} src={first.avatar} className="size-5 text-[10px]" />
+        <span className="truncate font-medium text-foreground">{first.author ?? 'alguém'}</span>
+        <span className="shrink-0">no código</span>
+        <span className="ml-auto shrink-0">{when(first.createdAt)}</span>
+      </header>
+      <button
+        type="button"
+        onClick={onOpen}
+        title="Ver no diff"
+        className="mb-1.5 block max-w-full truncate rounded-md bg-foreground/[0.05] px-1.5 py-0.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:bg-foreground/[0.09] hover:text-foreground"
+      >
+        {thread.path}
+        {place != null && `:${place}`}
+      </button>
+      <div className="line-clamp-6 text-sm [&_.prose]:text-sm">
+        <Markdown text={first.body} />
+      </div>
+      {(replies > 0 || thread.resolved || thread.outdated) && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {[replies > 0 && `${replies} ${replies === 1 ? 'resposta' : 'respostas'}`, thread.resolved && 'resolvida', thread.outdated && 'desatualizada']
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
+    </article>
+  )
+}
+
 export function PullView({ machine, cwd, number, title, active }: { machine: string; cwd: string; number: number; title?: string; active: boolean }) {
   const { item: result, loading, error, refresh } = useGithubItem(machine, cwd, 'pr', number, active)
   const pr = result?.ok && result.item.kind === 'pr' ? result.item : null
   const [tab, setTab] = useState<Tab>('overview')
+  // Uma conversa tocada na lateral: a aba Arquivos abre no arquivo dela e rola até ela.
+  const [focus, setFocus] = useState<ReviewFocus | null>(null)
+  const openThread = (thread: GithubThread) => {
+    setTab('files')
+    setFocus({ path: thread.path, thread: thread.id, at: Date.now() })
+  }
   const viewer = result?.ok ? result.viewer : ''
   const send = () => {
     if (!pr) return
@@ -343,7 +391,8 @@ export function PullView({ machine, cwd, number, title, active }: { machine: str
 
   return (
     <GithubTarget value={{ machine, cwd, kind: 'pr', number }}>
-      <div className="absolute inset-0 overflow-y-auto bg-background">
+      {/* Contêiner de altura: a coluna da direita se limita a ele (`cqh`) quando acompanha a rolagem. */}
+      <div className="absolute inset-0 overflow-y-auto bg-background [container-type:size]">
         <div className="@container mx-auto w-full max-w-6xl px-6 pt-5 pb-16 max-sm:px-4">
           <div className="flex items-center gap-1">
             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
@@ -420,64 +469,69 @@ export function PullView({ machine, cwd, number, title, active }: { machine: str
                 ))}
               </div>
 
-              {/* Lado a lado: o conteúdo à esquerda e, à direita, o que se acompanha com a conversa embaixo.
-                  Numa coluna só: o estado e o que se acompanha em cima, o conteúdo no meio e a conversa no fim. */}
-              <div className="mt-5 grid gap-x-8 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_21rem] @4xl:grid-rows-[auto_1fr]">
-                <aside className="min-w-0 space-y-6 @4xl:col-start-2 @4xl:row-start-1">
-                  <MergeState pr={pr} />
-                  {pr.checks.length > 0 && (
-                    <Section title="Checks">
-                      <ul className="space-y-1">
-                        {pr.checks.map((c) => (
-                          <li key={c.name} className="flex min-w-0 items-center gap-2">
-                            <span className="flex w-4 shrink-0 justify-center">{CHECK[c.result]}</span>
-                            {c.url ? (
-                              <a href={c.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline">
-                                {c.name}
-                              </a>
-                            ) : (
-                              <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </Section>
-                  )}
-                  <Section title="Revisões">
-                    <Reviewers pr={pr} />
-                  </Section>
-                  <Section title="Responsáveis">
-                    <Assignees item={pr} viewer={viewer} />
-                  </Section>
-                  <Section title="Etiquetas" action={<LabelsEditor labels={pr.labels} repoLabels={result.repoLabels} trigger={<Settings2 className="size-3.5" />} />}>
-                    {pr.labels.length ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        <Labels labels={pr.labels} />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Nenhuma.</p>
+              {/* Lado a lado: o conteúdo à esquerda e, à direita, o que se acompanha com a conversa embaixo,
+                  numa coluna que acompanha a rolagem (com rolagem própria, se passar da altura da tela; a
+                  altura desconta o `top-5` e o `pb-16` da página, para ela caber inteira no fim da rolagem).
+                  Numa coluna só, a coluna some (`contents`) e a ordem vira: o estado e o que se acompanha
+                  em cima, o conteúdo no meio e a conversa no fim. */}
+              <div className="mt-5 grid gap-x-8 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_21rem]">
+                <div className="contents @4xl:sticky @4xl:top-5 @4xl:col-start-2 @4xl:row-start-1 @4xl:-mx-1 @4xl:block @4xl:max-h-[calc(100cqh-5.25rem)] @4xl:px-1 @4xl:pb-1 @4xl:space-y-8 @4xl:self-start @4xl:overflow-y-auto @4xl:[scrollbar-width:thin]">
+                  <aside className="order-1 min-w-0 space-y-6">
+                    <MergeState pr={pr} />
+                    {pr.checks.length > 0 && (
+                      <Section title="Checks">
+                        <ul className="space-y-1">
+                          {pr.checks.map((c) => (
+                            <li key={c.name} className="flex min-w-0 items-center gap-2">
+                              <span className="flex w-4 shrink-0 justify-center">{CHECK[c.result]}</span>
+                              {c.url ? (
+                                <a href={c.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline">
+                                  {c.name}
+                                </a>
+                              ) : (
+                                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </Section>
                     )}
-                  </Section>
-                </aside>
+                    <Section title="Revisões">
+                      <Reviewers pr={pr} />
+                    </Section>
+                    <Section title="Responsáveis">
+                      <Assignees item={pr} viewer={viewer} />
+                    </Section>
+                    <Section title="Etiquetas" action={<LabelsEditor labels={pr.labels} repoLabels={result.repoLabels} trigger={<Settings2 className="size-3.5" />} />}>
+                      {pr.labels.length ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          <Labels labels={pr.labels} />
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Nenhuma.</p>
+                      )}
+                    </Section>
+                  </aside>
 
-                <main className="min-w-0 @4xl:col-start-1 @4xl:row-span-2 @4xl:row-start-1">
+                  <div className="order-3 min-w-0">
+                    <Section title={`Conversa${pr.commentCount ? ` · ${pr.commentCount}` : ''}`}>
+                      <Conversation pr={pr} onOpenThread={openThread} />
+                      <div className="mt-3">
+                        <CommentBox kind="pr" />
+                      </div>
+                    </Section>
+                  </div>
+                </div>
+
+                <main className="order-2 min-w-0 @4xl:col-start-1 @4xl:row-start-1">
                   {tab === 'commits' ? (
                     <Commits pr={pr} machine={machine} cwd={cwd} />
                   ) : tab === 'files' ? (
-                    <Files pr={pr} machine={machine} cwd={cwd} />
+                    <ReviewFiles pr={pr} machine={machine} cwd={cwd} focus={focus} />
                   ) : (
                     <Description pr={pr} />
                   )}
                 </main>
-
-                <div className="min-w-0 self-start @4xl:col-start-2 @4xl:row-start-2">
-                  <Section title={`Conversa${pr.commentCount ? ` · ${pr.commentCount}` : ''}`}>
-                    <Conversation pr={pr} />
-                    <div className="mt-3">
-                      <CommentBox kind="pr" />
-                    </div>
-                  </Section>
-                </div>
               </div>
             </>
           )}

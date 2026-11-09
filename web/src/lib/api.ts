@@ -31,6 +31,8 @@ import type {
   PullDraft,
   PullDraftInfo,
   PullPlan,
+  ReviewPartial,
+  ReviewPlan,
   GitBranches,
   BranchChanges,
   GitSummary,
@@ -101,15 +103,10 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
 const post = <T = { ok: true }>(path: string, body: unknown = {}, signal?: AbortSignal) => request<T>('POST', path, body, signal)
 
 /**
- * O PR organizado por um agente, lido aos poucos: o servidor manda uma linha JSON por vez, os textos
- * enquanto ele escreve (`partial`) e, no fim, o PR inteiro (`plan`) ou o erro.
+ * O trabalho de um agente (o PR organizado, a revisão), lido aos poucos: o servidor manda uma linha JSON
+ * por vez, o que ele já escreveu (`partial`) e, no fim, o resultado (`plan`) ou o erro.
  */
-async function planPull(
-  url: string,
-  body: unknown,
-  onPartial: (partial: { title?: string; body?: string; branch?: string }) => void,
-  signal?: AbortSignal,
-): Promise<PullPlan> {
+async function streamPlan<P, R>(url: string, body: unknown, onPartial: (partial: P) => void, signal?: AbortSignal): Promise<R> {
   const res = await send(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal })
   if (!res.ok || !res.body) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as Record<string, unknown>)
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
@@ -122,7 +119,7 @@ async function planPull(
       const line = buffer.slice(0, nl).trim()
       buffer = buffer.slice(nl + 1)
       if (!line) continue
-      let msg: { partial?: Parameters<typeof onPartial>[0]; plan?: PullPlan; error?: string }
+      let msg: { partial?: P; plan?: R; error?: string }
       try {
         msg = JSON.parse(line) as typeof msg
       } catch {
@@ -423,7 +420,16 @@ export const api = {
     draft: { agent?: string; model?: string; effort?: string; base: string; title?: string; body?: string; labels?: string[] },
     onPartial: (partial: { title?: string; body?: string; branch?: string }) => void,
     signal?: AbortSignal,
-  ) => planPull(`${at(m)}/github/draft/plan`, { cwd, ...draft }, onPartial, signal),
+  ) => streamPlan<{ title?: string; body?: string; branch?: string }, PullPlan>(`${at(m)}/github/draft/plan`, { cwd, ...draft }, onPartial, signal),
+  /** Pede a um agente a revisão do PR (resumo, veredito e comentários nas linhas), no jeito das suas skills. */
+  githubPlanReview: (
+    m: string,
+    cwd: string,
+    number: number,
+    opts: { agent?: string; model?: string; effort?: string },
+    onPartial: (partial: ReviewPartial) => void,
+    signal?: AbortSignal,
+  ) => streamPlan<ReviewPartial, ReviewPlan>(`${at(m)}/github/review/plan`, { cwd, number, ...opts }, onPartial, signal),
   /** Cria a branch (se pediu), faz os commits, publica e abre o PR. */
   githubCreatePull: (m: string, cwd: string, draft: PullDraft) => post<{ number: number; url: string }>(`${at(m)}/github/pull`, { cwd, ...draft }),
   /** Faz a ação e devolve o item como ficou (ver server/src/github.ts). */
@@ -683,6 +689,12 @@ export function errorMessage(err: unknown): string {
       return 'Esta branch ainda não está no origin: não há de onde trazer.'
     case 'no_base':
       return 'Não achei a main (nem a master) para comparar.'
+    case 'review_failed':
+      return 'O agente não conseguiu terminar a revisão. Tente de novo.'
+    case 'review_timeout':
+      return 'A revisão demorou demais. Tente de novo, ou com um modelo mais rápido.'
+    case 'review_cancelled':
+      return 'Revisão interrompida.'
     case 'assist_unsupported':
       return 'Este agente não organiza PRs.'
     case 'assist_timeout':

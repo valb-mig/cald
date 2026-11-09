@@ -546,7 +546,7 @@ export type GithubReview = {
 
 export type GithubCheck = { name: string; result: 'success' | 'failure' | 'pending' | 'neutral'; url: string | null }
 
-export type GithubFile = { path: string; additions: number; deletions: number; change: string }
+export type GithubFile = { path: string; additions: number; deletions: number; change: string; viewed?: boolean }
 
 export type GithubCommit = { sha: string; short: string; headline: string; author: string | null; avatar: string | null; date: string; url: string }
 
@@ -595,6 +595,50 @@ export type GithubPullDetail = GithubItemBase & {
   mergeMethods: MergeMethod[]
   defaultMethod: MergeMethod
   deleteBranchOnMerge: boolean
+  /** O id do PR na API GraphQL; sem ele (servidor de antes da revisão nas linhas), não há comentar nas linhas. */
+  id?: string
+  /** As conversas de revisão nas linhas dos arquivos, com as suas pendentes. */
+  threads?: GithubThread[]
+  /** A sua revisão começada e ainda não enviada: os comentários dela só você vê. */
+  pendingReview?: { id: string; comments: number } | null
+}
+
+/** O lado do diff de um comentário de revisão: o arquivo novo (`RIGHT`) ou o antigo (`LEFT`). */
+export type ReviewSide = 'LEFT' | 'RIGHT'
+
+/** Um comentário de uma conversa de revisão; `pending`: está na sua revisão ainda não enviada. */
+export type GithubThreadComment = {
+  id: string
+  author: string | null
+  avatar: string | null
+  role: string
+  body: string
+  createdAt: string
+  url: string
+  pending: boolean
+  canEdit: boolean
+  canDelete: boolean
+}
+
+/**
+ * Uma conversa de revisão presa a uma linha (ou ao trecho de `startLine` a `line`) de um arquivo, do lado
+ * novo (`RIGHT`) ou do antigo (`LEFT`). `line` nulo: o código mudou depois (`outdated`), e vale o `hunk`.
+ */
+export type GithubThread = {
+  id: string
+  path: string
+  line: number | null
+  startLine: number | null
+  side: ReviewSide
+  originalLine: number | null
+  outdated: boolean
+  resolved: boolean
+  resolvedBy: string | null
+  canReply: boolean
+  canResolve: boolean
+  canUnresolve: boolean
+  hunk: string
+  comments: GithubThreadComment[]
 }
 
 /** `viewer`: o login do `gh` do PC; `repoLabels`: as etiquetas do repositório, para pôr e tirar. */
@@ -623,6 +667,14 @@ export type GithubAction =
   | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
   | { type: 'draft'; draft: boolean }
   | { type: 'edit'; title?: string; body?: string }
+  | ({ type: 'line-comment'; now: boolean } & LineComment)
+  | { type: 'line-comments'; comments: LineComment[] }
+  | { type: 'reply'; thread: string; body: string }
+  | { type: 'resolve'; thread: string; resolved: boolean }
+  | { type: 'edit-comment'; comment: string; body: string }
+  | { type: 'delete-comment'; comment: string }
+  | { type: 'discard-review' }
+  | { type: 'viewed'; path: string; viewed: boolean }
 
 /** Um arquivo mudado num PR ou num commit, com o trecho do diff; `patch` nulo em binário ou diff grande demais. */
 export type GithubPatch = { path: string; previous: string | null; status: string; additions: number; deletions: number; patch: string | null }
@@ -654,6 +706,14 @@ export type PlannedCommit = { message: string; files: string[] }
 export type PullDraft = { title: string; body: string; base: string; branch?: string; commits: PlannedCommit[]; labels: string[]; draft: boolean }
 
 /** O PR organizado por um agente, no jeito das suas skills: a tela preenche, você revisa e abre. */
+/** Um comentário numa linha (ou no trecho de `startLine` a `line`), como o agente escreveu e a revisão pendente recebe. */
+export type LineComment = { path: string; line: number; side: ReviewSide; startLine?: number; startSide?: ReviewSide; body: string }
+
+/** A revisão de um PR por um agente (ver server/src/pull-review-plan.ts); `dropped`: comentários fora do diff, deixados de fora. */
+export type ReviewPlan = { summary: string; verdict: 'approve' | 'comment' | 'request-changes'; comments: LineComment[]; dropped: number }
+/** Enquanto ele escreve: o resumo até onde veio e quantos comentários já começou. */
+export type ReviewPartial = { summary?: string; comments: number }
+
 export type PullPlan = { title: string; body: string; branch: string; commits: PlannedCommit[]; labels?: string[] }
 
 /** Um item do TODO do projeto, a lista simples do próprio cald (ver server/src/todos.ts). */
