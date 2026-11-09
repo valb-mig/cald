@@ -2,10 +2,15 @@
 // (`preCompressed` em server/src/index.ts). Roda depois do `vite build`; sem dependências.
 // Uso: node scripts/compress.mjs [pasta]   (padrão: web/dist)
 import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { brotliCompress, constants, gzip } from 'node:zlib'
+
+// O zlib assíncrono comprime na thread pool do libuv, de 4 threads por padrão; com uma por núcleo o brotli
+// no máximo termina antes. Vale só se definido antes do primeiro uso da pool (o readdir abaixo).
+process.env.UV_THREADPOOL_SIZE ??= String(availableParallelism())
 
 const dist = process.argv[2] ?? fileURLToPath(new URL('../dist', import.meta.url))
 const TEXT = /\.(js|css|html|svg|webmanifest|json)$/

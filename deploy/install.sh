@@ -95,6 +95,8 @@ rm -f "$SERVICE_FILE"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=edit.r (painel mobile do Claude Code)
+# Sem limite de partidas: com o RestartSec curto, um laço de quedas pararia o serviço em 10 s.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -105,7 +107,7 @@ Environment=PORT=$PORT
 ExecStart=$SHELL_BIN -lic 'exec $NODE_INVOKE src/index.ts'
 SyslogIdentifier=$SERVICE_NAME
 Restart=on-failure
-RestartSec=3
+RestartSec=1
 KillMode=mixed
 TimeoutStopSec=20
 

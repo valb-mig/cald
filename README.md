@@ -727,7 +727,7 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
 | GET | `/api/machines` | Nome desta máquina e as outras suas com o edit.r (`{name, machines: [{id, name, base}]}`) |
 | GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
-| POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, `pnpm build` e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
+| POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, compila o web (sem o `tsc`, já feito no PR) e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |
 | WS | `/ws` | `subscribe {sessionId, sinceSeq}` → `snapshot`, `event`, `delta`, `catalog`; e, para todos, `changed {what, cwd?, rev?}` quando o TODO de um projeto, os times, os workspaces ou as habilidades mudam |
 | WS | `/ws/file?cwd=&path=` | O arquivo aberto no editor: `{hash}` ao ligar e a cada vez que ele muda no disco (`null` se sumiu) |
