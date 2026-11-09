@@ -138,8 +138,8 @@ function FileRow({
         {...press}
       >
         <ChangeChip badge={row.badge} />
-        <span className={cn('shrink-0 truncate', deleted && 'line-through decoration-muted-foreground/60')}>{name}</span>
-        <span className="min-w-0 truncate text-[11px] text-muted-foreground">{dir}</span>
+        <span className={cn('min-w-0 truncate', deleted && 'line-through decoration-muted-foreground/60')}>{name}</span>
+        <span className="min-w-0 shrink-[4] truncate text-[11px] text-muted-foreground">{dir}</span>
       </button>
       {!deleted && (
         <Button
