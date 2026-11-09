@@ -39,7 +39,7 @@ type PushFile = { vapid: { publicKey: string; privateKey: string }; subscription
 const FILE = process.env.PUSH_FILE ?? join(STATE_DIR, 'push.json');
 
 // Contato exigido pelo VAPID; os serviços de push só o usam para avisar de abuso.
-const SUBJECT = 'https://github.com/valb-mig/cald';
+const SUBJECT = 'https://github.com/valb-mig/editr';
 
 /**
  * Web Push: chaves VAPID do PC e inscrições dos aparelhos. O aviso sai criptografado

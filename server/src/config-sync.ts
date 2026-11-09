@@ -86,7 +86,7 @@ type State = {
 
 const README = `# Configuração do edit.r
 
-Este repositório guarda a sua configuração do [edit.r](https://github.com/valb-mig/cald): times, workspaces, habilidades, detalhes e TODOs dos projetos, comandos salvos, a memória do Claude e o que é seu no Claude Code (settings, CLAUDE.md, agentes e skills).
+Este repositório guarda a sua configuração do [edit.r](https://github.com/valb-mig/editr): times, workspaces, habilidades, detalhes e TODOs dos projetos, comandos salvos, a memória do Claude e o que é seu no Claude Code (settings, CLAUDE.md, agentes e skills).
 
 Quem escreve aqui é o próprio edit.r, em **Computador → Sincronizar**: "Enviar" grava o de uma máquina, e "Trazer" aplica o daqui em outra. Dá para ler e editar à mão, mas o que o edit.r segue é o \`editr.json\`: quando cada item mudou (fica sempre o mais novo) e de que projeto ele é.
 

@@ -4,3 +4,5 @@ dist/
 *.log
 desktop/stage/
 desktop/release/
+# Protótipos soltos ficam fora da repo.
+prototypes/

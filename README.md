@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/pwa-192.png" width="96" alt="Logo: o claudinho do edit.r, uma gota branca dando oi no meio de um pulinho">
+<img src="web/public/pwa-192.png" width="96" alt="Logo do edit.r: um “.r” preto num quadrado arredondado branco">
 
 # edit.r
 
@@ -30,7 +30,7 @@ O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela s
 Com os requisitos acima prontos (e o Tailscale com **MagicDNS** e **HTTPS Certificates** ligados no [painel de DNS](https://login.tailscale.com/admin/dns)):
 
 ```sh
-git clone https://github.com/valb-mig/cald.git ~/Projects/editr
+git clone https://github.com/valb-mig/editr.git ~/Projects/editr
 cd ~/Projects/editr
 ./deploy/install.sh
 ```
@@ -50,7 +50,7 @@ O instalador é idempotente, então pode rodar de novo sem medo. Se preferir ent
 
 No PC, o edit.r também roda como app (Electron), fora do navegador e sem endereço para lembrar: a janela, o ícone na bandeja e o servidor, tudo junto.
 
-- **Instalar:** baixe dos [Releases](https://github.com/valb-mig/cald/releases/latest) o `editr-x86_64.AppImage` (torne executável com `chmod +x` e abra), o `.deb` ou o `.pacman` do Arch. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
+- **Instalar:** baixe dos [Releases](https://github.com/valb-mig/editr/releases/latest) o `editr-x86_64.AppImage` (torne executável com `chmod +x` e abra), o `.deb` ou o `.pacman` do Arch. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
 - **O servidor vem junto.** Se já há um edit.r na porta 7337 (o serviço do instalador acima), o app só abre a janela nele; senão, sobe o que vem dentro dele, com o ambiente do seu shell de login, como o serviço. Se o serviço sai do ar, o app assume a porta.
 - **Fechar a janela deixa o edit.r na bandeja**, com o servidor de pé para o celular. Ctrl+Q ou **Sair**, na bandeja, encerram de verdade; com o servidor do próprio app, o celular perde o acesso até você abrir de novo. Na primeira abertura, o app liga **Iniciar com o sistema** (desliga na bandeja) e, daí em diante, sobe só na bandeja a cada login.
 - **Notificações do sistema:** o Electron não tem Web Push, então o app recebe os avisos direto do servidor (os mesmos do celular, inclusive os das suas outras máquinas) e mostra como notificação do PC. **Computador → Notificações** escolhe o que avisa; com a janela na frente, não avisa.
@@ -65,7 +65,7 @@ Do repositório, sem empacotar: `pnpm desktop` compila e abre (`EDITR_PORT=7338 
 ### 1. Baixar e compilar
 
 ```sh
-git clone https://github.com/valb-mig/cald.git ~/Projects/editr
+git clone https://github.com/valb-mig/editr.git ~/Projects/editr
 cd ~/Projects/editr
 pnpm install
 pnpm build        # gera web/dist, o app que o servidor entrega ao celular

@@ -42,7 +42,7 @@ appImage:
 publish:
   provider: github
   owner: valb-mig
-  repo: cald
+  repo: editr
   releaseType: release
 # As node_modules do servidor (ver scripts/after-pack.cjs).
 afterPack: scripts/after-pack.cjs
