@@ -38,7 +38,7 @@ artifactName: ${name}-${version}-${arch}.${ext}
 appImage:
   artifactName: ${name}-${arch}.${ext}
 # Os Releases do GitHub, de onde o app instalado procura a versão nova (o app-update.yml vai junto).
-# Publica só pelo CI, a cada tag v* (ver .github/workflows/desktop.yml).
+# Publica só pelo CI, a cada push na branch release (ver .github/workflows/desktop.yml).
 publish:
   provider: github
   owner: valb-mig

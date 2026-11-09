@@ -1,11 +1,12 @@
-# O app do PC (desktop/). Nos PRs que mexem nele, compila os pacotes para conferir, sem publicar. A
-# cada tag v* (a versão do desktop/package.json), publica o AppImage, o .deb e o .pacman nos
-# Releases, com o latest-linux.yml de onde o app instalado procura a versão nova.
+# O app do PC (desktop/). A branch release é a das versões: cada push nela publica uma, com o
+# AppImage, o .deb e o .pacman nos Releases e o latest-linux.yml de onde o app instalado procura a
+# versão nova. Os commits na main não publicam nada. Nos PRs para a release, compila os pacotes para
+# conferir, sem publicar; nos PRs para a main, só confere os tipos.
 name: App do PC
 
 on:
   push:
-    tags: ['v*']
+    branches: [release]
   pull_request:
     paths:
       - desktop/**
@@ -21,14 +22,21 @@ permissions:
 
 concurrency:
   group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  # Uma publicação cortada no meio deixa o Release sem parte dos pacotes: só os PRs se cancelam.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      PUBLISH: ${{ github.event_name == 'push' }}
+      PACKAGE: ${{ github.event_name == 'push' || github.base_ref == 'release' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # As tags, de onde sai a versão seguinte.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 12.15.0
@@ -37,32 +45,45 @@ jobs:
           node-version: 24
           cache: pnpm
       # O bsdtar monta o .pacman.
-      - run: sudo apt-get install -y --no-install-recommends libarchive-tools
+      - if: env.PACKAGE == 'true'
+        run: sudo apt-get install -y --no-install-recommends libarchive-tools
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
       # O Electron e as ferramentas do empacotamento vêm pela API, autenticados: os downloads
       # anônimos dos Releases do GitHub podem falhar em massa (ver o script).
       - name: Electron e ferramentas, pela API
+        if: env.PACKAGE == 'true'
         run: desktop/scripts/seed-downloads.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: A tag é a versão do app
-        if: github.event_name == 'push'
-        run: |
-          version="v$(node -p "require('./desktop/package.json').version")"
-          if [ "$version" != "$GITHUB_REF_NAME" ]; then
-            echo "A tag $GITHUB_REF_NAME não bate com a versão do desktop/package.json ($version)." >&2
-            exit 1
-          fi
-
       - name: Pacotes, sem publicar
-        if: github.event_name == 'pull_request'
+        if: env.PACKAGE == 'true' && env.PUBLISH != 'true'
         run: pnpm --filter editr-desktop dist
 
+      # A seguinte à última tag no patch, ou a do desktop/package.json, se maior (ver o script).
+      - name: Versão
+        if: env.PUBLISH == 'true'
+        run: node desktop/scripts/version.mjs >> "$GITHUB_ENV"
+
+      # A tag vai antes, no commit da release: sem ela, o Release criado pelo electron-builder
+      # marcaria a ponta da main.
+      - name: Tag da versão
+        if: env.PUBLISH == 'true'
+        run: |
+          git tag "v$version"
+          git push origin "v$version"
+
       - name: Publicar nos Releases
-        if: github.event_name == 'push'
+        if: env.PUBLISH == 'true'
         run: pnpm --filter editr-desktop release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Falhou depois da tag: tira o Release pela metade e a tag, para a versão não ficar pulada.
+      - name: Desfazer a versão
+        if: failure() && env.version != ''
+        run: gh release delete "v$version" --cleanup-tag --yes || git push origin ":refs/tags/v$version" || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
