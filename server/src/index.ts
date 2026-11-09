@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
+import type { ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import fastifyStatic from '@fastify/static';
@@ -2043,9 +2044,12 @@ app.post<{ Body: { payload: PushPayload; opts: SendOptions } }>(
 
 // Os avisos para o app do PC (ver desktop/src/notifications.ts): o Electron não tem Web Push, então
 // ele ouve aqui, em Server-Sent Events, e mostra cada um como notificação do sistema. Só pela porta local.
+// Abertos enquanto o app do PC está de pé: ao encerrar, o servidor fecha cada um (ver `stop`).
+const localStreams = new Set<ServerResponse>();
 app.get('/api/push/local', (req, reply) => {
   if (!localOnly(policy, req)) return reply.code(403).send({ error: 'local_only' });
   reply.hijack();
+  localStreams.add(reply.raw);
   reply.raw.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
   reply.raw.write(': edit.r\n\n');
   const send = (payload: PushPayload, opts: SendOptions) => reply.raw.write(`data: ${JSON.stringify({ payload, opts })}\n\n`);
@@ -2055,6 +2059,7 @@ app.get('/api/push/local', (req, reply) => {
   req.raw.on('close', () => {
     clearInterval(ping);
     push.off('local', send);
+    localStreams.delete(reply.raw);
   });
 });
 
@@ -2317,15 +2322,26 @@ if (!policy.tailnetHost) {
   }, 15_000);
 }
 
+// Prazo para encerrar com calma, abaixo dos 20 s que o systemd (`TimeoutStopSec`) e o app do PC esperam.
+const STOP_DEADLINE_MS = 15_000;
+
 /**
  * Encerra com calma: sinal do sistema (código 0) ou reinício pedido pela atualização. Guarda as
  * conversas abertas no painel, que voltam sozinhas se o servidor subir de novo em até 10 min.
  */
 async function stop(code: number): Promise<void> {
   app.log.info('encerrando sessões do painel…');
+  // Preso no meio do encerramento, o servidor já não atende e ainda não saiu: nem o systemd nem o app do
+  // PC sobem outro no lugar. Passado o prazo, sai assim mesmo.
+  setTimeout(() => {
+    app.log.warn('o encerramento passou do prazo; saindo assim mesmo');
+    process.exit(code);
+  }, STOP_DEADLINE_MS).unref();
   await saveResume(manager.resumable()).catch((err) => app.log.warn({ err }, 'não deu para guardar as conversas abertas'));
   for (const p of providers.all()) p.external?.stop();
   publicServer.close();
+  // Os avisos do app do PC não terminam sozinhos, e o `app.close()` espera cada conexão aberta.
+  for (const res of localStreams) res.end();
   await manager.shutdown();
   await app.close();
   process.exit(code);
