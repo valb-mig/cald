@@ -50,13 +50,13 @@ O instalador é idempotente, então pode rodar de novo sem medo. Se preferir ent
 
 No PC, o edit.r também roda como app (Electron), fora do navegador e sem endereço para lembrar: a janela, o ícone na bandeja e o servidor, tudo junto.
 
-- **Instalar:** baixe o `editr-<versão>-x86_64.AppImage` (ou o `.deb`, ou o `.pacman` do Arch) e abra. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
+- **Instalar:** baixe dos [Releases](https://github.com/valb-mig/cald/releases/latest) o `editr-x86_64.AppImage` (torne executável com `chmod +x` e abra), o `.deb` ou o `.pacman` do Arch. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
 - **O servidor vem junto.** Se já há um edit.r na porta 7337 (o serviço do instalador acima), o app só abre a janela nele; senão, sobe o que vem dentro dele, com o ambiente do seu shell de login, como o serviço. Se o serviço sai do ar, o app assume a porta.
 - **Fechar a janela deixa o edit.r na bandeja**, com o servidor de pé para o celular. Ctrl+Q ou **Sair**, na bandeja, encerram de verdade; com o servidor do próprio app, o celular perde o acesso até você abrir de novo. Na primeira abertura, o app liga **Iniciar com o sistema** (desliga na bandeja) e, daí em diante, sobe só na bandeja a cada login.
 - **Notificações do sistema:** o Electron não tem Web Push, então o app recebe os avisos direto do servidor (os mesmos do celular, inclusive os das suas outras máquinas) e mostra como notificação do PC. **Computador → Notificações** escolhe o que avisa; com a janela na frente, não avisa.
 - **Ditado:** no app, é sempre o do Whisper (ver [Ditado no Firefox](#ditado-no-firefox-whisper)).
 - **Link do celular**, na bandeja, abre o **Computador → Acesso**, com o QR.
-- **Atualizar:** instalado pelo pacote, o app não tem o cartão **Atualização do PC** (não há repositório ao lado); baixe a versão nova. Ligado ao serviço do git, o cartão segue valendo.
+- **Atualizar:** o AppImage se atualiza sozinho. Ele procura a versão nova nos Releases ao abrir e a cada 6 h, baixa em segundo plano e instala quando você sai do app. Para instalar na hora, use **Reiniciar para atualizar**, na bandeja ou no menu do app (Alt): o app encerra o servidor com calma, troca o arquivo no mesmo lugar e abre de novo. O `.deb` e o `.pacman` só avisam da versão nova e abrem a página dela, porque instalar pede a senha de administrador. Instalado por pacote, o app não tem o cartão **Atualização do PC**, que fica para a instalação pelo git.
 - O PIN ainda é definido pelo `editr -pin`, da instalação pelo git.
 - O que é do app fica em `~/.config/edit.r`: o tamanho da janela, os avisos e, em `logs/server.log`, o log do servidor que ele sobe.
 
@@ -566,7 +566,17 @@ pnpm desktop      # o app do PC (Electron), do repositório
 pnpm desktop:dist # AppImage, .deb e .pacman em desktop/release
 ```
 
-O app do PC fica em `desktop/`: o processo principal do Electron (`src/main.ts`, a janela, a bandeja e o menu), quem acha ou sobe o servidor (`src/server.ts`, que roda o `server/src/index.ts` no Node do próprio Electron, com `ELECTRON_RUN_AS_NODE`), o ambiente do shell de login (`src/shell-env.ts`), os avisos do sistema (`src/notifications.ts`, que ouve `/api/push/local`) e o preload que dá ao app web o `window.editr` (`web/src/lib/desktop.ts`). O `scripts/stage.mjs` junta o servidor com as dependências de produção e o app web para o `electron-builder.yml`.
+#### Publicar uma versão do app
+
+O workflow `.github/workflows/desktop.yml` compila os pacotes do app em todo PR que mexe nele (sem publicar) e, a cada tag `v*`, publica o AppImage, o `.deb`, o `.pacman` e o `latest-linux.yml` (de onde o app instalado procura a versão nova) num Release do GitHub. A tag precisa bater com a versão do `desktop/package.json`:
+
+```sh
+# na main, com a versão nova no desktop/package.json ("version": "0.2.0") já commitada
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+O app do PC fica em `desktop/`: o processo principal do Electron (`src/main.ts`, a janela, a bandeja e o menu), quem acha ou sobe o servidor (`src/server.ts`, que roda o `server/src/index.ts` no Node do próprio Electron, com `ELECTRON_RUN_AS_NODE`), o ambiente do shell de login (`src/shell-env.ts`), os avisos do sistema (`src/notifications.ts`, que ouve `/api/push/local`), a versão nova dos Releases (`src/updates.ts`, com o `electron-updater`) e o preload que dá ao app web o `window.editr` (`web/src/lib/desktop.ts`). O `scripts/stage.mjs` junta o servidor com as dependências de produção e o app web para o `electron-builder.yml`.
 
 O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart editr`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop editr` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
 

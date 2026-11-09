@@ -16,12 +16,14 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/build.mjs && electron .",
     "check": "tsc --noEmit",
-    "dist": "node scripts/build.mjs && node scripts/stage.mjs && electron-builder --linux"
+    "dist": "node scripts/build.mjs && node scripts/stage.mjs && electron-builder --linux --publish never",
+    "release": "node scripts/build.mjs && node scripts/stage.mjs && electron-builder --linux --publish always"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
     "electron": "44.9.3",
     "electron-builder": "26.17.0",
+    "electron-updater": "6.8.10",
     "esbuild": "0.28.2",
     "typescript": "~6.0.2"
   }
