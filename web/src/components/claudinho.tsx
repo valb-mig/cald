@@ -252,16 +252,22 @@ export function Claudinho({
 }
 
 /**
- * A marca do edit.r, o claudinho gota do ícone do app só com o corpo e os olhos (vazados), na cor do
- * texto. O contorno é o da gota de `Body` (o triângulo com o traço grosso arredondando as pontas).
+ * A marca do edit.r, o ".r" do ícone do app (web/icons/icon.svg) sem o fundo, na cor do texto: o
+ * ponto e o r de traço grosso com as pontas redondas, na mesma grade de 1024, num quadrado em volta dele.
  */
 export function EditrMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="1 1.5 30 30" className={cn('shrink-0 fill-current', className)} aria-hidden>
-      <path
-        fillRule="evenodd"
-        d="M11.64 5.56A5 5 0 0 1 20.36 5.56L29.86 22.56A5 5 0 0 1 25.5 30L6.5 30A5 5 0 0 1 2.14 22.56ZM7.5 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0ZM17.9 19.6a3.3 4.5 0 1 0 6.6 0a3.3 4.5 0 1 0 -6.6 0Z"
-      />
+    <svg
+      viewBox="321 260 520 520"
+      className={cn('shrink-0', className)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={116}
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <circle cx="408" cy="636" r="64" fill="currentColor" stroke="none" />
+      <path d="M600 398V642M600 560C600 450 650 398 760 398" />
     </svg>
   )
 }

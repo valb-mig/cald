@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('editr', {
   onNavigate: (cb: (url: string) => void) => {
     const listener = (_e: IpcRendererEvent, url: string) => cb(url);
     ipcRenderer.on('navigate', listener);
+    // Já ouvindo: a rota que chegou antes (ver `pendingRoute` em main.ts) vem agora.
+    ipcRenderer.send('navigate:ready');
     return () => void ipcRenderer.off('navigate', listener);
   },
 });
