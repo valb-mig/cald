@@ -75,6 +75,21 @@ export class DetalheStore extends EventEmitter {
     return this.projects[projectOf(cwd)]?.rev ?? 0;
   }
 
+  /** Os detalhes de todos os projetos, pela pasta. */
+  all(): Record<string, Detalhe[]> {
+    return Object.fromEntries(Object.entries(this.projects).map(([cwd, p]) => [cwd, p.items]));
+  }
+
+  /** Detalhes vindos de outra máquina (ver config-sync.ts): o de mesmo id muda no lugar, e o novo entra no fim. */
+  async merge(cwd: string, incoming: Detalhe[]): Promise<void> {
+    if (!incoming.length) return;
+    const byId = new Map(incoming.map((d) => [d.id, d]));
+    const current = this.list(cwd);
+    const known = new Set(current.map((d) => d.id));
+    const items = [...current.map((d) => byId.get(d.id) ?? d), ...incoming.filter((d) => !known.has(d.id))];
+    await this.replace(cwd, items.slice(0, MAX_DETALHES));
+  }
+
   /** Os detalhes pelas chaves, na ordem pedida; a que não existe volta em `missing`. */
   read(cwd: string, chaves: string[]): { found: Detalhe[]; missing: string[] } {
     const items = this.list(cwd);

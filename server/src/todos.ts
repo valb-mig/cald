@@ -96,6 +96,28 @@ export class TodoStore extends EventEmitter {
     return this.projects[projectOf(cwd)]?.rev ?? 0;
   }
 
+  /** As listas de todos os projetos, pela pasta. */
+  all(): Record<string, Todo[]> {
+    return Object.fromEntries(Object.entries(this.projects).map(([cwd, p]) => [cwd, p.items]));
+  }
+
+  /**
+   * Itens vindos de outra máquina (ver config-sync.ts): o que já existe aqui (o mesmo id) muda no
+   * lugar, com o número e os anexos daqui; o novo entra no fim, com o número de lá se ele estiver livre.
+   */
+  async merge(cwd: string, incoming: Todo[]): Promise<void> {
+    if (!incoming.length) return;
+    const byId = new Map(incoming.map((t) => [t.id, t]));
+    const current = this.list(cwd);
+    const kept = current.map((t): TodoInput => {
+      const next = byId.get(t.id);
+      return next ? { ...t, title: next.title, body: next.body, done: next.done, createdAt: next.createdAt, updatedAt: next.updatedAt } : t;
+    });
+    const known = new Set(current.map((t) => t.id));
+    const fresh = incoming.filter((t) => !known.has(t.id)).map((t): TodoInput => ({ ...t, files: [] }));
+    await this.replace(cwd, [...kept, ...fresh].slice(0, MAX_TODOS));
+  }
+
   /** Os itens a fazer de todos os projetos, para a inbox. */
   open(): { cwd: string; todo: Todo }[] {
     return Object.entries(this.projects).flatMap(([cwd, p]) => p.items.filter((t) => !t.done).map((todo) => ({ cwd, todo })));

@@ -226,6 +226,21 @@ export class SavedCommandStore extends EventEmitter {
     return saved;
   }
 
+  /** Todos, globais e de todos os projetos (sem a lixeira). */
+  all(): SavedCommand[] {
+    return this.items;
+  }
+
+  /** Comandos vindos de outra máquina (ver config-sync.ts), com o projeto já no caminho daqui: o mesmo id e as datas de lá. */
+  async importItems(list: SavedCommand[]): Promise<void> {
+    const valid = list.filter((c) => c.command.trim() && c.command.length <= MAX_COMMAND);
+    if (!valid.length) return;
+    const ids = new Set(valid.map((c) => c.id));
+    this.items = [...this.items.filter((c) => !ids.has(c.id)), ...valid.map((c) => ({ ...c, label: c.label.slice(0, MAX_LABEL), pinned: Boolean(c.pinned) }))];
+    this.trash = this.trash.filter((t) => !ids.has(t.id));
+    await this.persist();
+  }
+
   /** Para a lixeira, de onde volta igual por 30 dias. */
   async toTrash(id: string): Promise<void> {
     const c = this.items.find((x) => x.id === id);

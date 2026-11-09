@@ -54,6 +54,8 @@ import { thumbnail } from './thumbs.ts';
 import { attachTerminal, openTerminal } from './terminal.ts';
 import { ARTEFATO_VIEW_ROUTE, ArtefatoStore, SHELL_CSP, shellHtml, startPublicServer } from './artefatos.ts';
 import { caldMcp } from './cald-mcp.ts';
+import { ConfigSync, type Appearance, type Direction } from './config-sync.ts';
+import { KIND_IDS, type KindId } from './config-sync-kinds.ts';
 import { MAX_TODO_BODY, MAX_TODO_FILES, MAX_TODO_TITLE, MAX_TODOS, TodoStore, type TodoInput } from './todos.ts';
 import { DetalheStore, MAX_DETALHE_BODY, MAX_DETALHE_TITLE, MAX_DETALHES, type DetalheInput } from './detalhes.ts';
 import { MAX_COMMAND, MAX_LABEL, SavedCommandStore, type SavedCommandInput } from './saved-commands.ts';
@@ -116,6 +118,19 @@ manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
 // O MCP do cald em cada conversa do painel (ver cald-mcp.ts): o Claude cria TODOs, times, workspaces e habilidades.
 manager.mcpFor = (ctx) => caldMcp({ todos, detalhes, teams, workspaces, habilidades, artefatos, knownCwd: (cwd) => manager.knownCwd(cwd) }, ctx);
+// A sua configuração num repositório git seu, para levar a outra máquina (ver config-sync.ts).
+const configSync = new ConfigSync({
+  teams,
+  workspaces,
+  habilidades,
+  detalhes,
+  todos,
+  commands: savedCommands,
+  providers,
+  projects: () => manager.projects(),
+  knownCwd: (cwd) => manager.knownCwd(cwd),
+});
+await configSync.load();
 const monitor = new SystemMonitor(() => manager.planUsage(), () => manager.planNeedsProbe());
 const audio = new AudioMonitor();
 monitor.on('error', (err) => app.log.warn({ err }, 'falha ao amostrar o sistema'));
@@ -692,6 +707,48 @@ app.post<{ Params: IdParams; Body: { enabled?: boolean; default?: boolean } }>(
     await providers.set(req.params.id, req.body);
     return providers.info();
   },
+);
+
+// ---- a configuração num repositório (ver config-sync.ts): ligar, enviar, trazer e a prévia (`dry`) ----
+
+app.get('/api/config-sync', async () => configSync.status());
+
+app.post<{ Body: { repo: string; create?: boolean } }>(
+  '/api/config-sync/connect',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['repo'],
+        additionalProperties: false,
+        properties: { repo: { type: 'string', minLength: 1, maxLength: 300 }, create: { type: 'boolean' } },
+      },
+    },
+  },
+  async (req) => configSync.connect(req.body.repo, req.body.create === true),
+);
+
+app.post('/api/config-sync/disconnect', async () => configSync.disconnect());
+
+app.post<{ Body: { direction: Direction; kinds: KindId[]; appearance?: Appearance; dry?: boolean } }>(
+  '/api/config-sync/run',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['direction', 'kinds'],
+        additionalProperties: false,
+        properties: {
+          direction: { type: 'string', enum: ['push', 'pull'] },
+          kinds: { type: 'array', minItems: 1, maxItems: KIND_IDS.length, uniqueItems: true, items: { type: 'string', enum: [...KIND_IDS] } },
+          // As preferências do app (chave do localStorage → valor): poucas e pequenas.
+          appearance: { type: 'object', maxProperties: 40, additionalProperties: { type: 'string', maxLength: 16_000 } },
+          dry: { type: 'boolean' },
+        },
+      },
+    },
+  },
+  async (req) => configSync.run(req.body.direction, req.body.kinds, req.body.appearance, req.body.dry === true),
 );
 
 // ---- atualizar o PC pelo celular (ver updater.ts) ----

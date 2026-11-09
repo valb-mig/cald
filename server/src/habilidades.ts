@@ -100,6 +100,36 @@ export class HabilidadeStore extends EventEmitter {
     return saved;
   }
 
+  /** Todas, globais e de todos os projetos (sem a lixeira). */
+  all(): Habilidade[] {
+    return this.items;
+  }
+
+  /**
+   * Habilidades vindas de outra máquina (ver config-sync.ts), com o projeto já no caminho daqui: entram
+   * com o mesmo id e as datas de lá. Uma com o nome de outra que já existe no mesmo lugar fica de fora
+   * (ninguém sabe qual das duas vale) e volta na lista, como a que não passa na validação.
+   */
+  async importItems(list: Habilidade[]): Promise<string[]> {
+    const skipped: string[] = [];
+    let items = this.items;
+    for (const h of list) {
+      const name = h.name.trim().toLowerCase();
+      const valid = NAME.test(name) && h.description.trim() && h.description.length <= MAX_DESCRIPTION && h.body.length <= MAX_BODY;
+      if (!valid || items.some((x) => x.id !== h.id && x.name === name && x.project === h.project)) {
+        skipped.push(h.id);
+        continue;
+      }
+      items = [...items.filter((x) => x.id !== h.id), { ...h, name, description: h.description.trim() }];
+    }
+    if (items === this.items) return skipped;
+    const ids = new Set(list.map((h) => h.id));
+    this.items = items;
+    this.trash = this.trash.filter((t) => !ids.has(t.id) || skipped.includes(t.id));
+    await this.persist();
+    return skipped;
+  }
+
   /** Para a lixeira, de onde volta igual por 30 dias. */
   async toTrash(id: string): Promise<void> {
     const h = this.items.find((x) => x.id === id);
