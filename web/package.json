@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/compress.mjs",
+    "build": "tsc -b && pnpm run bundle",
+    "bundle": "vite build && node scripts/compress.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
