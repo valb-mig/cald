@@ -239,8 +239,8 @@ function FileRow({ file, checked, onToggle, machine, cwd }: { file: GitFile; che
         className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px]"
         title={`Ver o diff de ${file.path}`}
       >
-        <span className="shrink-0 truncate">{name}</span>
-        <span className="min-w-0 truncate text-[11px] text-muted-foreground">{dir}</span>
+        <span className="min-w-0 truncate">{name}</span>
+        <span className="min-w-0 shrink-[4] truncate text-[11px] text-muted-foreground">{dir}</span>
       </button>
       {file.additions || file.deletions ? (
         <span className="shrink-0 font-mono text-[11px] tabular-nums">

@@ -30,7 +30,7 @@ O PC fica ligado com o servidor rodando como serviço, e o celular acessa pela s
 Com os requisitos acima prontos (e o Tailscale com **MagicDNS** e **HTTPS Certificates** ligados no [painel de DNS](https://login.tailscale.com/admin/dns)):
 
 ```sh
-git clone https://github.com/valb-mig/editr.git ~/Projects/editr
+git clone -b release https://github.com/valb-mig/editr.git ~/Projects/editr
 cd ~/Projects/editr
 ./deploy/install.sh
 ```
@@ -66,7 +66,7 @@ Do repositório, sem empacotar: `pnpm desktop` compila e abre (`EDITR_PORT=7338 
 ### 1. Baixar e compilar
 
 ```sh
-git clone https://github.com/valb-mig/editr.git ~/Projects/editr
+git clone -b release https://github.com/valb-mig/editr.git ~/Projects/editr
 cd ~/Projects/editr
 pnpm install
 pnpm build        # gera web/dist, o app que o servidor entrega ao celular
@@ -277,6 +277,8 @@ Sem o `wakatime-cli` instalado, nada disso acontece: a medida não aparece e o p
 
 ### Atualizar
 
+O PC instalado segue a branch `release`, a das versões publicadas (ver [Publicar uma versão do app](#publicar-uma-versão-do-app)); a `main` recebe os commits do dia a dia.
+
 ```sh
 cd ~/Projects/editr
 git pull
@@ -287,7 +289,7 @@ systemctl --user restart editr
 
 Vindo de antes da troca de nome (quando o projeto se chamava cald, ou claude-remote): rode `./deploy/install.sh` de novo, de um terminal fora do painel (ele troca o serviço, e as conversas do painel caem). Ele desliga o serviço antigo (`cald` ou `claude-remote`), sobe o `editr` e troca o comando antigo (`cald` ou `cr`) por `editr`. As pastas de dados (`~/.local/share/cald` e as outras) mudam de nome sozinhas na primeira subida e ficam como atalho para as novas. As habilidades passam a ser chamadas com `/editr:nome`.
 
-Ou pelo celular, no painel **Computador**, cartão **Atualização do PC**: ele mostra as novidades da `main` do GitHub, e **Atualizar e reiniciar** faz os passos acima (trocando para a `main`, se o PC estiver noutra branch). A atualização recusa se o repositório no PC tiver mudanças não commitadas, se a `main` do PC tiver commits que não estão no GitHub ou se alguma conversa do painel estiver trabalhando ou esperando resposta. O painel fica fora do ar por alguns segundos, e as conversas que estavam abertas nele são reabertas sozinhas, com o mesmo modelo e modo.
+Ou pelo celular, no painel **Computador**, cartão **Atualização do PC**: ele mostra as novidades da `release` do GitHub, e **Atualizar e reiniciar** faz os passos acima (trocando para a `release`, se o PC estiver noutra branch; uma instalação de antes, ainda na `main`, passa para ela na primeira atualização). Um PC noutra branch que já tem tudo da `release`, como a `main` de quem desenvolve, fica em dia e não troca de branch. A atualização recusa se o repositório no PC tiver mudanças não commitadas, se a `release` do PC tiver commits que não estão no GitHub ou se alguma conversa do painel estiver trabalhando ou esperando resposta. O painel fica fora do ar por alguns segundos, e as conversas que estavam abertas nele são reabertas sozinhas, com o mesmo modelo e modo.
 
 Com o app aberto no celular, aparece o aviso **Versão nova do app**: toque em **Atualizar**. Ao voltar para o app, ele procura sozinho a versão nova.
 
@@ -569,13 +571,14 @@ pnpm desktop:dist # AppImage, .deb e .pacman em desktop/release
 
 #### Publicar uma versão do app
 
-O workflow `.github/workflows/desktop.yml` compila os pacotes do app em todo PR que mexe nele (sem publicar) e, a cada tag `v*`, publica o AppImage, o `.deb`, o `.pacman` e o `latest-linux.yml` (de onde o app instalado procura a versão nova) num Release do GitHub. O Electron e as ferramentas do empacotamento entram antes, baixados pela API do GitHub com o token do workflow (`desktop/scripts/seed-downloads.sh`), porque os downloads anônimos dos Releases podem falhar em massa. A tag precisa bater com a versão do `desktop/package.json`:
+Os commits e PRs na `main` não publicam nada: a versão sai quando você leva a `main` para a branch `release`. Cada push nela faz o workflow `.github/workflows/desktop.yml` publicar o AppImage, o `.deb`, o `.pacman` e o `latest-linux.yml` (de onde o app instalado procura a versão nova) num Release do GitHub, e o cartão **Atualização do PC** das instalações pelo git mostra as novidades (ver [Atualizar](#atualizar)). Nos PRs para a `release`, o workflow compila os pacotes sem publicar; nos PRs para a `main`, só roda o `pnpm check`. O Electron e as ferramentas do empacotamento entram antes, baixados pela API do GitHub com o token do workflow (`desktop/scripts/seed-downloads.sh`), porque os downloads anônimos dos Releases podem falhar em massa.
 
 ```sh
-# na main, com a versão nova no desktop/package.json ("version": "0.2.0") já commitada
-git tag v0.2.0
-git push origin v0.2.0
+git fetch origin
+git push origin origin/main:release   # publica o que está na main do GitHub
 ```
+
+A versão sobe sozinha no patch, a partir da última tag (`v0.1.3` → `v0.1.4`), e a tag é criada no commit publicado (`desktop/scripts/version.mjs`). Para subir a minor ou a major, commite a versão nova no `desktop/package.json` (`"version": "0.2.0"`): maior que a última tag, ela vale. Se a publicação falhar, o workflow tira a tag e o Release pela metade, e o próximo push tenta a mesma versão.
 
 O app do PC fica em `desktop/`: o processo principal do Electron (`src/main.ts`, a janela, a bandeja e o menu), quem acha ou sobe o servidor (`src/server.ts`, que roda o `server/src/index.ts` no Node do próprio Electron, com `ELECTRON_RUN_AS_NODE`), o ambiente do shell de login (`src/shell-env.ts`), os avisos do sistema (`src/notifications.ts`, que ouve `/api/push/local`), a versão nova dos Releases (`src/updates.ts`, com o `electron-updater`) e o preload que dá ao app web o `window.editr` (`web/src/lib/desktop.ts`). O `scripts/stage.mjs` junta o servidor com as dependências de produção e o app web para o `electron-builder.yml`.
 
@@ -726,8 +729,8 @@ node scripts/poc-client.ts release <id>          # devolver ao terminal
 | POST | `/api/push/test` | `{endpoint}`: manda um aviso de teste a esse aparelho |
 | POST | `/api/push/relay` | `{payload, opts}`: aviso repassado por outra máquina sua, entregue aos aparelhos inscritos aqui (não repassa de novo) |
 | GET | `/api/machines` | Nome desta máquina e as outras suas com o edit.r (`{name, machines: [{id, name, base}]}`) |
-| GET | `/api/update` | Branch e commit do PC, novidades da `main` do GitHub, bloqueios e o andamento de uma atualização |
-| POST | `/api/update` | Atualiza: troca para a `main`, avança, `pnpm install`, compila o web (sem o `tsc`, já feito no PR) e reinicia (`409` com mudança local, `main` divergente, conversa trabalhando ou já em dia) |
+| GET | `/api/update` | Branch e commit do PC, novidades da `release` do GitHub, bloqueios e o andamento de uma atualização |
+| POST | `/api/update` | Atualiza: troca para a `release`, avança, `pnpm install`, compila o web (sem o `tsc`, já feito no PR) e reinicia (`409` com mudança local, `release` divergente, conversa trabalhando ou já em dia) |
 | POST | `/api/update/restart` | Reinício que ficou adiado porque uma conversa começou a trabalhar durante a compilação |
 | WS | `/ws` | `subscribe {sessionId, sinceSeq}` → `snapshot`, `event`, `delta`, `catalog`; e, para todos, `changed {what, cwd?, rev?}` quando o TODO de um projeto, os times, os workspaces ou as habilidades mudam |
 | WS | `/ws/file?cwd=&path=` | O arquivo aberto no editor: `{hash}` ao ligar e a cada vez que ele muda no disco (`null` se sumiu) |

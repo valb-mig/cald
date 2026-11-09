@@ -8,7 +8,10 @@ import { HttpError } from './errors.ts';
 /** Raiz do repositório do próprio painel (server/src → ../..). */
 export const REPO_DIR = fileURLToPath(new URL('../..', import.meta.url));
 const REMOTE = 'origin';
-const BRANCH = 'main';
+/** A branch das versões: a main recebe os commits do dia a dia, e a release só o que foi publicado. */
+const BRANCH = 'release';
+/** Atualiza o `origin/release` mesmo num clone de uma branch só (`--single-branch`), sem o refspec dela. */
+const FETCH_REFSPEC = `+refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}`;
 const FETCH_EVERY_MS = 30_000;
 const LOG_TAIL = 4_000;
 
@@ -28,10 +31,10 @@ export type UpdateStatus = {
   branch: string | null;
   target: string;
   head: Commit;
-  /** Commits da main do GitHub que o PC ainda não tem, do mais novo ao mais antigo (até 10). */
+  /** Commits da release do GitHub que o PC ainda não tem, do mais novo ao mais antigo (até 10). */
   incoming: Commit[];
   behind: number;
-  /** Commits locais fora da main do GitHub (na main, impedem avançar sem merge). */
+  /** Commits locais fora da release do GitHub (na release, impedem avançar sem merge). */
   ahead: number;
   /** Arquivos versionados com mudança não commitada no PC. */
   dirty: boolean;
@@ -74,8 +77,9 @@ function commits(out: string): Commit[] {
 }
 
 /**
- * Atualizar o PC pelo celular: deixa o repositório na main do GitHub, instala, compila e reinicia o
- * serviço. Recusa com mudanças locais, main local divergente ou conversa do painel trabalhando.
+ * Atualizar o PC pelo celular: deixa o repositório na release do GitHub, instala, compila e reinicia o
+ * serviço. Recusa com mudanças locais, release local divergente ou conversa do painel trabalhando. Um
+ * PC noutra branch que já tem tudo da release (a main de quem desenvolve) fica como está, em dia.
  */
 export class Updater {
   private job: UpdateJob | null = null;
@@ -102,7 +106,7 @@ export class Updater {
     let fetchError: string | undefined;
     if (!this.job && Date.now() - this.fetchedAt > FETCH_EVERY_MS) {
       try {
-        await this.git('fetch', '--quiet', REMOTE, BRANCH);
+        await this.git('fetch', '--quiet', REMOTE, FETCH_REFSPEC);
         this.fetchedAt = Date.now();
       } catch (err) {
         fetchError = (err as { log?: string }).log?.trim() || (err as Error).message;
@@ -142,7 +146,7 @@ export class Updater {
     if (s.dirty) throw new HttpError(409, 'update_dirty');
     if (s.branch === BRANCH && s.ahead > 0) throw new HttpError(409, 'update_diverged', { ahead: s.ahead });
     if (s.busy.length) throw new HttpError(409, 'update_busy', { sessions: s.busy });
-    if (s.branch === BRANCH && s.behind === 0) throw new HttpError(409, 'update_up_to_date');
+    if (s.behind === 0) throw new HttpError(409, 'update_up_to_date');
 
     this.job = { step: 'fetch', startedAt: Date.now() };
     void this.steps(s.branch).catch(() => {});
@@ -169,8 +173,18 @@ export class Updater {
         throw err;
       }
     };
-    await step('fetch', 'git', ['fetch', '--quiet', REMOTE, BRANCH]);
-    if (branch !== BRANCH) await step('switch', 'git', ['switch', BRANCH]);
+    await step('fetch', 'git', ['fetch', '--quiet', REMOTE, FETCH_REFSPEC]);
+    if (branch !== BRANCH) {
+      // Instalação de antes da release, ainda na main: a branch local nasce seguindo a do GitHub. O
+      // upstream vai direto na config porque, num clone de uma branch só, o `--track` recusa um
+      // origin/release que o refspec do remoto não cobre.
+      if (await this.git('branch', '--list', BRANCH)) await step('switch', 'git', ['switch', BRANCH]);
+      else {
+        await step('switch', 'git', ['switch', '--no-track', '-c', BRANCH, `${REMOTE}/${BRANCH}`]);
+        await step('switch', 'git', ['config', `branch.${BRANCH}.remote`, REMOTE]);
+        await step('switch', 'git', ['config', `branch.${BRANCH}.merge`, `refs/heads/${BRANCH}`]);
+      }
+    }
     await step('merge', 'git', ['merge', '--ff-only', `${REMOTE}/${BRANCH}`]);
     await step('install', 'pnpm', ['install', '--frozen-lockfile']);
     // Sem o `tsc` do `pnpm build`: a main já passou pelo `pnpm check` antes do PR, e conferir os tipos

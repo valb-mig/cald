@@ -18,7 +18,7 @@ import type { UpdateStatus, UpdateStep } from '@/lib/types'
 
 const STEPS: Record<UpdateStep, string> = {
   fetch: 'Baixando do GitHub…',
-  switch: 'Trocando para a main…',
+  switch: 'Trocando de branch…',
   merge: 'Atualizando os arquivos…',
   install: 'Instalando dependências…',
   build: 'Compilando o app…',
@@ -35,8 +35,9 @@ function Warning({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Atualizar o PC daqui: puxa a main do GitHub, instala, compila e reinicia o serviço. Durante o
- * reinício o servidor some por alguns segundos; quando volta, o app procura a versão nova.
+ * Atualizar o PC daqui: puxa a branch das versões do GitHub (a release; num servidor antigo, a main),
+ * instala, compila e reinicia o serviço. Durante o reinício o servidor some por alguns segundos;
+ * quando volta, o app procura a versão nova.
  */
 export function UpdateCard({ machine }: { machine: string }) {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
@@ -107,9 +108,11 @@ export function UpdateCard({ machine }: { machine: string }) {
     }
   }
 
-  const onMain = status?.branch === status?.target
-  const upToDate = Boolean(status && onMain && status.behind === 0)
-  const blocked = Boolean(status && (status.dirty || (onMain && status.ahead > 0) || status.busy.length > 0))
+  const target = status?.target ?? 'release'
+  const onTarget = status?.branch === target
+  // Noutra branch que já tem tudo da release (a main de quem desenvolve), também está em dia.
+  const upToDate = Boolean(status && status.behind === 0)
+  const blocked = Boolean(status && (status.dirty || (onTarget && status.ahead > 0) || status.busy.length > 0))
   const postponed = job?.error === 'restart_postponed'
 
   if (missing) return null
@@ -152,13 +155,13 @@ export function UpdateCard({ machine }: { machine: string }) {
             {upToDate ? (
               <p className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-                Em dia com a main do GitHub.
+                Em dia com a {target} do GitHub.
               </p>
             ) : (
               status.incoming.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">
-                    {status.behind === 1 ? '1 novidade' : `${status.behind} novidades`} na main:
+                    {status.behind === 1 ? '1 novidade' : `${status.behind} novidades`} na {target}:
                   </p>
                   <ul className="space-y-0.5 text-xs">
                     {status.incoming.map((c) => (
@@ -170,13 +173,15 @@ export function UpdateCard({ machine }: { machine: string }) {
                 </div>
               )
             )}
-            {!onMain && status.branch !== null && (
+            {!upToDate && !onTarget && status.branch !== null && (
               <Warning>
-                O PC está na branch <span className="font-mono">{status.branch}</span>: atualizar troca para a main.
+                O PC está na branch <span className="font-mono">{status.branch}</span>: atualizar troca para a {target}.
               </Warning>
             )}
             {status.dirty && <Warning>O repositório no PC tem mudanças não commitadas: atualize pelo terminal.</Warning>}
-            {onMain && status.ahead > 0 && <Warning>A main do PC tem commits que não estão no GitHub: resolva pelo terminal.</Warning>}
+            {onTarget && status.ahead > 0 && (
+              <Warning>A {target} do PC tem commits que não estão no GitHub: resolva pelo terminal.</Warning>
+            )}
             {status.busy.length > 0 && <Warning>Esperando terminar: {status.busy.join(', ')}.</Warning>}
             {!status.canRestart && <Warning>O servidor não roda como serviço: depois de compilar, reinicie pelo terminal.</Warning>}
             <div className="flex gap-2">

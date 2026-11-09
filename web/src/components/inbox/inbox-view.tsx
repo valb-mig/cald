@@ -494,7 +494,7 @@ export function InboxView({ panel = false }: { panel?: boolean }) {
         {/* Com a cena atrás, o escurecido sob a lista devolve contraste ao texto, como na conversa. Fica
             fora do scroller para não rolar junto com a lista. */}
         {scrim !== null && <Veil dim={scrim} />}
-        <div className="absolute inset-0 overflow-y-auto [scrollbar-width:thin]">
+        <div className="absolute inset-0 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl">{body}</div>
         </div>
       </div>

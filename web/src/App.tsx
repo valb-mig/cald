@@ -269,7 +269,7 @@ function Sidebar() {
     <div className="relative isolate flex shrink-0 overflow-hidden rounded-island bg-sidebar shadow-island-ring">
       <SidebarRail />
       <SlidePanel open={!collapsed} size={width} side="left">
-        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {view === 'projects' ? <ProjectsPage sidebar /> : <SessionsPage sidebar />}
         </div>
         <SidebarMeters />

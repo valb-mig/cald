@@ -107,8 +107,8 @@ function PatchFile({ file, open, onToggle, review }: { file: GithubPatch; open: 
         >
           <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
           <ChangeChip badge={badge} />
-          <span className={cn('shrink-0 truncate', viewed && 'text-muted-foreground')}>{name}</span>
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{dir}</span>
+          <span className={cn('min-w-0 truncate', viewed && 'text-muted-foreground')}>{name}</span>
+          <span className="min-w-0 flex-1 shrink-[4] truncate text-[11px] text-muted-foreground">{dir}</span>
           {talks > 0 && (
             <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground tabular-nums" title={`${talks} ${talks === 1 ? 'conversa aberta' : 'conversas abertas'}`}>
               <MessageSquare className="size-3" />

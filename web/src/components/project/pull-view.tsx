@@ -475,7 +475,7 @@ export function PullView({ machine, cwd, number, title, active }: { machine: str
                   Numa coluna só, a coluna some (`contents`) e a ordem vira: o estado e o que se acompanha
                   em cima, o conteúdo no meio e a conversa no fim. */}
               <div className="mt-5 grid gap-x-8 gap-y-8 @4xl:grid-cols-[minmax(0,1fr)_21rem]">
-                <div className="contents @4xl:sticky @4xl:top-5 @4xl:col-start-2 @4xl:row-start-1 @4xl:-mx-1 @4xl:block @4xl:max-h-[calc(100cqh-5.25rem)] @4xl:px-1 @4xl:pb-1 @4xl:space-y-8 @4xl:self-start @4xl:overflow-y-auto @4xl:[scrollbar-width:thin]">
+                <div className="contents @4xl:sticky @4xl:top-5 @4xl:col-start-2 @4xl:row-start-1 @4xl:-mx-1 @4xl:block @4xl:max-h-[calc(100cqh-5.25rem)] @4xl:px-1 @4xl:pb-1 @4xl:space-y-8 @4xl:self-start @4xl:overflow-y-auto">
                   <aside className="order-1 min-w-0 space-y-6">
                     <MergeState pr={pr} />
                     {pr.checks.length > 0 && (
