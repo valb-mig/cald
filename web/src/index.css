@@ -179,6 +179,23 @@
   html {
     @apply font-sans;
     }
+
+  /* Barra de rolagem do PC (ponteiro fino): fina, sem trilho e invisível até o ponteiro estar sobre a
+     área rolável. O espaço fica reservado, então nada pula ao aparecer. No celular a barra já é
+     sobreposta e some sozinha, por isso fica de fora. O valor base vai em todo elemento, e não só no
+     :hover de quem rola: `scrollbar-color` é herdada, e mudar uma herdada num contêiner grande (o diff
+     tem milhares de nós) refaria o estilo da subárvore inteira. Assim o :hover só toca o próprio
+     elemento. Só as propriedades padrão, sem ::-webkit-scrollbar (no Chromium 121+ elas se anulam).
+     Quem quer a barra escondida segue com `scrollbar-width: none`, que vence esta regra (utilitário). */
+  @media (pointer: fine) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: transparent transparent;
+      }
+    *:hover {
+      scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+      }
+  }
 }
 
 /*

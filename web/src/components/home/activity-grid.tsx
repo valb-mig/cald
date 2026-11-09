@@ -119,7 +119,7 @@ export function ActivityGrid({ days, className }: { days: ActivityDay[] | null; 
         <Skeleton className="h-28 w-full" />
       ) : (
         <>
-          <div ref={scroller} className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+          <div ref={scroller} className="-mx-1 overflow-x-auto px-1 pb-1">
             <div className="inline-grid grid-cols-[auto_1fr] gap-x-1.5">
               <span />
               <div className="grid grid-flow-col gap-[3px] [grid-auto-columns:11px] sm:[grid-auto-columns:12px]">
