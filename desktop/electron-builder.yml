@@ -33,5 +33,16 @@ linux:
       Name: edit.r
       Comment: O Claude Code do seu PC, no PC e no celular
 artifactName: ${name}-${version}-${arch}.${ext}
+# O AppImage sem a versão no nome: atualizado, o arquivo é trocado no mesmo lugar, e o caminho no
+# "iniciar com o sistema" segue valendo (ver src/updates.ts).
+appImage:
+  artifactName: ${name}-${arch}.${ext}
+# Os Releases do GitHub, de onde o app instalado procura a versão nova (o app-update.yml vai junto).
+# Publica só pelo CI, a cada tag v* (ver .github/workflows/desktop.yml).
+publish:
+  provider: github
+  owner: valb-mig
+  repo: cald
+  releaseType: release
 # As node_modules do servidor (ver scripts/after-pack.cjs).
 afterPack: scripts/after-pack.cjs

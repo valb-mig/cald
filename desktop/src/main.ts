@@ -1,10 +1,11 @@
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, session, shell, type IpcMainInvokeEvent } from 'electron';
+import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { autostartEnabled, setAutostart } from './autostart.ts';
 import { Notifications } from './notifications.ts';
 import { BASE, ICON, PACKAGED, PRELOAD, SERVER_LOG, TRAY_ICON } from './paths.ts';
 import { ServerSupervisor } from './server.ts';
 import { Settings, type NotificationPrefs, type WindowState } from './settings.ts';
 import { loginShellEnv } from './shell-env.ts';
+import { Updates } from './updates.ts';
 
 /**
  * O edit.r como app do PC: a janela no app web servido pelo servidor local, a bandeja e o próprio
@@ -22,6 +23,7 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let supervisor: ServerSupervisor | null = null;
 let notifications: Notifications | null = null;
+const updates = new Updates();
 let quitting = false;
 let serverStopped = false;
 
@@ -128,11 +130,20 @@ function createTray(): void {
   updateTray();
 }
 
+/** A versão nova, no topo da bandeja e do menu do app: reiniciar com ela (AppImage) ou baixar. */
+function updateItems(): MenuItemConstructorOptions[] {
+  const update = updates.state;
+  if (update?.kind === 'downloaded') return [{ label: `Reiniciar para atualizar (v${update.version})`, click: () => void restartToUpdate() }, { type: 'separator' }];
+  if (update?.kind === 'available') return [{ label: `Baixar a versão nova (v${update.version})`, click: () => updates.openReleases() }, { type: 'separator' }];
+  return [];
+}
+
 function updateTray(): void {
   if (!tray) return;
   const owns = supervisor?.mode === 'own';
   tray.setContextMenu(
     Menu.buildFromTemplate([
+      ...updateItems(),
       { label: 'Abrir o edit.r', click: () => showWindow() },
       { label: 'Link do celular', click: () => showWindow('/?computador=acesso') },
       { type: 'separator' },
@@ -152,6 +163,15 @@ function updateTray(): void {
   );
 }
 
+/** "Reiniciar para atualizar": encerra o servidor com calma antes, como no Sair, e troca o AppImage. */
+async function restartToUpdate(): Promise<void> {
+  quitting = true;
+  notifications?.stop();
+  await supervisor?.stop();
+  serverStopped = true;
+  updates.installAndRestart();
+}
+
 function createMenu(): void {
   // A barra fica escondida (Alt mostra); valem os atalhos de navegador de sempre e o Ctrl+Q.
   Menu.setApplicationMenu(
@@ -159,6 +179,7 @@ function createMenu(): void {
       {
         label: 'edit.r',
         submenu: [
+          ...updateItems(),
           { role: 'reload', label: 'Recarregar' },
           { role: 'forceReload', label: 'Recarregar sem cache' },
           { role: 'toggleDevTools', label: 'Ferramentas do desenvolvedor' },
@@ -206,12 +227,18 @@ async function boot(): Promise<void> {
   void win.loadURL(splash('Iniciando o edit.r…'));
   createTray();
 
-  // Instalado (não rodando do repositório), liga o "iniciar com o sistema" na primeira vez.
+  // Instalado (não rodando do repositório), liga o "iniciar com o sistema" na primeira vez; depois,
+  // só acerta o caminho, que muda se o AppImage foi movido ou atualizado com outro nome.
   if (PACKAGED && !settings.data.autostartSet) {
     setAutostart(true);
     settings.update({ autostartSet: true });
     updateTray();
-  }
+  } else if (PACKAGED && autostartEnabled()) setAutostart(true);
+  updates.on('change', () => {
+    updateTray();
+    createMenu();
+  });
+  updates.start();
 
   supervisor = new ServerSupervisor(await loginShellEnv());
   supervisor.on('mode', updateTray);
