@@ -1,10 +1,11 @@
-import { Activity, Armchair, Bell, Blocks, ChevronLeft, ChevronRight, GitBranch, Info, Lock, Monitor, MonitorSmartphone, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
+import { Activity, Armchair, Bell, Blocks, ChevronLeft, ChevronRight, FolderSync, GitBranch, Info, Lock, Monitor, MonitorSmartphone, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'wouter'
 import { AccessSettings } from '@/components/access-settings'
 import { MemoryView } from '@/components/claude/memory-view'
 import { McpView, SkillsView } from '@/components/claude/setup-view'
+import { ConfigSyncSettings } from '@/components/config-sync-settings'
 import { WorktreesView } from '@/components/claude/worktrees-view'
 import { MachineFilter } from '@/components/machine-filter'
 import { Meter, WindowMeter } from '@/components/pc-status'
@@ -45,6 +46,7 @@ const SECTIONS: { key: Section; label: string; description: string; icon: typeof
   { key: 'access', label: 'Acesso', description: 'Conectar o celular e ver quem está usando.', icon: MonitorSmartphone, machine: true },
   { key: 'alerts', label: 'Avisos', description: 'Notificações e sons deste aparelho.', icon: Bell },
   { key: 'look', label: 'Aparência', description: 'Tema e fundo, só neste aparelho.', icon: Palette },
+  { key: 'sync', label: 'Sincronizar', description: 'Sua configuração num repositório do GitHub, para levar a outra máquina.', icon: FolderSync, machine: true },
   { key: 'about', label: 'Sobre', description: 'Versão, atualização e segurança.', icon: Info, machine: true },
 ]
 
@@ -183,6 +185,8 @@ function Computer() {
             </>
           ) : section === 'look' ? (
             <LookSection />
+          ) : section === 'sync' ? (
+            <ConfigSyncSettings key={machine} machine={machine} />
           ) : (
             <AboutSection />
           )}

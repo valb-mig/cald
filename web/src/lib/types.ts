@@ -153,6 +153,45 @@ export type AgentProviderInfo = {
   }
 }
 
+/** As categorias que vão para o repositório de configuração (ver server/src/config-sync-kinds.ts). */
+export type ConfigSyncKind =
+  | 'teams'
+  | 'workspaces'
+  | 'habilidades'
+  | 'detalhes'
+  | 'todos'
+  | 'commands'
+  | 'memory'
+  | 'claude-config'
+  | 'claude-agents'
+  | 'claude-skills'
+  | 'agents'
+  | 'appearance'
+
+/** O repositório de configuração da máquina; `remote`: o último envio que ela conhece, de qualquer máquina. */
+export type ConfigSyncStatus = {
+  repo: string | null
+  url: string | null
+  machine: string
+  lastPush: number | null
+  lastPull: number | null
+  remote: { machine: string; at: number } | null
+}
+
+/** Por que um item ficou como estava (ver SkipReason no servidor). */
+export type ConfigSyncSkip = 'newer-there' | 'newer-here' | 'deleted-here' | 'no-project' | 'rejected'
+
+/** O que um envio ou um "Trazer" fez (ou faria, na prévia), por categoria. */
+export type ConfigSyncReport = {
+  direction: 'push' | 'pull'
+  dry: boolean
+  kinds: { kind: ConfigSyncKind; added: string[]; updated: string[]; same: number; skipped: { label: string; reason: ConfigSyncSkip }[]; total: number; totalAdded: number }[]
+  missingProjects: string[]
+  commit: string | null
+  /** Ao trazer: a aparência de lá, quando é diferente da deste aparelho, para o app aplicar. */
+  appearance: Record<string, string> | null
+}
+
 /** `project`: o projeto de que o worktree é cópia; branch e origem só quando foi o cald que criou. */
 export type WorktreeTag = { name: string; project: string; branch?: string; base?: string }
 
