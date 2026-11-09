@@ -1,8 +1,11 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, rm } from 'node:fs/promises';
+import { once } from 'node:events';
+import { createWriteStream } from 'node:fs';
+import { chmod, copyFile, lstat, mkdir, readlink, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { HttpError } from './errors.ts';
 
@@ -204,9 +207,12 @@ export async function gitBase(cwd: string, path: string): Promise<string | null>
 
 // ---- ações do controle de código-fonte ----
 
-/** O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede. */
-export function gitWrite(cwd: string, args: string[]) {
-  return exec('git', args, {
+/**
+ * O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede.
+ * Com `input`, ele vai pela entrada padrão.
+ */
+export function gitWrite(cwd: string, args: string[], input?: string) {
+  const run = exec('git', args, {
     cwd,
     timeout: 120_000,
     maxBuffer: 8 * 1024 * 1024,
@@ -216,7 +222,9 @@ export function gitWrite(cwd: string, args: string[]) {
       GIT_EDITOR: 'true',
       GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=10',
     },
-  }).catch((err: { stderr?: string; stdout?: string; message?: string }) => {
+  });
+  if (input !== undefined) run.child.stdin?.end(input);
+  return run.catch((err: { stderr?: string; stdout?: string; message?: string }) => {
     // O que o git disse (hook que falhou, conflito, remoto recusando) vai para a tela como está.
     const message = (err.stderr || err.stdout || err.message || '').trim().split('\n').slice(-6).join('\n');
     throw new HttpError(409, 'git_failed', { message });
@@ -241,15 +249,131 @@ export async function gitStage(cwd: string, paths: string[]): Promise<void> {
   await gitWrite(cwd, ['add', '-A', '--', ...paths]);
 }
 
+/** Se o repositório já tem algum commit (um recém-criado ainda não tem HEAD). */
+function hasHead(cwd: string): Promise<boolean> {
+  return git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(
+    () => true,
+    () => false,
+  );
+}
+
 /** Tira do stage, sem mexer no arquivo. Num repositório ainda sem commits não há HEAD para voltar. */
 export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
   checkPaths(paths);
   await requireRepo(cwd);
-  const born = await git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(
-    () => true,
-    () => false,
-  );
-  await gitWrite(cwd, born ? ['restore', '--staged', '--', ...paths] : ['rm', '--cached', '-r', '-q', '--', ...paths]);
+  await gitWrite(cwd, (await hasHead(cwd)) ? ['restore', '--staged', '--', ...paths] : ['rm', '--cached', '-r', '-q', '--', ...paths]);
+}
+
+/** Como um caminho estava antes de descartado: as entradas dele no índice e o arquivo no disco. */
+type Kept = {
+  path: string;
+  /** As linhas do `git ls-files -s` ("modo sha estágio"; várias num conflito); vazio fora do índice. */
+  index: string[];
+  /** Marcado com `git add -N`: no índice só a intenção, que o `ls-files -s` não mostra. */
+  intent: boolean;
+  /** O conteúdo, guardado como blob no próprio repositório, ou o alvo do link; `null` se não estava no disco. */
+  file: { blob: string; mode: number } | { link: string } | null;
+};
+
+/** Os descartes que ainda dá para desfazer: na memória deste servidor e por uma hora. */
+const discarded = new Map<string, { cwd: string; at: number; kept: Kept[] }>();
+const UNDO_TTL = 60 * 60_000;
+
+/** Guarda como cada caminho está, no índice e no disco, para o descarte ter volta. */
+async function keep(cwd: string, paths: string[], intents: Set<string>): Promise<Kept[]> {
+  const kept = new Map(paths.map((path): [string, Kept] => [path, { path, index: [], intent: intents.has(path), file: null }]));
+  const staged = await git(cwd, ['--literal-pathspecs', 'ls-files', '-s', '-z', '--', ...paths]);
+  for (const entry of staged.stdout.split('\0')) {
+    const tab = entry.indexOf('\t');
+    const k = tab > 0 ? kept.get(entry.slice(tab + 1)) : undefined;
+    if (k && !k.intent) k.index.push(entry.slice(0, tab));
+  }
+  const files: { path: string; mode: number }[] = [];
+  for (const path of paths) {
+    const st = await lstat(join(cwd, path)).catch(() => null);
+    if (!st) continue;
+    if (st.isSymbolicLink()) kept.get(path)!.file = { link: await readlink(join(cwd, path)) };
+    else if (st.isFile()) files.push({ path, mode: st.mode & 0o7777 });
+    // Submódulo ou outro repositório dentro deste: daqui não se mexe.
+    else throw new HttpError(409, 'discard_dir', { path });
+  }
+  if (files.length) {
+    // Os bytes como estão, sem os filtros do git (fim de linha, LFS): é o que volta para o disco.
+    const blobs = (await gitWrite(cwd, ['hash-object', '-w', '--no-filters', '--', ...files.map((f) => f.path)])).stdout.trim().split('\n');
+    files.forEach((f, i) => (kept.get(f.path)!.file = { blob: blobs[i]!, mode: f.mode }));
+  }
+  return [...kept.values()];
+}
+
+/**
+ * Descarta as alterações dos arquivos: os do histórico voltam a ser como no último commit, no índice e
+ * no disco, e os novos somem. Antes, guarda como cada um estava, e o `undo` devolvido desfaz tudo (ver
+ * `gitUndoDiscard`): no painel, nenhuma ação fica sem volta.
+ */
+export async function gitDiscard(cwd: string, paths: string[]): Promise<{ undo: string; files: number }> {
+  checkPaths(paths);
+  const status = await requireRepo(cwd);
+  const wanted = new Set(paths);
+  const files = status.files.filter((f) => wanted.has(f.path));
+  if (files.length === 0) throw new HttpError(409, 'nothing_to_discard');
+  // Numa renomeação, o caminho antigo volta junto.
+  const touched = [...new Set(files.flatMap((f) => (f.from ? [f.path, f.from] : [f.path])))];
+  const kept = await keep(cwd, touched, new Set(files.filter((f) => f.index === '.' && f.worktree === 'A').map((f) => f.path)));
+
+  const born = await hasHead(cwd);
+  const fresh = new Set(files.filter((f) => f.untracked).map((f) => f.path));
+  const tracked = touched.filter((p) => !fresh.has(p));
+  // Literal: `app/[id]/page.tsx` é esse arquivo, não um padrão.
+  if (tracked.length) {
+    await gitWrite(
+      cwd,
+      born
+        ? ['--literal-pathspecs', 'restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked]
+        : ['--literal-pathspecs', 'rm', '--cached', '-q', '-f', '--ignore-unmatch', '--', ...tracked],
+    );
+  }
+  // O que nunca entrou num commit não tem para onde voltar: sai do disco.
+  for (const path of born ? fresh : touched) await rm(join(cwd, path), { force: true });
+
+  const now = Date.now();
+  for (const [id, d] of discarded) if (now - d.at > UNDO_TTL) discarded.delete(id);
+  const undo = randomUUID();
+  discarded.set(undo, { cwd, at: now, kept });
+  return { undo, files: files.length };
+}
+
+/** Põe um blob do git no disco aos pedaços: o arquivo pode ser grande. */
+async function writeBlob(cwd: string, blob: string, dest: string): Promise<void> {
+  const child = spawn('git', ['cat-file', 'blob', blob], { cwd, stdio: ['ignore', 'pipe', 'ignore'] });
+  const [[code]] = await Promise.all([once(child, 'close'), pipeline(child.stdout, createWriteStream(dest))]);
+  if (code !== 0) throw new HttpError(410, 'undo_expired');
+}
+
+/** Desfaz um descarte: cada caminho volta a ser como estava, no disco e no índice (conflitos inclusive). */
+export async function gitUndoDiscard(cwd: string, undo: string): Promise<void> {
+  const d = discarded.get(undo);
+  if (!d || d.cwd !== cwd || Date.now() - d.at > UNDO_TTL) throw new HttpError(410, 'undo_expired');
+  await requireRepo(cwd);
+  discarded.delete(undo);
+  for (const k of d.kept) {
+    const dest = join(cwd, k.path);
+    await rm(dest, { force: true });
+    if (!k.file) continue;
+    await mkdir(dirname(dest), { recursive: true });
+    if ('link' in k.file) {
+      await symlink(k.file.link, dest);
+    } else {
+      await writeBlob(cwd, k.file.blob, dest);
+      await chmod(dest, k.file.mode);
+    }
+  }
+  // O índice: sai o que o descarte deixou e voltam as entradas de antes.
+  const paths = d.kept.map((k) => k.path);
+  await gitWrite(cwd, ['update-index', '--force-remove', '-z', '--stdin'], paths.map((p) => `${p}\0`).join(''));
+  const entries = d.kept.flatMap((k) => k.index.map((line) => `${line}\t${k.path}\0`)).join('');
+  if (entries) await gitWrite(cwd, ['update-index', '-z', '--index-info'], entries);
+  const intents = d.kept.filter((k) => k.intent).map((k) => k.path);
+  if (intents.length) await gitWrite(cwd, ['--literal-pathspecs', 'add', '-N', '--', ...intents]);
 }
 
 /** Commit do que está staged; com `all`, prepara tudo antes (como o commit sem nada staged do VSCode). */
