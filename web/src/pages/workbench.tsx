@@ -608,7 +608,8 @@ function GroupView({
         // O valor muda junto com o canto: é o que avisa a casca para refazer o recorte.
         data-hole={flush ? 'flush' : 'round'}
         // Sem cena atrás, a janela pinta a própria cor: pelo recorte apareceria a margem, que no escuro é mais funda.
-        className={cn('relative min-h-0 flex-1 overflow-hidden rounded-pane', flush && 'rounded-tl-none', !glass && 'bg-background')}
+        // A conversa no modo coding vira janelas à parte (`data-windows`) e pinta cada uma: aí a margem aparece nas folgas.
+        className={cn('relative min-h-0 flex-1 overflow-hidden rounded-pane', flush && 'rounded-tl-none', !glass && 'bg-background has-[[data-windows]]:bg-transparent')}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(TAB_DRAG)) return
           const z = zoneOf(e)

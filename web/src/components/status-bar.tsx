@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Bug, Check, GitBranch, Loader2, PanelRight, Plus, SquareTerminal, X, XCircle } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bug, Check, Eye, GitBranch, Loader2, PanelRight, Plus, Sparkles, SquareTerminal, X, XCircle } from 'lucide-react'
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ToolDetails } from '@/components/chat/activity'
 import type { ToolEntry } from '@/components/chat/turn'
@@ -8,6 +8,7 @@ import { ResizeHandle } from '@/components/ui/resize-handle'
 import { SlidePanel } from '@/components/ui/slide-panel'
 import { PANEL_HEIGHT, PANEL_MIN_HEIGHT, saveBottomPanel, setBottomHeight, toggleBottomPanel, useBottomPanel, type BottomTab } from '@/lib/bottom-panel'
 import { useChatTools } from '@/lib/chat-tools'
+import { setChatView, useChatView } from '@/lib/chat-view'
 import { editorCommands, useEditorCursor } from '@/lib/editor-cursor'
 import { projectName, toolSummary } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
@@ -59,6 +60,7 @@ export function StatusBar() {
   const commands = useChatTools((s) => (chat ? (s[chat]?.filter(isCommand).length ?? 0) : 0))
   return (
     <footer className="mt-1 -mb-0.5 flex h-6 shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground" aria-label="Barra de status">
+      {chat && <ViewToggle chat={chat} />}
       {project && git?.branch && (
         <button
           type="button"
@@ -91,6 +93,23 @@ export function StatusBar() {
       <PanelButton tab="terminal" label="Terminal" title="O terminal do projeto, na pasta dele" icon={SquareTerminal} />
       <PanelButton tab="commands" label="Comandos" title="Os comandos que o Claude rodou nesta conversa, com a resposta de cada um" icon={Bug} count={commands} />
     </footer>
+  )
+}
+
+/** O modo de ver a conversa em foco: vibing (o chat de sempre) ou coding (com os passos ao lado do chat). */
+function ViewToggle({ chat }: { chat: string }) {
+  const coding = useChatView(chat) === 'coding'
+  return (
+    <button
+      type="button"
+      className={cn(ITEM, coding && 'bg-foreground/5 text-foreground')}
+      onClick={() => setChatView(chat, coding ? 'vibing' : 'coding')}
+      aria-pressed={coding}
+      title={coding ? 'Modo coding: os passos do Claude ao lado do chat. Tocar volta ao vibing' : 'Modo vibing. Tocar passa ao coding, com os passos do Claude ao lado'}
+    >
+      {coding ? <Eye /> : <Sparkles />}
+      {coding ? 'coding' : 'vibing'}
+    </button>
   )
 }
 

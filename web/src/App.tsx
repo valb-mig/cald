@@ -365,7 +365,8 @@ function WorkspaceScreen({ id }: { id: string }) {
 function Pane({ children, className }: { children: React.ReactNode; className?: string }) {
   const wide = useWide()
   return (
-    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background', wide && 'rounded-pane', className)}>
+    // A conversa no modo coding pinta as próprias janelas (`data-windows`): a folga entre elas fica com a cor de fora.
+    <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background', wide && 'rounded-pane has-[[data-windows]]:bg-transparent', className)}>
       {children}
     </div>
   )
