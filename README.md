@@ -46,6 +46,22 @@ Para não decorar o link: de qualquer aparelho da tailnet, digitar só o nome da
 
 O instalador é idempotente, então pode rodar de novo sem medo. Se preferir entender cada etapa, siga os passos manuais abaixo.
 
+### App do PC
+
+No PC, o edit.r também roda como app (Electron), fora do navegador e sem endereço para lembrar: a janela, o ícone na bandeja e o servidor, tudo junto.
+
+- **Instalar:** baixe o `editr-<versão>-x86_64.AppImage` (ou o `.deb`, ou o `.pacman` do Arch) e abra. Para gerar a partir do repositório: `pnpm install && pnpm desktop:dist`, que deixa os três em `desktop/release/`. O app já traz o Node e o servidor; continuam valendo o Claude Code logado, o `python3` (o terminal do painel) e, para o celular, o Tailscale.
+- **O servidor vem junto.** Se já há um edit.r na porta 7337 (o serviço do instalador acima), o app só abre a janela nele; senão, sobe o que vem dentro dele, com o ambiente do seu shell de login, como o serviço. Se o serviço sai do ar, o app assume a porta.
+- **Fechar a janela deixa o edit.r na bandeja**, com o servidor de pé para o celular. Ctrl+Q ou **Sair**, na bandeja, encerram de verdade; com o servidor do próprio app, o celular perde o acesso até você abrir de novo. Na primeira abertura, o app liga **Iniciar com o sistema** (desliga na bandeja) e, daí em diante, sobe só na bandeja a cada login.
+- **Notificações do sistema:** o Electron não tem Web Push, então o app recebe os avisos direto do servidor (os mesmos do celular, inclusive os das suas outras máquinas) e mostra como notificação do PC. **Computador → Notificações** escolhe o que avisa; com a janela na frente, não avisa.
+- **Ditado:** no app, é sempre o do Whisper (ver [Ditado no Firefox](#ditado-no-firefox-whisper)).
+- **Link do celular**, na bandeja, abre o **Computador → Acesso**, com o QR.
+- **Atualizar:** instalado pelo pacote, o app não tem o cartão **Atualização do PC** (não há repositório ao lado); baixe a versão nova. Ligado ao serviço do git, o cartão segue valendo.
+- O PIN ainda é definido pelo `editr -pin`, da instalação pelo git.
+- O que é do app fica em `~/.config/edit.r`: o tamanho da janela, os avisos e, em `logs/server.log`, o log do servidor que ele sobe.
+
+Do repositório, sem empacotar: `pnpm desktop` compila e abre (`EDITR_PORT=7338 pnpm desktop` testa noutra porta, sem mexer no serviço).
+
 ### 1. Baixar e compilar
 
 ```sh
@@ -545,8 +561,12 @@ Se cair, o serviço volta sozinho em ~3 s. As sessões que estavam abertas no pa
 pnpm install
 pnpm build        # gera web/dist (com .br e .gz de cada arquivo), que o backend serve; basta recarregar a página
 pnpm dev:web      # Vite em http://localhost:5173 com proxy para o serviço na 7337
-pnpm check        # tipos do server e do web
+pnpm check        # tipos do server, do web e do app do PC
+pnpm desktop      # o app do PC (Electron), do repositório
+pnpm desktop:dist # AppImage, .deb e .pacman em desktop/release
 ```
+
+O app do PC fica em `desktop/`: o processo principal do Electron (`src/main.ts`, a janela, a bandeja e o menu), quem acha ou sobe o servidor (`src/server.ts`, que roda o `server/src/index.ts` no Node do próprio Electron, com `ELECTRON_RUN_AS_NODE`), o ambiente do shell de login (`src/shell-env.ts`), os avisos do sistema (`src/notifications.ts`, que ouve `/api/push/local`) e o preload que dá ao app web o `window.editr` (`web/src/lib/desktop.ts`). O `scripts/stage.mjs` junta o servidor com as dependências de produção e o app web para o `electron-builder.yml`.
 
 O serviço lê o frontend de `web/dist` a cada requisição, então um `pnpm build` não exige reiniciar o serviço. Mudanças no backend exigem `systemctl --user restart editr`. Para rodar o backend em modo dev, pare o serviço antes (`systemctl --user stop editr` e depois `pnpm dev`) ou use outra porta (`PORT=7338 pnpm dev`).
 
