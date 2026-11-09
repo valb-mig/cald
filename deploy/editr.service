@@ -1,5 +1,7 @@
 [Unit]
 Description=edit.r (painel mobile do Claude Code)
+# Sem limite de partidas: com o RestartSec curto, um laço de quedas pararia o serviço em 10 s.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -9,7 +11,7 @@ WorkingDirectory=%h/Projects/editr/server
 ExecStart=/usr/bin/zsh -lic 'exec /usr/bin/node src/index.ts'
 SyslogIdentifier=editr
 Restart=on-failure
-RestartSec=3
+RestartSec=1
 # SIGTERM só no processo principal, que encerra as sessões do painel com calma;
 # o que sobrar recebe SIGKILL ao fim do timeout.
 KillMode=mixed

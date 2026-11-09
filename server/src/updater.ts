@@ -187,7 +187,9 @@ export class Updater {
     }
     await step('merge', 'git', ['merge', '--ff-only', `${REMOTE}/${BRANCH}`]);
     await step('install', 'pnpm', ['install', '--frozen-lockfile']);
-    await step('build', 'pnpm', ['build']);
+    // Sem o `tsc` do `pnpm build`: a main já passou pelo `pnpm check` antes do PR, e conferir os tipos
+    // de novo aqui levava dois terços da compilação sem mudar nada no que vai para o celular.
+    await step('build', 'pnpm', ['--filter', 'web', 'run', 'bundle']);
     job.step = 'restart';
     // Conversa que começou a trabalhar durante a compilação: não derruba; fica para reiniciar depois.
     const busy = await this.busy();
