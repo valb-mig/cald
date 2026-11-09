@@ -7,6 +7,7 @@ import type { PanelProject } from '@/lib/project-panel'
 import type { GithubInfo, GithubIssue, GithubPull } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { keyOf, openPanelTab, pinTab } from '@/lib/workbench'
+import { IssuesEmptyArt, PullsEmptyArt } from './empty-art'
 
 const ROW = 'flex min-w-0 items-start gap-2.5 rounded-xl px-2.5 py-2 transition-colors hover:bg-foreground/[0.04]'
 
@@ -109,7 +110,8 @@ function GithubTab<T>({
 }: {
   project: PanelProject
   pick: (info: Extract<GithubInfo, { ok: true }>) => { items: T[]; total: number }
-  empty: string
+  /** O desenho do vazio, com a frase dele (ver empty-art.tsx). */
+  empty: React.ReactNode
   /** A página da lista completa no GitHub, depois do repositório. */
   path: string
   render: (item: T) => React.ReactNode
@@ -135,7 +137,7 @@ function GithubTab<T>({
           <RefreshCw className={cn(loading && 'animate-spin')} />
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {error ? (
           <p className="p-4 text-center text-sm text-muted-foreground">{error}</p>
         ) : !info ? (
@@ -145,7 +147,7 @@ function GithubTab<T>({
         ) : !info.ok ? (
           <p className="p-4 text-center text-sm text-muted-foreground">{info.message ?? GITHUB_REASON[info.reason]}</p>
         ) : list && list.items.length === 0 ? (
-          <p className="p-4 text-center text-sm text-muted-foreground">{empty}</p>
+          empty
         ) : (
           <div className="space-y-0.5">
             {list?.items.map(render)}
@@ -172,7 +174,7 @@ export function PullsTab({ project }: { project: PanelProject }) {
     <GithubTab
       project={project}
       pick={(info) => ({ items: info.pulls, total: info.pullCount })}
-      empty="Nenhum PR aberto."
+      empty={<PullsEmptyArt />}
       path="pulls"
       render={(pr: GithubPull) => <PullRow key={pr.number} pr={pr} project={project} />}
     />
@@ -185,7 +187,7 @@ export function IssuesTab({ project }: { project: PanelProject }) {
     <GithubTab
       project={project}
       pick={(info) => ({ items: info.issues, total: info.issueCount })}
-      empty="Nenhuma issue aberta."
+      empty={<IssuesEmptyArt />}
       path="issues"
       render={(issue: GithubIssue) => <IssueRow key={issue.number} issue={issue} project={project} />}
     />
