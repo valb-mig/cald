@@ -13,7 +13,7 @@ import { cleanEnv } from './shell-env.ts';
  * porque instalar pede a senha de administrador.
  */
 
-const RELEASES = 'https://github.com/valb-mig/cald/releases/latest';
+const RELEASES = 'https://github.com/valb-mig/editr/releases/latest';
 const FIRST_CHECK_MS = 30_000;
 const CHECK_EVERY_MS = 6 * 3_600_000;
 
