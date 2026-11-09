@@ -1,5 +1,5 @@
-import { ChevronRight, ChevronsDownUp, FileSearch, Folder, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
-import { createElement, useEffect, useMemo, useState } from 'react'
+import { ChevronRight, ChevronsDownUp, FileSearch, Loader2, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { api, errorMessage } from '@/lib/api'
 import { usePressMenu } from '@/lib/hooks'
@@ -9,7 +9,8 @@ import type { GitStatus, TreeEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useFileMenu, type FileMenuAt } from './file-menu'
 import { openQuickOpen } from './quick-open'
-import { fileIcon, treeMarks, type Badge } from './status'
+import { FileIcon, FolderIcon } from './file-icons'
+import { treeMarks, type Badge } from './status'
 
 // Pastas abertas por projeto: trocar de aba, fechar e reabrir a barra mantém a árvore como estava.
 const expanded = new Set<string>()
@@ -79,7 +80,7 @@ function FileNode({ entry, depth, ...props }: TreeProps & { entry: TreeEntry; de
       title={mark ? `${entry.path} · ${mark.label}` : entry.path}
       {...press}
     >
-      {createElement(fileIcon(entry.name), { className: 'size-4 shrink-0 text-muted-foreground' })}
+      <FileIcon name={entry.name} className={cn('size-4 text-muted-foreground', entry.ignored && 'opacity-50')} />
       <span className={cn('min-w-0 flex-1 truncate', entry.ignored && 'opacity-50', mark?.className)}>{entry.name}</span>
       {mark && <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-semibold', mark.className)}>{mark.letter}</span>}
     </button>
@@ -96,12 +97,11 @@ function DirNode({ entry, depth, ...props }: TreeProps & { entry: TreeEntry; dep
   }
   const mark = props.marks.get(entry.path)
   const press = usePressMenu((x, y) => props.onMenu({ path: entry.path, dir: true, x, y }))
-  const Icon = open ? FolderOpen : Folder
   return (
     <>
       <button type="button" className={rowClass} style={indent(depth)} onClick={toggle} aria-expanded={open} {...press}>
         <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <FolderIcon name={entry.name} open={open} className={cn('size-4 text-muted-foreground', entry.ignored && 'opacity-50')} />
         <span className={cn('min-w-0 flex-1 truncate', entry.ignored && 'opacity-50', mark?.className)}>{entry.name}</span>
         {/* Pasta com alteração dentro: a cor da mais importante e um ponto, como no VSCode. */}
         {mark && <span className={cn('w-3 shrink-0 text-center text-[10px]', mark.className)}>●</span>}

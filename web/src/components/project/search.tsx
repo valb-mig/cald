@@ -1,5 +1,5 @@
 import { CaseSensitive, ChevronRight, Loader2, Regex, WholeWord, X } from 'lucide-react'
-import { createElement, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { Button } from '@/components/ui/button'
 import { api, errorMessage } from '@/lib/api'
@@ -7,7 +7,8 @@ import type { PanelProject } from '@/lib/project-panel'
 import { openAt } from '@/lib/reveal'
 import type { SearchMatch, SearchResult } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { fileIcon, splitPath } from './status'
+import { FileIcon } from './file-icons'
+import { splitPath } from './status'
 
 /**
  * Buscar texto nos arquivos do projeto, como o "Buscar" do VSCode (Ctrl+Shift+F): o PC roda o ripgrep
@@ -187,7 +188,7 @@ export function SearchTab({ project }: { project: PanelProject }) {
                 className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 pl-1.5 text-left text-[13px] hover:bg-muted"
               >
                 <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-                {createElement(fileIcon(name), { className: 'size-3.5 shrink-0 text-muted-foreground' })}
+                <FileIcon name={name} className="size-3.5 text-muted-foreground" />
                 <span className="shrink-0">{name}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{dir}</span>
                 <span className="shrink-0 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground tabular-nums">{matches.length}</span>

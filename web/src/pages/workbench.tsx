@@ -17,7 +17,8 @@ import { ArtefatoView } from '@/components/artefatos/artefato-view'
 import { ArtefatoIcon, useArtefatos } from '@/lib/artefatos'
 import { useInboxCount } from '@/lib/inbox'
 import { useWorkspaces, workspaceColor } from '@/lib/workspaces'
-import { DIFF_LABEL, fileIcon, splitPath } from '@/components/project/status'
+import { FileIcon } from '@/components/project/file-icons'
+import { DIFF_LABEL, splitPath } from '@/components/project/status'
 import { UnsavedDialog } from '@/components/project/unsaved-dialog'
 import { ViewerBody } from '@/components/project/viewer'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -131,7 +132,7 @@ function FileTabLabel({ tab }: { tab: Extract<Tab, { kind: 'file' }> }) {
   const { name } = splitPath(tab.path)
   return (
     <>
-      {createElement(tab.diff ? FileDiff : fileIcon(name), { className: 'size-3.5 shrink-0 text-muted-foreground' })}
+      {tab.diff ? <FileDiff className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon name={name} className="size-3.5 text-muted-foreground" />}
       <span className="truncate">{name}</span>
       {tab.diff && <span className="shrink-0 text-[11px] text-muted-foreground">{DIFF_LABEL[tab.diff].short}</span>}
     </>
