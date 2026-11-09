@@ -245,8 +245,10 @@ async function boot(): Promise<void> {
   grantPermissions();
   handleIpc();
   win = createWindow();
-  // Página nova (o splash, o app, um recarregar): até o app web ouvir de novo, a rota espera.
-  win.webContents.on('did-start-loading', () => {
+  // Página nova (o splash, o app, um recarregar): até o app web ouvir de novo, a rota espera. Só a
+  // página da janela: o `did-start-loading` dispara também com um iframe carregando (um artefato, um
+  // protótipo), e aí o app, que ouve uma vez só, ficava sem receber a rota até a página recarregar.
+  win.webContents.on('did-navigate', () => {
     navReady = false;
   });
   void win.loadURL(splash('Iniciando o edit.r…'));
