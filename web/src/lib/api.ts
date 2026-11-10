@@ -47,6 +47,7 @@ import type {
   OfficeRoom,
   PrototypeOpen,
   PushPrefs,
+  QueuedMessage,
   RunOptions,
   SavedCommand,
   SavedCommandList,
@@ -344,9 +345,29 @@ export const api = {
   takeover: (id: string, body: RunOptions = {}) => post<{ sessionId: string }>(`${sid(id)}/takeover`, body),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
 
-  /** `clientId` identifica a mensagem da fila: reenviar a mesma não repete o turno. */
-  send: (id: string, body: { text: string; attachments?: AttachmentPayload[]; clientId?: string }, signal?: AbortSignal) =>
-    post(`${sid(id)}/messages`, body, signal),
+  /**
+   * `clientId` identifica a mensagem da fila do celular: reenviar a mesma não repete o turno. `next`: com
+   * o Claude trabalhando, ela entra na fila da conversa (`queued` é o id dela lá) e vai quando o turno
+   * acabar, com o `model` e o `effort` dados.
+   */
+  send: (
+    id: string,
+    body: { text: string; attachments?: AttachmentPayload[]; clientId?: string; next?: boolean; model?: string; effort?: string },
+    signal?: AbortSignal,
+  ) => post<{ ok: true; queued?: string }>(`${sid(id)}/messages`, body, signal),
+  /** A fila de mensagens da conversa: mandar uma agora, mesmo no meio do turno. */
+  sendQueued: (id: string, itemId: string) => post(`${sid(id)}/queue/${encodeURIComponent(itemId)}/send`),
+  /**
+   * Abre `open` da fila na caixa: ela fica segura (não sai no fim do turno) e volta inteira; `null` fecha.
+   * `save` grava antes a que estava aberta, com o que mudou nela.
+   */
+  editQueued: (id: string, open: string | null, save?: Omit<QueuedMessage, 'createdAt'>) =>
+    post<{ message: QueuedMessage | null }>(`${sid(id)}/queue/edit`, { open, save }),
+  /** Tira uma da fila e a devolve inteira, para o desfazer. */
+  takeQueued: (id: string, itemId: string) => post<QueuedMessage>(`${sid(id)}/queue/${encodeURIComponent(itemId)}/take`),
+  /** Põe de volta, no lugar `index`, uma mensagem tirada da fila. */
+  restoreQueued: (id: string, item: QueuedMessage, index: number) => post(`${sid(id)}/queue`, { item, index }),
+  orderQueue: (id: string, ids: string[]) => post(`${sid(id)}/queue/order`, { ids }),
   interrupt: (id: string) => post(`${sid(id)}/interrupt`),
   pin: (id: string, pinned: boolean) => post(`${sid(id)}/pin`, { pinned }),
   /** O nome do claudinho da conversa; `null` volta ao sorteado. */

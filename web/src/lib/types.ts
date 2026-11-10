@@ -124,7 +124,27 @@ export type CatalogEntry = {
   worktree?: WorktreeTag;
   /** O agente que conduz a conversa (ver AgentProviderInfo); sem ele (servidor antigo), o Claude Code. */
   provider?: string;
+  /** As mensagens esperando a vez, na ordem (ver server/src/message-queue.ts). */
+  queue?: QueueItem[];
+  /** A fila não anda sozinha (turno interrompido, com erro ou serviço reiniciado): volta quando você manda uma. */
+  queuePaused?: boolean;
 };
+
+/**
+ * Uma mensagem na fila da conversa, como a lista mostra: o começo do texto (até 400 letras), os anexos
+ * sem o conteúdo e o modelo e o esforço com que ela vai.
+ */
+export type QueueItem = {
+  id: string;
+  text: string;
+  attachments: { name: string; mediaType: string; thumb?: string }[];
+  model?: string;
+  effort?: string;
+  createdAt: number;
+};
+
+/** Uma mensagem tirada da fila, inteira: o texto todo e os anexos com o conteúdo. */
+export type QueuedMessage = Omit<QueueItem, 'attachments'> & { attachments: AttachmentPayload[] };
 
 /**
  * Um agente que a máquina sabe conduzir (ver server/src/providers): o Claude Code hoje, outros depois.

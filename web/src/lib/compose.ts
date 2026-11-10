@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { AttachmentPayload } from './types'
 
 /**
  * Os campos na tela por id do rascunho. A mesma conversa pode ter dois (a aba dela e a miniatura na
@@ -58,6 +59,25 @@ export function useAttachTarget(id: string, add: (files: File[]) => void): void 
 /** Anexa `files` no campo `id`; `false` se o campo não está na tela (conversa só de leitura, por exemplo). */
 export function attachInto(id: string, files: File[]): boolean {
   return deliver(attachers, id, files)
+}
+
+/** O que está escrito e anexado numa caixa de mensagem. */
+export type ComposerContent = { text: string; attachments: AttachmentPayload[] }
+
+/** Ler e trocar tudo o que está numa caixa: abrir uma mensagem da fila nela para editar (ver lib/queue-edit.ts). */
+export type ContentHandle = { get: () => ComposerContent; set: (content: ComposerContent) => void }
+
+const contents: Registry<(handle: ContentHandle) => void> = new Map()
+
+export function useContentTarget(id: string, handle: ContentHandle): void {
+  useRegister(contents, id, (visit: (handle: ContentHandle) => void) => visit(handle))
+}
+
+/** A caixa `id`, se ela está na tela. */
+export function contentOf(id: string): ContentHandle | undefined {
+  let found: ContentHandle | undefined
+  deliver(contents, id, (handle) => (found = handle))
+  return found
 }
 
 /**
