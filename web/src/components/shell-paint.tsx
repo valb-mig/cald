@@ -3,6 +3,12 @@ import { SHELL_REPAINT } from '@/lib/shell'
 
 const px = (n: number) => Math.round(n * 2) / 2
 
+// Quanto a curva do recorte é mais aberta que a da janela. Com o mesmo raio, as duas bordas suavizadas
+// caem nos mesmos pixels, cada uma meio transparente, e o fundo do app aparece entre elas: um fio claro
+// no canto, que some no fundo escuro e salta num fundo de imagem claro. Mais aberta, a casca passa por
+// baixo da borda da janela, e as retas, que não têm meio pixel, seguem coincidindo.
+const SEAM = 3
+
 /** O retângulo arredondado de uma janela, relativo à casca, com o raio de cada canto que ela tem agora. */
 function roundedRect(el: Element, shell: DOMRect): string {
   const r = el.getBoundingClientRect()
@@ -11,10 +17,14 @@ function roundedRect(el: Element, shell: DOMRect): string {
   const y0 = px(r.top - shell.top)
   const x1 = px(x0 + r.width)
   const y1 = px(y0 + r.height)
-  const tl = parseFloat(style.borderTopLeftRadius) || 0
-  const tr = parseFloat(style.borderTopRightRadius) || 0
-  const br = parseFloat(style.borderBottomRightRadius) || 0
-  const bl = parseFloat(style.borderBottomLeftRadius) || 0
+  const radius = (v: string) => {
+    const n = parseFloat(v) || 0
+    return n > 0 ? n + SEAM : 0
+  }
+  const tl = radius(style.borderTopLeftRadius)
+  const tr = radius(style.borderTopRightRadius)
+  const br = radius(style.borderBottomRightRadius)
+  const bl = radius(style.borderBottomLeftRadius)
   return (
     `M${x0 + tl} ${y0}H${x1 - tr}A${tr} ${tr} 0 0 1 ${x1} ${y0 + tr}` +
     `V${y1 - br}A${br} ${br} 0 0 1 ${x1 - br} ${y1}` +
