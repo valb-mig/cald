@@ -60,6 +60,9 @@ export type CatalogEntry = {
   state: CatalogState;
   waitingFor?: string;
   pcKind?: 'interactive' | 'background';
+  /** Aberta fora do painel: de onde, e se dá para fechar lá e continuar aqui (ver ExternalSession). */
+  pcVia?: 'terminal' | 'vscode' | 'desktop' | 'app';
+  pcTakeover?: boolean;
   /** De onde esta conversa bifurcou, para a lista e o cabeçalho marcarem. */
   forkedFrom?: { sessionId: string; title?: string };
   /** Aprovações e perguntas aguardando resposta (só sessões do painel). */
@@ -268,6 +271,8 @@ export class Manager extends EventEmitter {
       entry.state = l.status === 'busy' ? 'running' : l.status;
       entry.waitingFor = l.waitingFor;
       entry.pcKind = l.kind;
+      entry.pcVia = l.via;
+      entry.pcTakeover = l.takeover;
       byId.set(l.sessionId, entry);
     }
 
@@ -297,6 +302,8 @@ export class Manager extends EventEmitter {
       if (entry.state === 'idle' && entry.agents) entry.state = 'running';
       entry.waitingFor = s.waitingFor;
       entry.pcKind = undefined;
+      entry.pcVia = undefined;
+      entry.pcTakeover = undefined;
       entry.pending = s.pendingRequests();
       byId.set(s.id, entry);
     }

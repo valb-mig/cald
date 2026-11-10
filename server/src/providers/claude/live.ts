@@ -26,7 +26,18 @@ export const hiddenSessions = new Set<string>();
 export async function fetchLive(): Promise<LiveSession[]> {
   const { stdout } = await exec(CLAUDE_BIN, ['agents', '--json'], { timeout: 10_000, env: childEnv() });
   const rows = JSON.parse(stdout) as LiveSession[];
-  return rows.filter((r) => r.pid && r.sessionId && r.status && !hiddenSessions.has(r.sessionId));
+  const live = rows.filter((r) => r.pid && r.sessionId && r.status && !hiddenSessions.has(r.sessionId));
+  // De onde cada uma é sai do registro do processo, o mesmo que o stopPcSession confere.
+  return Promise.all(live.map(async (r) => ({ ...r, ...originOf(r, (await readRegistryEntry(r.pid))?.entrypoint) })));
+}
+
+/** O `entrypoint` do registro em nome de gente, e se dá para fechar lá e continuar aqui. */
+function originOf(r: LiveSession, entrypoint: string | undefined): Pick<LiveSession, 'via' | 'takeover'> {
+  const takeover = r.kind === 'background' ? Boolean(r.id) : TAKEOVER_ENTRYPOINTS.has(entrypoint ?? '');
+  if (!entrypoint || entrypoint === 'cli') return { via: 'terminal', takeover };
+  if (entrypoint.includes('vscode')) return { via: 'vscode', takeover };
+  if (entrypoint.includes('desktop')) return { via: 'desktop', takeover };
+  return { via: 'app', takeover };
 }
 
 /**
