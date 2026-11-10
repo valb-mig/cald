@@ -293,6 +293,20 @@ Ou pelo celular, no painel **Computador**, cartão **Atualização do PC**: ele 
 
 Com o app aberto no celular, aparece o aviso **Versão nova do app**: toque em **Atualizar**. Ao voltar para o app, ele procura sozinho a versão nova.
 
+#### Canal dev: o PC de quem desenvolve, na `main`
+
+Para usar no dia a dia o que já entrou na `main`, sem publicar versão: um clone só para o serviço (fora de onde se trabalha, porque trocar de branch nele troca o app que roda), instalado com `--dev`:
+
+```sh
+git clone -b main https://github.com/valb-mig/editr.git ~/.local/opt/editr-dev
+cd ~/.local/opt/editr-dev
+./deploy/install.sh --dev
+```
+
+O serviço sobe com `EDITR_CHANNEL=dev` e se atualiza sozinho: a cada minuto procura merge novo na `main` do GitHub e, sem conversa do painel trabalhando ou esperando resposta, faz o fast-forward, instala (só se as dependências mudaram), compila só o que mudou (o web, em uns 10 s; o app do PC, se `desktop/` mudou) e reinicia. O cartão **Atualização do PC** mostra o canal e o andamento, e a janela aberta recebe o aviso **Versão nova do app** quando o servidor volta.
+
+O app do PC também roda desse clone, sem empacotar (`deploy/editr-app.sh`, que o instalador põe no menu de apps e no autostart): recompilado, ele se reinicia sozinho quando a janela está fechada (na bandeja), ou na hora, por **Reiniciar para atualizar**. Feche e apague o AppImage, que aberto pega o autostart de volta. O `pnpm` não roda o postinstall do Electron (fora do `allowBuilds`); o lançador, o instalador e a atualização baixam o binário quando falta.
+
 ## Usar pelo celular
 
 O que dá para fazer:
