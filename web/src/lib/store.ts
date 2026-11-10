@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { api } from './api'
 import { onAudio, onAudioReady, quietAudio, type Spectrum } from './audio'
 import { emitChanged, type Changed } from './changes'
 import { useLooks } from './claudinho'
@@ -111,6 +112,21 @@ const endsStream = (e: LoggedEvent) =>
 
 const STALE_MS = 60_000
 
+// Quando o servidor desta máquina reinicia (atualização automática), a janela aberta segue com o app
+// antigo: ao reconectar, `startedAt` diferente manda procurar o service worker novo.
+let homeStartedAt: number | undefined
+function checkHomeRestart(): void {
+  api.health(HOME).then(
+    (h) => {
+      if (homeStartedAt !== undefined && h.startedAt !== homeStartedAt) {
+        void navigator.serviceWorker?.getRegistration().then((reg) => reg?.update())
+      }
+      homeStartedAt = h.startedAt
+    },
+    () => {},
+  )
+}
+
 /** Sessões acompanhadas e a máquina em cuja conexão cada uma está inscrita. */
 const subscribed = new Map<string, string>()
 // Conversas de cada máquina; o catálogo do store junta todas.
@@ -157,6 +173,7 @@ class MachineSocket {
       this.retry = 0
       this.lastMessageAt = Date.now()
       setConnection(this.machine, 'open')
+      if (this.machine === HOME) checkHomeRestart()
       for (const [id, machine] of subscribed) if (machine === this.machine) this.sendSubscribe(id)
       // O fundo de som pede a captura assim que a cena começa, que costuma ser antes de a conexão
       // abrir; sem repetir aqui, o pedido se perderia na carga da página e em cada reconexão.

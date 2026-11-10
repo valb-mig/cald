@@ -17,6 +17,9 @@ export const PORT = Number(env.PORT ?? 7337);
 export const SUPERVISOR = env.EDITR_SUPERVISOR ?? (env.INVOCATION_ID ? 'systemd' : null);
 // Empacotado no app do PC, sem o repositório git ao lado: a atualização é a do app, não a do git.
 export const PACKAGED = env.EDITR_PACKAGED === '1';
+// De onde vem a versão nova (ver updater.ts): a release, publicada, pelo botão; ou, no PC de quem
+// desenvolve (`EDITR_CHANNEL=dev`, posto pelo `deploy/install.sh --dev`), a main, sozinho a cada merge.
+export const CHANNEL: 'release' | 'dev' = env.EDITR_CHANNEL === 'dev' ? 'dev' : 'release';
 
 // Nome desta máquina no app quando há várias (ver machines.ts); por padrão, o do sistema.
 export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();

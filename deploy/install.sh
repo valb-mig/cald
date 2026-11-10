@@ -4,6 +4,8 @@
 # No fim, imprime o link que o celular vai acessar.
 #
 # Uso:  ./deploy/install.sh        (de dentro do projeto clonado)
+#       ./deploy/install.sh --dev  canal dev: de um clone na main, que o servidor mantém sozinho na main
+#                                  do GitHub a cada merge, com o app do PC rodando daqui (sem empacotar)
 # Opções por variável de ambiente:
 #   PORT=7337   porta local do servidor (o tailscale serve aponta para ela)
 set -euo pipefail
@@ -13,6 +15,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PORT="${PORT:-7337}"
 SERVICE_NAME="editr"
+CHANNEL="release"
+case "${1:-}" in
+  --dev) CHANNEL="dev" ;;
+  "") ;;
+  *) printf 'Opção desconhecida: %s (uso: ./deploy/install.sh [--dev])\n' "$1" >&2; exit 1 ;;
+esac
 # Nomes de antes (claude-remote, depois cald): os serviços e o alias antigos saem na reinstalação.
 LEGACY_SERVICES=(cald claude-remote)
 
@@ -47,10 +55,23 @@ info "Node.js $node_ver"
 have claude    || warn "Claude Code (claude) não encontrado no PATH. Instale e rode 'claude' uma vez para logar."
 have tailscale || warn "Tailscale não encontrado. Sem ele, só o acesso local (127.0.0.1) vai funcionar."
 
+# O canal dev segue a main: o servidor só avança o clone com fast-forward (ver server/src/updater.ts).
+# Um clone só para isso, fora de onde se trabalha, porque trocar de branch nele troca o app que roda.
+if [ "$CHANNEL" = dev ]; then
+  dev_branch="$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  [ "$dev_branch" = main ] || die "O canal dev roda de um clone na main (este está em '${dev_branch:-?}'). Ex.: git clone --branch main <repo> ~/.local/opt/editr-dev"
+  info "Canal dev: segue a main e se atualiza sozinho a cada merge."
+fi
+
 # --- 2. build ---------------------------------------------------------------
 step "Instalando dependências e compilando o app"
 ( cd "$PROJECT_DIR" && pnpm install && pnpm build )
 info "web/dist gerado."
+if [ "$CHANNEL" = dev ]; then
+  # O binário do Electron: o pnpm não roda o postinstall dele (fora do allowBuilds do pnpm-workspace.yaml).
+  ( cd "$PROJECT_DIR" && node desktop/node_modules/electron/install.js && pnpm --filter editr-desktop build )
+  info "desktop/dist gerado."
+fi
 
 # --- 3. serviço systemd -----------------------------------------------------
 step "Configurando o serviço de usuário ($SERVICE_NAME)"
@@ -102,6 +123,7 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=$PROJECT_DIR/server
 Environment=PORT=$PORT
+Environment=EDITR_CHANNEL=$CHANNEL
 # Via shell de login interativo para herdar o ambiente do seu rc (PATH, JAVA_HOME…):
 # as sessões abertas pelo celular precisam enxergar as mesmas ferramentas do terminal.
 ExecStart=$SHELL_BIN -lic 'exec $NODE_INVOKE src/index.ts'
@@ -179,6 +201,30 @@ done
 if [ "$installed_in_any" -eq 0 ]; then
   warn "Não achei ~/.zshrc nem ~/.bashrc. Para usar 'editr', adicione à mão:"
   warn "  alias editr=\"$SCRIPT_DIR/editr.sh\""
+fi
+
+# --- 6. app do PC, rodando daqui (canal dev) ----------------------------------
+if [ "$CHANNEL" = dev ]; then
+  step "Instalando o app do PC deste clone"
+  chmod +x "$SCRIPT_DIR/editr-app.sh"
+  # O nome do arquivo é o `desktopName` do app (desktop/package.json): a barra junta a janela ao ícone.
+  # O autostart sai igual ao que o próprio app escreve (ver desktop/src/autostart.ts), pelo script.
+  write_entry() {
+    mkdir -p "$(dirname "$1")"
+    {
+      printf '[Desktop Entry]\nType=Application\nName=edit.r\n'
+      printf 'Comment=%s\n' "$2"
+      printf 'Exec="%s"%s\n' "$SCRIPT_DIR/editr-app.sh" "$3"
+      printf 'Icon=%s\n' "$PROJECT_DIR/web/public/pwa-512.png"
+      printf 'Categories=Development;\nStartupWMClass=editr\nTerminal=false\n%s' "$4"
+    } > "$1"
+    info "Escrito em $1"
+  }
+  write_entry "${XDG_DATA_HOME:-$HOME/.local/share}/applications/editr.desktop" "O Claude Code do seu PC, no PC e no celular" "" ""
+  write_entry "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/editr.desktop" "O edit.r na bandeja, para o celular achar o PC" " --hidden" $'X-GNOME-Autostart-enabled=true\n'
+  info "Abra pelo menu de apps ou com: $SCRIPT_DIR/editr-app.sh"
+  have_appimage="$(find "$HOME" -maxdepth 2 -name 'editr*.AppImage' 2>/dev/null | head -n 1)"
+  [ -z "$have_appimage" ] || warn "Há um AppImage do edit.r ($have_appimage): aberto, ele pega o autostart de volta. Feche-o e apague-o."
 fi
 
 # --- fim --------------------------------------------------------------------
