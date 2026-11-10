@@ -4,6 +4,7 @@ import type { ThemedToken } from 'shiki/core'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 import { innerChange, MarkedCode } from './changes'
+import { plural, TINT, toneOf, type Block } from './diff-tone'
 
 /**
  * O desenho de um diff no edit.r, o mesmo no visualizador de arquivos e nos diffs de PR e de commit:
@@ -99,22 +100,9 @@ export function parseDiff(diff: string): { rows: DiffRow[]; old: string[]; new: 
   return { rows, old: before, new: after }
 }
 
-/** Um bloco de mudança: as linhas seguidas que entram ou saem, de `start` até antes de `end`. */
-type Block = { start: number; end: number; adds: number; dels: number }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-
-/** O que o bloco é, para a cor e a marca da bolinha: só entradas, só saídas ou uma troca. */
-function toneOf(b: Block) {
-  if (!b.dels) return { sign: '+', dot: 'bg-emerald-500', line: 'border-emerald-500/60', label: plural(b.adds, 'linha adicionada', 'linhas adicionadas') }
-  if (!b.adds) return { sign: '−', dot: 'bg-red-500', line: 'border-red-500/60', label: plural(b.dels, 'linha removida', 'linhas removidas') }
-  return { sign: '±', dot: 'bg-amber-500', line: 'border-amber-500/60', label: `${plural(b.dels, 'removida', 'removidas')}, ${plural(b.adds, 'adicionada', 'adicionadas')}` }
-}
-
-const TINT = { add: 'bg-emerald-500/[0.12]', del: 'bg-red-500/[0.12]' }
 
 /** A bolinha do bloco: tocar recolhe (ou abre) as linhas dele. */
-function Dot({ block, open, onToggle }: { block: Block; open: boolean; onToggle: () => void }) {
+export function Dot({ block, open, onToggle, className }: { block: Block; open: boolean; onToggle: () => void; className?: string }) {
   const tone = toneOf(block)
   return (
     <button
@@ -126,6 +114,7 @@ function Dot({ block, open, onToggle }: { block: Block; open: boolean; onToggle:
       className={cn(
         'relative z-10 flex size-[1.2em] items-center justify-center rounded-full font-sans leading-none font-bold text-white transition-transform hover:scale-110',
         tone.dot,
+        className,
       )}
     >
       <span className="text-[0.75em]">{tone.sign}</span>

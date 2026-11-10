@@ -406,10 +406,15 @@ export const api = {
   /** Avisa que você está mexendo no painel, para o tempo contar no WakaTime (ver lib/wakatime.ts). */
   wakatime: (m: string, body: { cwd: string; path?: string; category?: 'code reviewing' | 'planning' }) => post(`${at(m)}/wakatime`, body),
   // `head` é o mesmo que sem lado: assim o servidor ainda não reiniciado também responde.
-  gitDiff: (m: string, cwd: string, path: string, side?: DiffSide) =>
-    request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}${side && side !== 'head' ? `&side=${side}` : ''}`),
-  /** O que a branch mudou desde que saiu da principal, commits e não commitado juntos. */
-  gitChanges: (m: string, cwd: string) => request<BranchChanges>('GET', `${at(m)}/git/changes?${project(cwd)}`),
+  // `base`: a base do worktree (ex.: release), no lugar da principal, no lado `base`.
+  gitDiff: (m: string, cwd: string, path: string, side?: DiffSide, base?: string) =>
+    request<{ diff: string }>(
+      'GET',
+      `${at(m)}/git/diff?${project(cwd, path)}${side && side !== 'head' ? `&side=${side}` : ''}${base ? `&base=${encodeURIComponent(base)}` : ''}`,
+    ),
+  /** O que a branch mudou desde que saiu da principal (ou da `base` pedida), commits e não commitado juntos. */
+  gitChanges: (m: string, cwd: string, base?: string) =>
+    request<BranchChanges>('GET', `${at(m)}/git/changes?${project(cwd)}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
   /** As branches para trocar; `fetch` consulta o remoto antes (no máximo a cada 10 min). */
   gitBranches: (m: string, cwd: string, fetch = false) =>
     request<GitBranches>('GET', `${at(m)}/git/branches?${project(cwd)}${fetch ? '&fetch=1' : ''}`),

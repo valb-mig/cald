@@ -443,7 +443,7 @@ export function ChatPage({ id }: { id: string }) {
           sessionId={id}
           items={items}
           live={state === 'running' || state === 'waiting'}
-          code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} /> : null}
+          code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} worktree={entry?.worktree} gitStatus={git.status} /> : null}
           steps={windows ? <StepsScreen sessionId={id} items={items} cwd={cwd ?? ''} agent={name} live={state === 'running' || state === 'waiting'} /> : null}
           chat={
             <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', phoneProject && !zen && '[--safe-bottom:0px]')}>

@@ -1,7 +1,9 @@
-import { ChevronRight, CodeXml, PanelRight } from 'lucide-react'
+import { ChevronRight, CodeXml, FileX, PanelRight } from 'lucide-react'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ThemedToken } from 'shiki/core'
 import { Claudinho } from '@/components/claudinho'
+import { Dot } from '@/components/project/diff-lines'
+import { TINT, toneOf, type Block } from '@/components/project/diff-tone'
 import { FileIcon, FolderIcon } from '@/components/project/file-icons'
 import { api } from '@/lib/api'
 import { setCodeSide, useCodeSide } from '@/lib/chat-view'
@@ -11,13 +13,12 @@ import type { FileView } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { LineCounts } from './activity'
 import { buildTree, relOf, targetOf, type FileEdit, type FileInfo, type TreeNode } from './code-files'
+import { useGitAdded, type GitSide } from './code-git'
 import { CodeEmptyArt, FileMissingArt, FileNotTextArt } from './empty-art'
 import { isRecent, reducedMotion } from './fresh'
 import { ScreenBar } from './screen-bar'
 import { ScreenCtx } from './screen-ctx'
 
-// O laranja do Claude: a faixa que ele acabou de escrever.
-const CLAUDE = '#d97757'
 const MAX_ROWS = 3000
 
 /** As edições que já passaram por esta tela: cada uma é digitada uma vez só (pelo id da chamada). */
@@ -40,8 +41,10 @@ function applied(before: string, edit: FileEdit): string {
 type Mark = 'last' | 'prev' | undefined
 
 /** As linhas que as edições escreveram, achadas pelo texto novo no conteúdo de agora; o Write (o arquivo todo) não marca. */
-function marksOf(content: string, info: FileInfo): { marks: Mark[]; first: number } {
+function marksOf(content: string, info: FileInfo): { marks: Mark[]; first: number; dels: Map<number, string[]> } {
   const marks: Mark[] = []
+  // As linhas que a edição mais recente tirou, logo antes do que pôs no lugar.
+  const dels = new Map<number, string[]>()
   let first = -1
   for (const e of info.edits) {
     if (e.kind !== 'Edit' && e.kind !== 'MultiEdit') continue
@@ -55,9 +58,10 @@ function marksOf(content: string, info: FileInfo): { marks: Mark[]; first: numbe
       const end = start + p.new.replace(/\n$/, '').split('\n').length - 1
       for (let l = start; l <= end; l++) marks[l] = last ? 'last' : 'prev'
       if (last && (first < 0 || start < first)) first = start
+      if (last && p.old?.trim()) dels.set(start, p.old.replace(/\n$/, '').split('\n'))
     }
   }
-  return { marks, first }
+  return { marks, first, dels }
 }
 
 type Disk = { path: string; key: string; view: FileView | 'missing' }
@@ -66,6 +70,8 @@ type Disk = { path: string; key: string; view: FileView | 'missing' }
 function useDisk(machine: string, cwd: string, path: string, key: string): Disk | null {
   const [disk, setDisk] = useState<Disk | null>(null)
   useEffect(() => {
+    // Sem caminho: nada a ler (arquivo apagado).
+    if (!path) return
     let alive = true
     const at = targetOf(path, cwd)
     api.file(machine, at.cwd, at.rel).then(
@@ -80,43 +86,111 @@ function useDisk(machine: string, cwd: string, path: string, key: string): Disk 
 }
 
 type Anim = { edit: FileEdit; before: string; i: number; old: string; text: string }
-type Row = { text: string; tokens?: ThemedToken[]; mark?: Mark | 'zone'; cursor?: boolean; first?: boolean }
+/** `del`: uma linha que saiu (não existe no arquivo de agora, sem número). */
+type Row = { text: string; tokens?: ThemedToken[]; mark?: Mark | 'zone' | 'git'; cursor?: boolean; first?: boolean; del?: boolean }
 
+const changed = (r: Row) => r.del || Boolean(r.mark)
+
+/**
+ * O arquivo com as mudanças no desenho do diff moderno (ver `DiffLines`): cada bloco de linhas que
+ * entraram ou saíram é um cartão arredondado, com a bolinha (+, − ou ±) que o recolhe e o tracejado.
+ * O bloco da edição mais recente (e o que se digita) leva um anel laranja do Claude na bolinha.
+ */
 function Rows({ rows, seed }: { rows: Row[]; seed: string }) {
-  return (
-    <div className="relative w-max min-w-full py-1 font-mono text-[11px] leading-5">
-      {rows.map((r, n) => (
-        <div
-          key={n}
-          data-mark={r.mark}
-          data-cursor={r.cursor ? '' : undefined}
-          className={cn('relative flex whitespace-pre', (r.mark === 'last' || r.mark === 'zone') && 'bg-[#d97757]/10 shadow-[inset_2px_0_0_#d97757]')}
-        >
-          <span className="relative w-11 shrink-0 pr-2 text-right text-muted-foreground/60 select-none">
-            {n + 1}
-            {r.mark === 'prev' && <span className="absolute inset-y-0.5 right-0 w-0.5 rounded-full" style={{ background: `${CLAUDE}66` }} />}
+  const [folded, setFolded] = useState<Set<number>>(() => new Set())
+  const toggle = (i: number) =>
+    setFolded((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
+  // De cada linha, o bloco dela.
+  const blockAt = useMemo(() => {
+    const out: (Block | undefined)[] = []
+    let open: Block | null = null
+    rows.forEach((r, i) => {
+      if (!changed(r)) {
+        open = null
+        return
+      }
+      open ??= { start: i, end: i, adds: 0, dels: 0 }
+      open.end = i + 1
+      if (r.del) open.dels++
+      else open.adds++
+      out[i] = open
+    })
+    return out
+  }, [rows])
+  // O número de cada linha no arquivo (as que saíram não têm).
+  const nums = useMemo(() => {
+    let n = 0
+    return rows.map((r) => (r.del ? 0 : ++n))
+  }, [rows])
+  const out: React.ReactNode[] = []
+  let skipTo = 0
+  for (let i = 0; i < rows.length; i++) {
+    if (i < skipTo) continue
+    const r = rows[i]!
+    const block = blockAt[i]
+    if (block && i === block.start && folded.has(i)) {
+      const tone = toneOf(block)
+      out.push(
+        <div key={i} className={cn('mx-2 my-1 flex items-center rounded-[0.6em]', TINT[block.adds ? 'add' : 'del'])}>
+          <span className="w-11 shrink-0" />
+          <span className="flex w-5 shrink-0 items-center justify-center">
+            <Dot block={block} open={false} onToggle={() => toggle(i)} />
           </span>
-          <span className="pr-16">
-            {r.tokens
-              ? r.tokens.map((t, j) => (
-                  <span key={j} style={tokenStyle(t)}>
-                    {t.content}
-                  </span>
-                ))
-              : r.text}
-          </span>
-          {/* Preso à borda direita do que se vê: sem quebra de linha, o fim da linha fica fora da área. */}
-          {r.first && (
-            <span className="pointer-events-none sticky right-2 z-10 ml-auto w-0 self-start">
-              <span className="absolute top-0.5 right-0 rounded-full bg-background/80">
-                <Claudinho seed={seed} size={16} />
-              </span>
+          <button type="button" onClick={() => toggle(i)} className="py-px pr-4 text-left font-sans text-[0.9em] text-muted-foreground hover:text-foreground">
+            {tone.label}
+          </button>
+        </div>,
+      )
+      skipTo = block.end
+      continue
+    }
+    const first = block?.start === i
+    const last = block?.end === i + 1
+    const mine = block && rows.slice(block.start, block.end).some((x) => x.mark === 'last' || x.mark === 'zone')
+    out.push(
+      <div
+        key={i}
+        data-mark={r.mark}
+        data-cursor={r.cursor ? '' : undefined}
+        className={cn('relative mx-2 flex whitespace-pre', block && TINT[r.del ? 'del' : 'add'], first && 'mt-1 rounded-t-[0.6em]', last && 'mb-1 rounded-b-[0.6em]')}
+      >
+        <span className="w-11 shrink-0 pr-2 text-right text-muted-foreground/60 select-none">{r.del ? '' : nums[i]}</span>
+        <span className="relative flex w-5 shrink-0 justify-center">
+          {block && first && (
+            <span className="flex h-5 items-center">
+              <Dot block={block} open onToggle={() => toggle(i)} className={cn(mine && 'ring-2 ring-[#d97757]')} />
             </span>
           )}
-        </div>
-      ))}
-    </div>
-  )
+          {block && block.end - block.start > 1 && (
+            <span aria-hidden className={cn('absolute left-1/2 border-l border-dashed', toneOf(block).line, first ? 'top-4 bottom-0' : last ? 'top-0 h-2.5' : 'inset-y-0')} />
+          )}
+        </span>
+        <span className="pr-16">
+          {r.tokens
+            ? r.tokens.map((t, j) => (
+                <span key={j} style={tokenStyle(t)}>
+                  {t.content}
+                </span>
+              ))
+            : r.text}
+        </span>
+        {/* Preso à borda direita do que se vê: sem quebra de linha, o fim da linha fica fora da área. */}
+        {r.first && (
+          <span className="pointer-events-none sticky right-2 z-10 ml-auto w-0 self-start">
+            <span className="absolute top-0.5 right-0 rounded-full bg-background/80">
+              <Claudinho seed={seed} size={16} />
+            </span>
+          </span>
+        )}
+      </div>,
+    )
+  }
+  return <div className="relative w-max min-w-full py-1 font-mono text-[11px] leading-5">{out}</div>
 }
 
 // O esqueleto do carregando: recuo e largura de cada linha, em px, como um trecho de código qualquer.
@@ -169,8 +243,14 @@ function Tree({ nodes, ...props }: TreeProps) {
           {/* No lugar da seta das pastas, para os ícones ficarem na mesma coluna. */}
           <span className="size-3 shrink-0" />
           <FileIcon name={n.name} className="size-3.5 shrink-0" />
-          <span className={cn('min-w-0 flex-1 truncate', n.file.state === 'failed' && 'text-red-600 dark:text-red-400')}>{n.name}</span>
+          <span className={cn('min-w-0 flex-1 truncate', n.file.state === 'failed' && 'text-red-600 dark:text-red-400', n.file.git?.letter === 'D' && 'line-through opacity-60')}>{n.name}</span>
           {running === n.file.path ? <Claudinho seed={sessionId} size={14} className="shrink-0 animate-pulse" /> : <LineCounts added={n.file.added} removed={n.file.removed} className="shrink-0 text-[10px]" />}
+          {/* Só o git viu: a letra dele, discreta (sem claudinho, não se sabe quem mexeu). */}
+          {n.file.git && (
+            <span className="w-3 shrink-0 text-center font-mono text-[10px] text-muted-foreground" title="Mudado no git">
+              {n.file.git.letter}
+            </span>
+          )}
         </button>
       )
     const id = `${sessionId}:${n.key}`
@@ -246,7 +326,7 @@ export function CodeEmpty() {
  * em destaque. A edição que chega é "digitada" no lugar dela: o input da ferramenta vem inteiro, então a
  * digitação é encenada. Só leitura, e leve: nada do editor (salvar, rascunhos, abas).
  */
-export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId: string; machine: string; cwd: string; files: FileInfo[]; live: boolean }) {
+export function CodeVision({ sessionId, machine, cwd, files, live, gitSide }: { sessionId: string; machine: string; cwd: string; files: FileInfo[]; live: boolean; gitSide: GitSide }) {
   const side = useCodeSide((s) => s.open)
   const [follow, setFollow] = useState(true)
   const [picked, setPicked] = useState<string | null>(null)
@@ -254,8 +334,12 @@ export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId
   const info = files.find((f) => f.path === path) ?? files[0]!
 
   // Relê quando uma edição dele ganha resposta.
-  const doneKey = info.edits.filter((e) => e.result).map((e) => e.toolId).join(',')
-  const disk = useDisk(machine, cwd, path, doneKey)
+  // Só do git: relê quando o git diz outra coisa dele.
+  const gitKey = info.git ? `git:${info.git.letter}:${info.git.additions}:${info.git.deletions}` : ''
+  const doneKey = gitKey || info.edits.filter((e) => e.result).map((e) => e.toolId).join(',')
+  const deleted = info.git?.letter === 'D'
+  const disk = useDisk(machine, cwd, deleted ? '' : path, doneKey)
+  const gitAdded = useGitAdded(machine, cwd, info.git && !deleted ? info.git.path : null, gitSide, gitKey)
 
   const [override, setOverride] = useState<{ toolId: string; text: string } | null>(null)
   const [wait, setWait] = useState<FileEdit | null>(null)
@@ -346,16 +430,23 @@ export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId
       const nextNl = before.indexOf('\n', end)
       const zone = `${before.slice(lineStart, i)}${anim ? typed.slice(0, k) : typed}${anim ? '▊' : ''}${before.slice(end, nextNl < 0 ? before.length : nextNl)}`.split('\n')
       // Fora da faixa, os tokens do arquivo de antes: só ela é texto puro, e não se retokeniza a cada quadro.
+      // As linhas velhas, em vermelho acima do que se escreve (o Write troca o arquivo todo: sem elas).
+      const gone = arr.edit.edits[0]?.old?.trim() && arr.edit.kind !== 'Write' ? old.replace(/\n$/, '').split('\n').map((d): Row => ({ text: d, del: true })) : []
       return [
         ...lines.slice(0, a).map((t, n): Row => ({ text: t, tokens: tk?.[n] })),
+        ...gone,
         ...zone.map((t, n): Row => ({ text: t, mark: 'zone', cursor: Boolean(anim) && n === zone.length - 1, first: n === 0 })),
         ...lines.slice(endLine + 1).map((t, n): Row => ({ text: t, tokens: tk?.[endLine + 1 + n] })),
       ]
     }
     if (content === null) return null
-    const { marks, first } = marksOf(content, info)
-    return content.split('\n').map((t, n): Row => ({ text: t, tokens: tokens?.[n], mark: marks[n], first: n === first }))
-  }, [arr, anim, k, content, tokens, beforeTokens, info])
+    // Só do git: as linhas novas do diff, sem claudinho (não se sabe quem mexeu).
+    const withDels = (dels: Map<number, string[]> | undefined, row: (t: string, n: number) => Row) =>
+      content.split('\n').flatMap((t, n): Row[] => [...(dels?.get(n) ?? []).map((d): Row => ({ text: d, del: true })), row(t, n)])
+    if (info.git) return withDels(gitAdded?.removed, (t, n) => ({ text: t, tokens: tokens?.[n], mark: gitAdded?.added.has(n) ? 'git' : undefined }))
+    const { marks, first, dels } = marksOf(content, info)
+    return withDels(dels, (t, n) => ({ text: t, tokens: tokens?.[n], mark: marks[n], first: n === first }))
+  }, [arr, anim, k, content, tokens, beforeTokens, info, gitAdded])
 
   // O que se vê acompanha o cursor (e, sem digitação, vai à faixa nova uma vez por edição).
   const scroller = useRef<HTMLDivElement>(null)
@@ -363,17 +454,17 @@ export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId
   useEffect(() => {
     const box = scroller.current
     if (!box || !follow) return
-    const el = anim ? box.querySelector<HTMLElement>('[data-cursor]') : box.querySelector<HTMLElement>('[data-mark="last"]')
+    const el = anim ? box.querySelector<HTMLElement>('[data-cursor]') : box.querySelector<HTMLElement>(info.git ? '[data-mark="git"]' : '[data-mark="last"]')
     if (!el) return
-    const mark = `${path}:${info.last.toolId}`
+    const mark = `${path}:${info.last?.toolId ?? ''}`
     if (!anim && scrolled.current === mark) return
     if (!anim) scrolled.current = mark
     box.scrollTop = Math.max(0, el.offsetTop - box.clientHeight / 2)
-  }, [rows, anim, follow, path, info.last.toolId])
+  }, [rows, anim, follow, path, info.last?.toolId, info.git])
 
   const tree = useMemo(() => buildTree(files.map((f) => ({ rel: relOf(f.path, cwd), info: f }))), [files, cwd])
   const running = live ? (files.find((f) => f.state === 'running')?.path ?? null) : null
-  const seed = info.last.agent === 'main' ? sessionId : info.last.agent.seed
+  const seed = !info.last || info.last.agent === 'main' ? sessionId : info.last.agent.seed
   const view = disk?.view
   const ctx = useContext(ScreenCtx)
 
@@ -402,7 +493,13 @@ export function CodeVision({ sessionId, machine, cwd, files, live }: { sessionId
         <SideToggle />
       </ScreenBar>
       <div className={cn('flex min-h-0 flex-1', ctx?.collapsed && 'hidden')}>
-        {rows ? (
+        {deleted ? (
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+            <FileX className="size-8 opacity-40" />
+            <span className="text-sm">Apagado</span>
+            <LineCounts added={info.added} removed={info.removed} />
+          </div>
+        ) : rows ? (
           <div ref={scroller} className="relative min-w-0 flex-1 overflow-auto">
             <Rows rows={rows.length > MAX_ROWS ? rows.slice(0, MAX_ROWS) : rows} seed={seed} />
             {view && view !== 'missing' && view.kind === 'text' && view.truncated && <p className="px-3 pb-2 text-xs text-muted-foreground">Arquivo cortado: só o começo.</p>}

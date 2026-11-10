@@ -21,13 +21,31 @@ export type FileEdit = {
   counts: { added: number; removed: number }
 }
 
+/** Um arquivo mudado no git (não se sabe quem mexeu): a letra do git e as linhas dele. */
+export type GitChange = { path: string; letter: 'M' | 'A' | 'D' | 'R' | 'U'; additions: number; deletions: number }
+
 export type FileInfo = {
   path: string
+  /** `tools`: as edições da conversa; `git`: só o git viu (mexido pelo terminal, por exemplo). */
+  source: 'tools' | 'git'
+  /** Só no que veio do git. */
+  git?: GitChange
   edits: FileEdit[]
   added: number
   removed: number
-  last: FileEdit
+  /** Sem ele, o arquivo é só do git. */
+  last?: FileEdit
   state: 'running' | 'failed' | 'ok'
+}
+
+/** Junta ao que as ferramentas editaram o que o git viu mudar: o arquivo nos dois fica como as ferramentas o têm. */
+export function withGit(files: FileInfo[], changes: GitChange[], cwd: string): FileInfo[] {
+  const base = cwd.replace(/\/+$/, '')
+  const seen = new Set(files.map((f) => f.path))
+  const extra = changes
+    .map((c): FileInfo => ({ path: `${base}/${c.path}`, source: 'git', git: c, edits: [], added: c.additions, removed: c.deletions, state: 'ok' }))
+    .filter((f) => !seen.has(f.path))
+  return extra.length ? [...files, ...extra] : files
 }
 
 function piecesOf(t: ToolEntry): FileEdit['edits'] {
@@ -92,6 +110,7 @@ export function filesOf(edits: FileEdit[], live: boolean): FileInfo[] {
       const ok = list.filter((e) => !e.result?.isError)
       return {
         path,
+        source: 'tools',
         edits: list,
         added: ok.reduce((n, e) => n + e.counts.added, 0),
         removed: ok.reduce((n, e) => n + e.counts.removed, 0),
