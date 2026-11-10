@@ -67,6 +67,7 @@ import {
   setPeek,
   syntaxErrors,
 } from './editor-setup'
+import { lineSelection } from './editor-selection'
 import { mention } from './file-menu'
 import type { CodeMap } from './viewer'
 
@@ -533,6 +534,7 @@ export default function CodeEditor({
           highlightSpecialChars(),
           history(),
           drawSelection({ cursorBlinkRate: 1200 }),
+          lineSelection,
           dropCursor(),
           EditorState.allowMultipleSelections.of(true),
           // Como no VSCode: Alt+clique põe outro cursor, e Shift+Alt+arrastar seleciona em coluna.
