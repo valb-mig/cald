@@ -372,8 +372,9 @@ export function BottomPanel() {
         onEnd={saveBottomPanel}
       />
       )}
-      {/* Sobe da barra de status ao abrir e desce ao fechar; fechado, só some, com os terminais vivos. */}
-      <SlidePanel open={open} size={height} side="bottom" keepMounted className="overflow-hidden rounded-pane bg-background" label="Painel de baixo">
+      {/* Sobe da barra de status ao abrir e desce ao fechar; fechado, só some, com os terminais vivos.
+          No escuro, no preto da casca em volta, como um terminal de verdade. */}
+      <SlidePanel open={open} size={height} side="bottom" keepMounted className="overflow-hidden rounded-pane bg-background dark:bg-shell" label="Painel de baixo">
         <header className="flex h-10 shrink-0 items-center gap-1 pr-1.5 pl-2">
           <TerminalTabs place={place} />
           <span className="flex-1" />
