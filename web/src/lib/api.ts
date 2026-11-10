@@ -44,7 +44,6 @@ import type {
   MemoryRef,
   MemorySuggestion,
   ModelOption,
-  OfficeRoom,
   PrototypeOpen,
   PushPrefs,
   QueuedMessage,
@@ -194,8 +193,6 @@ export const api = {
   /** As subpastas de uma pasta do PC (sem `path`, a pasta pessoal). */
   folders: (m: string, path?: string) =>
     request<FolderListing>('GET', `${at(m)}/folders${path ? `?path=${encodeURIComponent(path)}` : ''}`),
-  /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
-  office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
   /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
   activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),

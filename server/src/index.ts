@@ -311,9 +311,6 @@ app.get<{ Querystring: { cwd?: string } }>(
   async (req) => activity(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
 );
 
-// A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
-app.get('/api/office', async () => manager.office());
-
 app.get('/api/projects', async () => manager.projects());
 app.get('/api/projects/sources', async () => manager.projectSources());
 

@@ -3,7 +3,7 @@ import type { TeamInput, TeamMember } from '@/lib/types'
 
 /**
  * O claudinho de cada membro do time sai do id dele, não da conversa: o Thor é o mesmo claudinho em
- * todas as conversas do time e na salinha.
+ * todas as conversas do time.
  */
 export const memberSeed = (m: Pick<TeamMember, 'id'>) => `time:${m.id}`
 

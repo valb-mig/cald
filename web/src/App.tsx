@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { useEffect } from 'react'
 import { Redirect, Route, Switch, useLocation, useSearch } from 'wouter'
 import { navigate } from 'wouter/use-browser-location'
 import { CommandPalette } from '@/components/command-palette'
@@ -56,9 +56,6 @@ import { InboxView } from '@/components/inbox/inbox-view'
 import { startInbox } from '@/lib/inbox'
 import { WorkspacePage } from '@/pages/workspace'
 
-// A salinha é uma tela à parte, para deixar de fundo: o desenho dela só chega quando for aberta.
-const OfficePage = lazy(() => import('@/pages/office').then((m) => ({ default: m.OfficePage })))
-
 /** Quanto cada toque nas setas do teclado muda a largura da lista. */
 const KEY_STEP = 24
 
@@ -83,7 +80,7 @@ export default function App() {
 }
 
 function Panel() {
-  const [location, navigate] = useLocation()
+  const [, navigate] = useLocation()
   const wide = useWide()
   // Modo zen: vale enquanto a conversa em que ele foi ligado estiver na tela (ver lib/zen.ts).
   const zenId = useZen((s) => s.id)
@@ -122,20 +119,6 @@ function Panel() {
       offDesktop?.()
     }
   }, [navigate])
-
-  // A salinha fica sozinha na tela, sem a lista nem as abas: é para deixar de fundo.
-  if (location === '/salinha') {
-    return (
-      <BuildFrame>
-        <div className="flex min-h-0 flex-1 flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-          <ConnectionBanner />
-          <Suspense>
-            <OfficePage />
-          </Suspense>
-        </div>
-      </BuildFrame>
-    )
-  }
 
   return (
     <BuildFrame>

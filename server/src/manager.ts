@@ -14,7 +14,6 @@ import { createProjectDir, expandHome, isDirectory, listFolders, type FolderList
 import type { PlanUsage } from './system.ts';
 import { imageStore, type StoredImage } from './images.ts';
 import type { Device, OriginLog } from './origins.ts';
-import type { OfficeSnapshot } from './office.ts';
 import { pluginDir, removePlugin, writePlugin, type Habilidade, type HabilidadeInput, type HabilidadeStore } from './habilidades.ts';
 import type { Fork, MetaStore } from './meta.ts';
 import type { MessageQueues, QueuedMessage, QueueItemView } from './message-queue.ts';
@@ -43,10 +42,6 @@ import {
 } from './worktrees.ts';
 
 export type CatalogState = 'running' | 'waiting' | 'idle' | 'stopped';
-
-/** Um setor da salinha: uma conversa aberta (no painel ou no PC) e quem trabalha nela. */
-export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor' | 'team' | 'workspace'> &
-  OfficeSnapshot & { owner: 'panel' | 'pc' };
 
 export type CatalogEntry = {
   sessionId: string;
@@ -366,24 +361,6 @@ export class Manager extends EventEmitter {
   /** O id de onde vem o claudinho da conversa, para o aviso de id novo levar junto. */
   lookOf(sessionId: string): string | undefined {
     return this.meta.lookOf(sessionId);
-  }
-
-  /** A salinha: cada conversa aberta e o que cada claudinho dela faz agora. */
-  async office(): Promise<OfficeRoom[]> {
-    const open = (await this.catalog()).filter((e): e is CatalogEntry & { owner: 'panel' | 'pc' } => e.owner !== null);
-    return Promise.all(
-      open.map(async (e) => {
-        const live = this.external(e.sessionId);
-        const empty: OfficeSnapshot = { workers: [], events: [] };
-        const snap =
-          e.owner === 'panel'
-            ? (this.sessions.get(e.sessionId)?.office() ?? empty)
-            : live?.provider.external
-              ? await live.provider.external.office(live).catch(() => empty)
-              : empty;
-        return { sessionId: e.sessionId, title: e.title, cwd: e.cwd, state: e.state, waitingFor: e.waitingFor, owner: e.owner, team: e.team, workspace: e.workspace, ...snap };
-      }),
-    );
   }
 
   /** As mensagens que a bifurcação herdou: as da origem até o ponto do corte, inclusive. */

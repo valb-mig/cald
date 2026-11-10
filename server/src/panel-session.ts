@@ -3,7 +3,6 @@ import { EventEmitter } from 'node:events';
 import type { McpServerSpec } from './editr-mcp.ts';
 import { HttpError } from './errors.ts';
 import { imageStore } from './images.ts';
-import { AGENT_TOOLS, OfficeLog, workersFrom, type OfficeSnapshot, type OpenTool } from './office.ts';
 import { teamPrompt, type TeamSnapshot } from './teams.ts';
 import type { BackgroundTask, LoggedEvent, PanelEvent, Question, Sent, SessionState } from './events.ts';
 import type {
@@ -23,13 +22,10 @@ const MAX_EVENTS = 5_000;
 
 type PendingKind = 'approval' | 'question';
 
-/**
- * Algo que trava o turno até o usuário responder: aprovação de ferramenta ou pergunta do agente.
- * `toolUseId`: a chamada que pede; na salinha, quem a fez vai até a porta.
- */
+/** Algo que trava o turno até o usuário responder: aprovação de ferramenta ou pergunta do agente. */
 type Pending =
-  | { kind: 'approval'; toolUseId?: string; resolve: (decision: ApprovalDecision) => void }
-  | { kind: 'question'; toolUseId?: string; questions: Question[]; resolve: (reply: QuestionReply) => void };
+  | { kind: 'approval'; resolve: (decision: ApprovalDecision) => void }
+  | { kind: 'question'; questions: Question[]; resolve: (reply: QuestionReply) => void };
 
 export type PanelSessionOptions = {
   /** O agente que conduz a conversa (ver providers/types.ts). */
@@ -79,7 +75,7 @@ const append = (opts: PanelSessionOptions) =>
 /**
  * Sessão cujo único dono é o painel. O agente (ver providers/) conduz o processo; aqui fica o que é do
  * edit.r: o log de eventos com `seq`, o estado, as aprovações e perguntas esperando você, os subagentes e
- * tarefas em segundo plano, e o que a salinha mostra.
+ * tarefas em segundo plano.
  */
 export class PanelSession extends EventEmitter {
   id: string;
@@ -112,12 +108,8 @@ export class PanelSession extends EventEmitter {
   private readonly exited: Promise<void>;
   /** Subagentes trabalhando agora, pela chamada da ferramenta Agent que criou cada um. */
   private readonly working = new Set<string>();
-  /** Ferramentas em uso agora, por quem as chamou (a conversa ou um subagente), para a salinha. */
-  private readonly openTools = new Map<string, OpenTool>();
-  /** Nome e tipo de cada subagente, pela chamada da ferramenta Agent que o criou. */
-  private readonly agentCalls = new Map<string, { name: string; type: string }>();
-  /** Última ferramenta de cada um, eventos recentes e tarefas, para a salinha. */
-  private readonly officeLog = new OfficeLog();
+  /** Ferramentas em uso agora, pelo id da chamada: quem as chamou (`null`: a própria conversa; senão, o subagente). */
+  private readonly openTools = new Map<string, string | null>();
   private compacting = false;
   /** O id de antes do último que a sessão ganhou: o /clear pode avisar depois de o id novo já ter chegado. */
   private previousId: string | undefined;
@@ -266,7 +258,7 @@ export class PanelSession extends EventEmitter {
 
   /** Alguma ferramenta da própria conversa (não de subagente) rodando agora. */
   private get inTool(): boolean {
-    for (const t of this.openTools.values()) if (t.scope === null) return true;
+    for (const scope of this.openTools.values()) if (scope === null) return true;
     return false;
   }
 
@@ -319,24 +311,6 @@ export class PanelSession extends EventEmitter {
     return [...this.pending].map(([requestId, p]) => ({ requestId, kind: p.kind }));
   }
 
-  /** Quem está no setor desta conversa na salinha, o que cada um faz e o que acabou de acontecer (ver office.ts). */
-  office(): OfficeSnapshot {
-    const agents = [...this.working].map((id) => ({ id, ...(this.agentCalls.get(id) ?? { name: 'Subagente', type: 'subagente' }) }));
-    const now = Date.now();
-    const workers = workersFrom({
-      tools: [...this.openTools.values()].filter((t) => t.scope === null || this.working.has(t.scope)),
-      agents,
-      busy: this.state === 'running' || this.state === 'starting',
-      waiting: this.state === 'waiting',
-      waitingFor: this.waitingFor,
-      asking: new Set([...this.pending.values()].flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
-      background: this.tasks.length > 0,
-      compacting: this.compacting,
-      recent: (scope) => this.officeLog.recent(scope, now),
-    });
-    return { workers, events: this.officeLog.recentEvents(now), todos: this.officeLog.todos, model: this.settings.model };
-  }
-
   // ---- o que o agente avisa (ver RunHost em providers/types.ts) ----
 
   private host(exited: () => void): RunHost {
@@ -355,7 +329,7 @@ export class PanelSession extends EventEmitter {
       turnEnd: (idle) => {
         // O que ficou sem resultado (turno interrompido) não está mais rodando.
         const tooling = this.inTool;
-        for (const [id, t] of this.openTools) if (t.scope === null) this.openTools.delete(id);
+        for (const [id, scope] of this.openTools) if (scope === null) this.openTools.delete(id);
         if (idle && this.pending.size === 0) this.setState('idle');
         else if (this.inTool !== tooling) this.emit('state');
       },
@@ -401,7 +375,7 @@ export class PanelSession extends EventEmitter {
   private approve(request: ApprovalRequest): Promise<ApprovalDecision> {
     return new Promise((resolve) => {
       const requestId = randomUUID().slice(0, 8);
-      this.pending.set(requestId, { kind: 'approval', toolUseId: request.toolUseId, resolve });
+      this.pending.set(requestId, { kind: 'approval', resolve });
       this.setState('waiting', 'permission prompt');
       this.record({
         kind: 'approval_request',
@@ -421,7 +395,7 @@ export class PanelSession extends EventEmitter {
   private ask(request: QuestionRequest): Promise<QuestionReply> {
     return new Promise((resolve) => {
       const requestId = randomUUID().slice(0, 8);
-      this.pending.set(requestId, { kind: 'question', toolUseId: request.toolUseId, questions: request.questions, resolve });
+      this.pending.set(requestId, { kind: 'question', questions: request.questions, resolve });
       this.setState('waiting', 'input needed');
       this.record({ kind: 'question_request', requestId, questions: request.questions });
       this.cancelOnAbort(request.signal, requestId);
@@ -483,20 +457,11 @@ export class PanelSession extends EventEmitter {
       return;
     }
     if (ev.kind === 'tool_result') {
-      const tool = this.openTools.get(ev.toolUseId);
-      if (tool) this.officeLog.result(tool, ev.isError, ev.text);
       this.openTools.delete(ev.toolUseId);
       return;
     }
     if (ev.kind !== 'tool_use') return;
-    const tool: OpenTool = { id: ev.id, name: ev.name, input: ev.input, scope: ev.parentToolUseId ?? null };
-    this.openTools.set(ev.id, tool);
-    this.officeLog.use(tool);
-    if (AGENT_TOOLS.has(ev.name)) {
-      const input = (ev.input ?? {}) as Record<string, unknown>;
-      const type = typeof input.subagent_type === 'string' && input.subagent_type ? input.subagent_type : 'general-purpose';
-      this.agentCalls.set(ev.id, { name: typeof input.description === 'string' && input.description ? input.description : type, type });
-    }
+    this.openTools.set(ev.id, ev.parentToolUseId ?? null);
   }
 
   private updateSettings(patch: RunSettings): void {
