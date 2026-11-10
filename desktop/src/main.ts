@@ -145,9 +145,10 @@ function createTray(): void {
   updateTray();
 }
 
-/** A versão nova, no topo da bandeja e do menu do app: reiniciar com ela (AppImage) ou baixar. */
+/** A versão nova, no topo da bandeja e do menu do app: reiniciar com ela (AppImage, repositório) ou baixar. */
 function updateItems(): MenuItemConstructorOptions[] {
   const update = updates.state;
+  if (update?.kind === 'rebuilt') return [{ label: 'Reiniciar para atualizar', click: () => void restartToUpdate() }, { type: 'separator' }];
   if (update?.kind === 'downloaded') return [{ label: `Reiniciar para atualizar (v${update.version})`, click: () => void restartToUpdate() }, { type: 'separator' }];
   if (update?.kind === 'available') return [{ label: `Baixar a versão nova (v${update.version})`, click: () => updates.openReleases() }, { type: 'separator' }];
   return [];
@@ -179,12 +180,22 @@ function updateTray(): void {
 }
 
 /** "Reiniciar para atualizar": encerra o servidor com calma antes, como no Sair, e troca o AppImage. */
-async function restartToUpdate(): Promise<void> {
+async function restartToUpdate(hidden = false): Promise<void> {
   quitting = true;
   notifications?.stop();
   await supervisor?.stop();
   serverStopped = true;
-  updates.installAndRestart();
+  updates.installAndRestart(hidden);
+}
+
+/**
+ * Rodando do repositório, o app recompilado se reinicia sozinho com a janela fechada, sem tirar nada
+ * da frente de ninguém. Com o servidor deste app (sem o serviço do systemd), reiniciar derrubaria as
+ * conversas do painel: fica para o "Reiniciar para atualizar".
+ */
+function restartWhenHidden(): void {
+  if (updates.state?.kind !== 'rebuilt' || win?.isVisible() || supervisor?.mode !== 'attached') return;
+  void restartToUpdate(true);
 }
 
 function createMenu(): void {
@@ -264,7 +275,9 @@ async function boot(): Promise<void> {
   updates.on('change', () => {
     updateTray();
     createMenu();
+    restartWhenHidden();
   });
+  win.on('hide', restartWhenHidden);
   updates.start();
 
   supervisor = new ServerSupervisor(await loginShellEnv());

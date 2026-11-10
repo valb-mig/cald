@@ -21,7 +21,9 @@ export function setAutostart(on: boolean): void {
     return;
   }
   // No AppImage, o executável é o do ponto de montagem, que muda a cada abertura: vale o arquivo dele.
-  const exe = process.env.APPIMAGE ?? process.execPath;
+  // Rodando do repositório, o do node_modules do app, sem a versão que o pnpm põe no caminho do processo.
+  const dev = join(app.getAppPath(), 'node_modules', 'electron', 'dist', 'electron');
+  const exe = process.env.APPIMAGE ?? (!app.isPackaged && existsSync(dev) ? dev : process.execPath);
   // Rodando do repositório, o Electron precisa da pasta do app.
   const args = app.isPackaged ? [] : [app.getAppPath()];
   mkdirSync(dirname(FILE), { recursive: true });
