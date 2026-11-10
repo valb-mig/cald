@@ -17,6 +17,7 @@ import type { Device, OriginLog } from './origins.ts';
 import type { OfficeSnapshot } from './office.ts';
 import { pluginDir, removePlugin, writePlugin, type Habilidade, type HabilidadeInput, type HabilidadeStore } from './habilidades.ts';
 import type { Fork, MetaStore } from './meta.ts';
+import type { MessageQueues, QueuedMessage, QueueItemView } from './message-queue.ts';
 import { snapshotOf, type TeamSnapshot, type TeamStore } from './teams.ts';
 import { tagOf, type WorkspaceStore, type WorkspaceTag } from './workspaces.ts';
 import type { ResumeEntry } from './updater.ts';
@@ -84,6 +85,10 @@ export type CatalogEntry = {
   workspace?: WorkspaceTag;
   /** O worktree em que a conversa roda, separada das outras do mesmo projeto (ver worktrees.ts). */
   worktree?: WorktreeTag;
+  /** As mensagens esperando a vez, na ordem (ver message-queue.ts). */
+  queue?: QueueItemView[];
+  /** A fila não anda sozinha: o turno foi interrompido, deu erro ou o serviço reiniciou. */
+  queuePaused?: boolean;
 };
 
 type RunOptions = Pick<PanelSessionOptions, 'model' | 'effort' | 'permissionMode'>;
@@ -117,9 +122,23 @@ export class Manager extends EventEmitter {
   private readonly teams: TeamStore;
   private readonly workspaces: WorkspaceStore;
   private readonly origins: OriginLog;
+  private readonly queues: MessageQueues;
+  /** Conversas mandando a próxima da fila agora: o estado ocioso pode chegar de novo antes de ela sair. */
+  private readonly dispatching = new Set<string>();
+  /** Conversas com o processo sendo trocado (time, workspace): a fila espera o novo subir. */
+  private readonly restarting = new Set<string>();
 
-  constructor(providers: ProviderRegistry, meta: MetaStore, teams: TeamStore, workspaces: WorkspaceStore, origins: OriginLog, habilidades: HabilidadeStore) {
+  constructor(
+    providers: ProviderRegistry,
+    meta: MetaStore,
+    teams: TeamStore,
+    workspaces: WorkspaceStore,
+    origins: OriginLog,
+    habilidades: HabilidadeStore,
+    queues: MessageQueues,
+  ) {
     super();
+    this.queues = queues;
     this.providers = providers;
     this.meta = meta;
     this.teams = teams;
@@ -328,6 +347,11 @@ export class Manager extends EventEmitter {
       if (name) entry.claudinhoName = name;
       const team = this.meta.teamOf(entry.sessionId);
       if (team) entry.team = team;
+      const queue = this.queues.view(entry.sessionId);
+      if (queue) {
+        entry.queue = queue.items;
+        if (queue.paused) entry.queuePaused = true;
+      }
       const wsId = this.meta.workspaceOf(entry.sessionId);
       const ws = wsId ? this.workspaces.find(wsId) : undefined;
       if (ws) entry.workspace = tagOf(ws);
@@ -695,15 +719,55 @@ export class Manager extends EventEmitter {
   async send(
     sessionId: string,
     text: string,
-    { attachments, clientId, notice, from }: { attachments?: Attachment[]; clientId?: string; notice?: string; from?: Device } = {},
-  ): Promise<void> {
+    {
+      attachments,
+      clientId,
+      notice,
+      from,
+      next,
+      model,
+      effort,
+    }: { attachments?: Attachment[]; clientId?: string; notice?: string; from?: Device; next?: boolean; model?: string; effort?: string } = {},
+  ): Promise<{ queued?: string }> {
     // Reenvio da fila do celular cuja resposta se perdeu no caminho: já foi entregue, não repete o turno.
-    if (clientId && this.delivered.has(clientId)) return;
+    if (clientId && this.delivered.has(clientId)) return {};
     const session = this.get(sessionId);
-    if (clientId) {
-      this.delivered.add(clientId);
-      if (this.delivered.size > DELIVERED_MAX) this.delivered.delete(this.delivered.values().next().value!);
+    // `next`: com o Claude trabalhando (ou a fila ainda saindo), a mensagem espera a vez, com o modelo e o
+    // esforço de agora. Parado, ela vai direto, e a fila pausada volta a andar depois dela.
+    const queue = this.queues.get(session.id);
+    const busy = session.state !== 'idle' || session.pendingWork || this.dispatching.has(session.id) || Boolean(queue?.items.length && !queue.paused);
+    if (next && busy) {
+      const item = this.queues.add(session.id, { id: clientId, text, attachments: attachments ?? [], model, effort, from });
+      if (clientId) this.remember(clientId);
+      this.emit('catalog');
+      return { queued: item.id };
     }
+    if (this.queues.setPaused(session.id, false)) this.emit('catalog');
+    // A caixa mostra com que modelo e esforço a próxima mensagem vai, e eles podem ter sido escolhidos com o
+    // Claude trabalhando (sem mudar a conversa): valem agora, antes dela.
+    if (next) await this.applySettings(session, model, effort);
+    await this.deliver(session, text, { attachments, clientId, notice, from });
+    return {};
+  }
+
+  /** Troca o modelo e o esforço da conversa para os de uma mensagem, só o que for diferente. */
+  private async applySettings(session: PanelSession, model?: string, effort?: string): Promise<void> {
+    if (model && model !== session.settings.model) await session.setModel(model);
+    if (effort && effort !== session.settings.effort) await session.setEffort(effort);
+  }
+
+  /** `clientId` das últimas mensagens aceitas, para o reenvio de uma delas não repetir o turno. */
+  private remember(clientId: string): void {
+    this.delivered.add(clientId);
+    if (this.delivered.size > DELIVERED_MAX) this.delivered.delete(this.delivered.values().next().value!);
+  }
+
+  private async deliver(
+    session: PanelSession,
+    text: string,
+    { attachments, clientId, notice, from }: { attachments?: Attachment[]; clientId?: string; notice?: string; from?: Device },
+  ): Promise<void> {
+    if (clientId) this.remember(clientId);
     try {
       const turn = await prepareTurn(session.id, text, attachments, imageStore.sink(session.id, `u${Date.now()}`));
       const todos = await this.todoContext?.(session.cwd, text).catch(() => null);
@@ -714,6 +778,100 @@ export class Manager extends EventEmitter {
       this.origins.record({ uuid, at, device: from?.name, mobile: from?.mobile });
     } catch (err) {
       if (clientId) this.delivered.delete(clientId);
+      throw err;
+    }
+  }
+
+  // ---- a fila de mensagens (ver message-queue.ts) ----
+
+  /** Manda agora uma mensagem da fila, com o modelo e o esforço dela, mesmo com o Claude no meio do turno. */
+  async sendQueued(sessionId: string, id: string): Promise<void> {
+    const session = this.get(sessionId);
+    const item = this.queues.take(session.id, id);
+    if (!item) throw new HttpError(404, 'not_queued');
+    this.queues.setPaused(session.id, false);
+    this.emit('catalog');
+    await this.deliverQueued(session, item, 0);
+  }
+
+  /** Tira uma mensagem da fila e a devolve inteira: para editar na caixa, ou para o desfazer de quem a tirou. */
+  takeQueued(sessionId: string, id: string): QueuedMessage {
+    const item = this.queues.take(sessionId, id);
+    if (!item) throw new HttpError(404, 'not_queued');
+    this.emit('catalog');
+    return item;
+  }
+
+  /**
+   * Abrir uma mensagem da fila na caixa: `open` passa a ficar segura (não sai no fim do turno) e volta
+   * inteira; `null` fecha. `save`: a que estava aberta, com o que mudou nela, gravada antes, no lugar
+   * dela (se ela tiver saído da fila nesse meio-tempo, volta no fim, para a edição não se perder).
+   */
+  editQueued(
+    sessionId: string,
+    open: string | null,
+    save?: Pick<QueuedMessage, 'id' | 'text' | 'attachments' | 'model' | 'effort'>,
+  ): Omit<QueuedMessage, 'from'> | undefined {
+    if (save && !this.queues.update(sessionId, save.id, save)) this.queues.add(sessionId, save);
+    const message = open ? this.queues.get(sessionId)?.items.find((i) => i.id === open) : undefined;
+    if (open && !message) {
+      this.queues.hold(sessionId, null);
+      this.emit('catalog');
+      throw new HttpError(404, 'not_queued');
+    }
+    this.queues.hold(sessionId, open);
+    this.emit('catalog');
+    // Solta: se a conversa está parada, a fila segue.
+    const session = this.sessions.get(sessionId);
+    if (!open && session) setTimeout(() => this.dispatch(session), 0);
+    if (!message) return undefined;
+    const { from: _from, ...rest } = message;
+    return rest;
+  }
+
+  /** Põe de volta uma mensagem tirada da fila (o desfazer), no lugar `index`. */
+  restoreQueued(sessionId: string, item: Omit<QueuedMessage, 'from'>, index: number): void {
+    this.queues.add(sessionId, item, index);
+    this.emit('catalog');
+  }
+
+  orderQueue(sessionId: string, ids: string[]): void {
+    this.queues.order(sessionId, ids);
+    this.emit('catalog');
+  }
+
+  /** Parar o turno pausa a fila: quem parou costuma querer rever o que vem antes de seguir. */
+  async interrupt(sessionId: string): Promise<void> {
+    const session = this.get(sessionId);
+    if (this.queues.setPaused(session.id, true)) this.emit('catalog');
+    await session.interrupt();
+  }
+
+  /** O turno acabou e a conversa está parada: a próxima da fila vai, se ela está andando. */
+  private dispatch(session: PanelSession): void {
+    if (session.state !== 'idle' || session.pendingWork || this.dispatching.has(session.id) || this.restarting.has(session.id)) return;
+    if (this.sessions.get(session.id) !== session) return;
+    const item = this.queues.next(session.id);
+    if (!item) return;
+    this.dispatching.add(session.id);
+    this.emit('catalog');
+    this.deliverQueued(session, item, 0)
+      .catch((err: unknown) => console.warn(`[edit.r] a mensagem da fila não foi para a conversa ${session.id}:`, err))
+      .finally(() => this.dispatching.delete(session.id));
+  }
+
+  /**
+   * Manda uma mensagem que estava na fila: antes, o modelo e o esforço dela. Se não der, ela volta para o
+   * lugar `index` e a fila pausa, para não tentar de novo sem fim.
+   */
+  private async deliverQueued(session: PanelSession, item: QueuedMessage, index: number): Promise<void> {
+    try {
+      await this.applySettings(session, item.model, item.effort);
+      await this.deliver(session, item.text, { attachments: item.attachments, clientId: item.id, from: item.from });
+    } catch (err) {
+      this.queues.add(session.id, item, index);
+      this.queues.setPaused(session.id, true);
+      this.emit('catalog');
       throw err;
     }
   }
@@ -932,11 +1090,16 @@ export class Manager extends EventEmitter {
   /** Grava a mudança com o processo da conversa (se aberta no painel) encerrado, e a retoma com os mesmos ajustes. */
   private async restartWith(sessionId: string, change: () => Promise<void>): Promise<void> {
     const own = this.sessions.get(sessionId);
-    if (own) await own.release();
-    await change();
-    if (own) {
-      const { model, effort, permissionMode } = own.settings;
-      await this.open(sessionId, { model, effort: effort ?? undefined, permissionMode });
+    this.restarting.add(sessionId);
+    try {
+      if (own) await own.release();
+      await change();
+      if (own) {
+        const { model, effort, permissionMode } = own.settings;
+        await this.open(sessionId, { model, effort: effort ?? undefined, permissionMode });
+      }
+    } finally {
+      this.restarting.delete(sessionId);
     }
     this.emit('catalog');
   }
@@ -1008,6 +1171,7 @@ export class Manager extends EventEmitter {
       else void this.meta.inherit(to, from);
       // O time e o workspace seguem com ela, num caso e no outro.
       if (session.team) void this.meta.setTeam(to, session.team);
+      this.queues.rekey(from, to);
       const wsId = this.meta.workspaceOf(session.origin ?? from);
       if (wsId) void this.meta.setWorkspace(to, wsId);
       void this.meta.copyHabilidades(session.origin ?? from, to);
@@ -1016,16 +1180,28 @@ export class Manager extends EventEmitter {
     });
     session.on('cleared', (from: string, to: string) => {
       void this.meta.setCleared(from, to);
+      this.queues.rekey(from, to);
       this.emit('catalog');
     });
-    session.on('event', (ev: LoggedEvent) => this.emit('event', session.id, ev, session.runId));
+    session.on('event', (ev: LoggedEvent) => {
+      // Turno interrompido ou com erro: a fila espera você.
+      if (ev.kind === 'result' && !ev.ok && this.queues.setPaused(session.id, true)) this.emit('catalog');
+      this.emit('event', session.id, ev, session.runId);
+    });
     session.on('delta', (text: string) => this.emit('delta', session.id, text));
     session.on('state', () => {
       this.emit('catalog');
       this.applyTeamLater(session);
+      // Depois do resto do fim do turno (o resultado pode chegar logo atrás do estado e pausar a fila).
+      if (session.state === 'idle') setTimeout(() => this.dispatch(session), 0);
     });
+    // Processo novo de uma conversa com fila andando (o time ou o workspace trocou no fim do turno): ela segue.
+    setTimeout(() => this.dispatch(session), 0);
     session.on('exit', () => {
       this.teamLater.delete(session);
+      // O processo caiu (ou foi fechado) com mensagens esperando: elas esperam você, como depois de parar.
+      // Na troca de time ou de workspace, não: o processo novo sobe e a fila segue.
+      if (!this.restarting.has(session.id)) this.queues.setPaused(session.id, true);
       if (session.habilidades) void removePlugin(session.habilidades);
       this.sessions.delete(session.id);
       this.savedCache = undefined;
