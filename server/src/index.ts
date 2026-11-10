@@ -776,6 +776,8 @@ if (!PACKAGED) {
     await updater.restartNow();
     return { ok: true };
   });
+  // No canal dev, daqui em diante se atualiza sozinho a cada merge na main.
+  void updater.boot();
 }
 
 app.get<{ Params: IdParams & { key: string }; Querystring: { thumb?: string } }>(
