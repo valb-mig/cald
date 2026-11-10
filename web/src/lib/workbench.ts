@@ -112,15 +112,24 @@ function load(): State {
 export const useWorkbench = create<State>(load)
 
 let saving: ReturnType<typeof setTimeout> | undefined
-useWorkbench.subscribe((s) => {
+function save(): void {
+  saving = undefined
+  try {
+    localStorage.setItem(KEY, JSON.stringify(useWorkbench.getState()))
+  } catch {
+    // localStorage indisponível (modo privado): vale só até fechar o app.
+  }
+}
+useWorkbench.subscribe(() => {
   clearTimeout(saving)
-  saving = setTimeout(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(s))
-    } catch {
-      // localStorage indisponível (modo privado): vale só até fechar o app.
-    }
-  }, 200)
+  saving = setTimeout(save, 200)
+})
+// Recarregar logo depois de abrir uma aba (o app que recarrega na versão nova ao abrir um arquivo,
+// ver reloadIfStale em lib/update.ts): grava já, senão a aba some na volta.
+window.addEventListener('pagehide', () => {
+  if (saving === undefined) return
+  clearTimeout(saving)
+  save()
 })
 
 // ---- leitura ----

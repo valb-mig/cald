@@ -31,6 +31,7 @@ import { isHtmlPath, showPrototype } from '@/lib/prototype'
 import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
 import { useUnsaved } from '@/lib/unsaved'
+import { reloadIfStale } from '@/lib/update'
 import { cn } from '@/lib/utils'
 import { keyOf } from '@/lib/workbench'
 import { useCodeSelection } from './code-mention'
@@ -235,8 +236,9 @@ function TextContent({
   )
 }
 
-// O editor do PC baixa à parte, só quando um arquivo abre (ver editor.tsx).
-const CodeEditor = lazy(() => import('./editor'))
+// O editor do PC baixa à parte, só quando um arquivo abre (ver editor.tsx). Não baixou porque o
+// servidor já tem um app mais novo que o desta tela: recarrega nele, em vez de abrir só para leitura.
+const CodeEditor = lazy(() => import('./editor').catch(reloadIfStale))
 
 /** O que o editor do PC precisa de quem o mostra (ver `ViewerBody`); tudo estável entre desenhos. */
 type EditorLink = {

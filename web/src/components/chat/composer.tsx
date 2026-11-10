@@ -284,11 +284,9 @@ export function Composer({
         className={cn(
           // No PC, a caixa flutua solta no pé da janela, com folga em volta.
           'mx-auto w-full max-w-3xl px-2 pt-1.5 pb-[max(0.5rem,var(--safe-bottom))] compact:pt-1 compact:pb-1 wide:px-4 wide:pb-4',
-          big
-            ? 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]'
-            : glass
-              ? 'bg-transparent'
-              : 'bg-background',
+          // Sem fundo próprio: ele ficava quadrado e de outro tom quando a caixa está sobre uma superfície
+          // (cartão da Mesa, conversa nova do hub). A caixa é irmã da lista, não cobre nada que role.
+          big && 'fixed inset-0 z-50 flex max-w-none flex-col justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]',
         )}
       >
         {hint && !big && <p className="mb-1.5 px-2 text-xs text-muted-foreground">{hint}</p>}

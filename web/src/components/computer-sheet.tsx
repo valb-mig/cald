@@ -8,6 +8,7 @@ import { McpView, SkillsView } from '@/components/claude/setup-view'
 import { ConfigSyncSettings } from '@/components/config-sync-settings'
 import { WorktreesView } from '@/components/claude/worktrees-view'
 import { MachineFilter } from '@/components/machine-filter'
+import { MetersSettings } from '@/components/meters-settings'
 import { Meter, WindowMeter } from '@/components/pc-status'
 import { ProviderMark } from '@/components/provider-mark'
 import { PushSettings } from '@/components/push-settings'
@@ -620,6 +621,7 @@ function LookSection() {
         />
       </Group>
       <WallpaperSettings />
+      <MetersSettings />
     </>
   )
 }
