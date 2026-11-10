@@ -160,8 +160,6 @@ export const editorTheme = EditorView.theme({
   },
   // O CodeMirror pisca em degrau (`steps(1)`); em curva, o cursor some e volta devagar.
   '&.cm-focused > .cm-scroller > .cm-cursorLayer': { animationTimingFunction: 'ease-in-out' },
-  '.cm-selectionBackground': { background: 'rgb(14 165 233 / 0.18) !important' },
-  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { background: 'rgb(14 165 233 / 0.3) !important' },
   '.cm-selectionMatch': { backgroundColor: 'rgb(14 165 233 / 0.14)' },
   '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': {
     backgroundColor: 'transparent',

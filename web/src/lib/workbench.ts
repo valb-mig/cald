@@ -370,6 +370,26 @@ export function closeChatTabs(id: string): void {
   set(groups, useWorkbench.getState().focused)
 }
 
+/** O arquivo `path` é o próprio `under` ou fica dentro dessa pasta. */
+export const isUnder = (path: string, under: string) => path === under || path.startsWith(`${under}/`)
+
+/**
+ * Fecha onde estiverem, sem perguntar, as abas (e os diffs) do arquivo ou da pasta `under` do projeto,
+ * apagados no disco; `keep` poupa as que ficam (as com alteração não salva, que quem chama já avisou).
+ */
+export function closeFileTabs(machine: string, cwd: string, under: string, keep: (key: string) => boolean = () => false): void {
+  let { groups } = useWorkbench.getState()
+  const doomed = groups
+    .flatMap((g) => g.tabs)
+    .filter((t) => t.kind === 'file' && t.machine === machine && t.cwd === cwd && isUnder(t.path, under) && !keep(t.key))
+  if (doomed.length === 0) return
+  for (const t of doomed) {
+    const g = find(groups, t.key)
+    if (g) groups = without(groups, g.id, t.key)
+  }
+  set(groups, useWorkbench.getState().focused)
+}
+
 /** A conversa `old` ganhou outro id (cópia, sessão retomada): a aba dela passa a ser a nova, já fixa. */
 export function swapChatTab(old: string, id: string): void {
   const from = keyOf({ kind: 'chat', id: old })

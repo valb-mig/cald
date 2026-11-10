@@ -18,6 +18,7 @@ import type {
   ContextUsage,
   Detalhe,
   DiffSide,
+  EntryInfo,
   FileView,
   FolderListing,
   GithubInfo,
@@ -356,6 +357,14 @@ export const api = {
   /** Grava o texto do editor; recusa com `file_changed` se o arquivo não é mais o de `base`, a não ser com `force`. */
   saveFile: (m: string, cwd: string, path: string, content: string, base: string, force = false) =>
     post<{ hash: string; size: number }>(`${at(m)}/file/save`, { cwd, path, content, base, force }),
+  /** Arquivo vazio ou pasta nova; com subpastas no caminho, cria as que faltam. Recusa com `file_exists`. */
+  createEntry: (m: string, cwd: string, path: string, type: 'dir' | 'file') =>
+    post<{ path: string }>(`${at(m)}/file/create`, { cwd, path, type }),
+  entryInfo: (m: string, cwd: string, path: string) => request<EntryInfo>('GET', `${at(m)}/file/info?${project(cwd, path)}`),
+  /** Manda para a lixeira do edit.r; o `id` põe de volta no mesmo lugar (`restoreEntry`). */
+  trashEntry: (m: string, cwd: string, path: string) =>
+    post<{ id: string; path: string; type: 'dir' | 'file' }>(`${at(m)}/file/trash`, { cwd, path }),
+  restoreEntry: (m: string, cwd: string, id: string) => post<{ path: string; type: 'dir' | 'file' }>(`${at(m)}/file/restore`, { cwd, id }),
   /** Busca texto nos arquivos do projeto (o ripgrep, no PC). */
   search: (m: string, cwd: string, q: string, o: { regex: boolean; caseSensitive: boolean; word: boolean }, signal?: AbortSignal) =>
     request<SearchResult>(
@@ -691,6 +700,26 @@ export function errorMessage(err: unknown): string {
       return `${String(err.details.path ?? 'Isso')} é uma pasta (submódulo ou outro repositório): descarte pelo terminal.`
     case 'undo_expired':
       return 'Não dá mais para desfazer esse descarte.'
+    case 'file_exists':
+      return `Já existe ${String(err.details.path ?? 'um item com esse nome')}.`
+    case 'invalid_name':
+      return 'Nome inválido.'
+    case 'not_a_directory':
+      return `${String(err.details.path ?? 'Isso')} é um arquivo, não uma pasta.`
+    case 'protected_path':
+      return 'A pasta .git é do git: daqui não se mexe nela.'
+    case 'project_root':
+      return 'A pasta do projeto não vai para a lixeira.'
+    case 'trash_inside':
+      return 'A lixeira do edit.r fica dentro dessa pasta: apague pelo terminal.'
+    case 'trash_partial':
+      return `Sem permissão para tirar tudo de ${String(err.details.path ?? 'lá')}: o que saiu está na lixeira do edit.r.`
+    case 'permission_denied':
+      return `Sem permissão em ${String(err.details.path ?? 'essa pasta')}.`
+    case 'trash_not_found':
+      return 'Não está mais na lixeira.'
+    case 'restore_exists':
+      return `Já tem outro ${String(err.details.path ?? 'item')} no lugar: tire-o de lá para desfazer.`
     case 'suggest_failed':
       return 'O Claude não respondeu com uma mensagem.'
     case 'suggest_timeout':

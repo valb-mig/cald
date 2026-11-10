@@ -359,6 +359,9 @@ export type SessionCost = {
 
 export type TreeEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number; ignored?: boolean }
 
+/** O que apagar levaria (ver /api/file/info): numa pasta, quantos itens ela tem, a fundo; `capped` se parou de contar. */
+export type EntryInfo = { path: string; type: 'dir' | 'file'; items?: number; capped?: boolean }
+
 export type FileView =
   /**
    * `hash`: o que o editor manda ao salvar, para o servidor recusar se o arquivo mudou desde a leitura.

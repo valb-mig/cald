@@ -1,4 +1,4 @@
-import { AppWindow, AtSign, Copy, FileText, Undo2 } from 'lucide-react'
+import { AppWindow, AtSign, Copy, FilePlus, FileText, FolderPlus, Trash2, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -17,8 +17,17 @@ export function mention(path: string, at?: { dir?: boolean; lines?: [number, num
   if (!mentionInChat(path, at)) toast('Esta conversa não tem onde escrever agora', { description: 'Aberta no PC: assuma a sessão para mencionar arquivos.' })
 }
 
+/**
+ * O que o explorador acrescenta ao menu (ver files.tsx): criar dentro da pasta (ou ao lado do arquivo)
+ * e apagar. As outras listas (alterações do git, busca) não têm onde escrever o nome.
+ */
+export type FileMenuActions = {
+  create: (parent: string, type: 'dir' | 'file') => void
+  remove: (item: { path: string; dir: boolean }) => void
+}
+
 /** O menu de um arquivo da barra do projeto, e quem o abre (botão direito, ou o dedo segurado). */
-export function useFileMenu(project: PanelProject) {
+export function useFileMenu(project: PanelProject, actions?: FileMenuActions) {
   const [at, setAt] = useState<FileMenuAt | null>(null)
   const [open, setOpen] = useState(false)
   const show = (next: FileMenuAt) => {
@@ -70,6 +79,21 @@ export function useFileMenu(project: PanelProject) {
             >
               <Copy /> Copiar caminho
             </DropdownMenuItem>
+            {actions && !at.deleted && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => actions.create(at.dir ? at.path : splitPath(at.path).dir, 'file')}>
+                  <FilePlus /> Novo arquivo
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => actions.create(at.dir ? at.path : splitPath(at.path).dir, 'dir')}>
+                  <FolderPlus /> Nova pasta
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => actions.remove({ path: at.path, dir: Boolean(at.dir) })}>
+                  <Trash2 /> {at.dir ? 'Apagar pasta' : 'Apagar arquivo'}
+                </DropdownMenuItem>
+              </>
+            )}
             {at.discard && (
               <>
                 <DropdownMenuSeparator />
