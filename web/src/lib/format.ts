@@ -146,6 +146,59 @@ export function toolSummary(name: string, input: Input): string {
   }
 }
 
+const fileName = (input: Input) => (str(input.file_path) || str(input.notebook_path)).split('/').pop() || 'o arquivo'
+
+/**
+ * O que o Claude está fazendo com uma ferramenta, numa frase que se lê no "trabalhando" do chat:
+ * "Lendo markdown.tsx", "Editando outline.ts", a descrição que ele deu ao comando.
+ */
+export function toolDoing(name: string, input: Input): string {
+  if (name.startsWith('mcp__')) {
+    if (name.endsWith('__publicar_artefato')) return `Publicando ${toolSummary(name, input)}`
+    return `Usando ${name.split('__').at(-1)!.replaceAll('_', ' ')}`
+  }
+  switch (name) {
+    case 'Bash':
+    case 'Monitor':
+      return str(input.description) || `Rodando ${str(input.command).split('\n')[0]}`
+    case 'Read':
+      return `Lendo ${fileName(input)}`
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return `Editando ${fileName(input)}`
+    case 'Write':
+      return `Escrevendo ${fileName(input)}`
+    case 'Grep':
+      return `Buscando “${str(input.pattern)}”${input.path ? ` em ${shortPath(str(input.path))}` : ''}`
+    case 'Glob':
+      return `Procurando ${str(input.pattern)}`
+    case 'WebFetch': {
+      const url = str(input.url)
+      return `Lendo ${URL.canParse(url) ? new URL(url).hostname : url}`
+    }
+    case 'WebSearch':
+      return `Pesquisando ${str(input.query)}`
+    case 'Agent':
+    case 'Task':
+      return `Delegando: ${str(input.description) || str(input.subagent_type) || 'uma tarefa'}`
+    case 'TodoWrite':
+      return 'Organizando as tarefas'
+    case 'Skill':
+      return `Seguindo a habilidade ${str(input.skill)}`
+    case 'ToolSearch':
+      return 'Carregando ferramentas'
+    case 'Artifact':
+      return `Publicando ${toolSummary(name, input)}`
+    case 'AskUserQuestion':
+      return 'Perguntando a você'
+    case 'ExitPlanMode':
+      return 'Montando o plano'
+    default:
+      return `Usando ${name}`
+  }
+}
+
 export const FILE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 // Só executores de teste; a palavra "test" sozinha aparece demais (grep -v test, *.test.ts…).
 export const TEST_COMMAND =
