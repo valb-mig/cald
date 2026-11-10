@@ -20,6 +20,9 @@ export const PACKAGED = env.EDITR_PACKAGED === '1';
 // De onde vem a versão nova (ver updater.ts): a release, publicada, pelo botão; ou, no PC de quem
 // desenvolve (`EDITR_CHANNEL=dev`, posto pelo `deploy/install.sh --dev`), a main, sozinho a cada merge.
 export const CHANNEL: 'release' | 'dev' = env.EDITR_CHANNEL === 'dev' ? 'dev' : 'release';
+// Instância de teste de uma branch (ver deploy/test-build.sh): roda de um worktree, com uma cópia dos
+// dados. O app mostra a faixa da build e não se atualiza, que puxaria a main para dentro do worktree.
+export const TEST_BUILD = env.EDITR_TEST_BUILD === '1';
 
 // Nome desta máquina no app quando há várias (ver machines.ts); por padrão, o do sistema.
 export const MACHINE_NAME = env.MACHINE_NAME ?? hostname();

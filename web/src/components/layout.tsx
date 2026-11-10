@@ -1,4 +1,4 @@
-import { FolderGit2, Inbox, Loader2, MessagesSquare, Monitor } from 'lucide-react'
+import { FlaskConical, FolderGit2, Inbox, Loader2, MessagesSquare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { setComputerOpen } from '@/lib/computer'
@@ -58,6 +58,38 @@ export function BottomNav() {
         Computador
       </button>
     </nav>
+  )
+}
+
+/**
+ * A faixa da build de teste de uma branch (ver deploy/test-build.sh), no topo da janela: de onde saiu o
+ * que está na tela e quando foi compilado, para não confundir com o app de sempre. Os dados são uma
+ * cópia dos de lá: o que se faz aqui não aparece no app de sempre, nem o de lá aqui.
+ */
+export function TestBuildBar() {
+  const git = __BUILD_GIT__
+  const where = git ? `${git.branch} · ${git.commit}${git.dirty ? ' + alterações' : ''}` : 'sem git'
+  return (
+    <div
+      role="status"
+      title={`Build de teste: ${where}, compilada ${__BUILD_TIME__}. Os dados são uma cópia dos do app de sempre.`}
+      className="flex shrink-0 items-center justify-center gap-1.5 bg-violet-600 px-3 pt-[env(safe-area-inset-top)] text-[11px] leading-6 text-white"
+    >
+      <FlaskConical className="size-3 shrink-0" aria-hidden />
+      <span className="shrink-0 font-semibold">Build de teste</span>
+      <span className="min-w-0 truncate">
+        · {git ? <span className="font-medium">{git.branch}</span> : where}
+        {git && (
+          <>
+            {' · '}
+            <span className="font-mono">{git.commit}</span>
+            {git.dirty && ' + alterações'}
+          </>
+        )}
+      </span>
+      <span className="shrink-0 opacity-80">· compilada {__BUILD_TIME__}</span>
+      <span className="hidden shrink-0 opacity-80 sm:inline">· dados de cópia</span>
+    </div>
   )
 }
 

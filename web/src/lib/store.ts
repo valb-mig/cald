@@ -28,6 +28,8 @@ type Store = {
   connection: Connection
   /** Canal desta máquina (a da origem): `dev` segue a main; servidor antigo não diz, vira `release`. */
   channel: 'release' | 'dev'
+  /** A máquina desta página é a instância de teste de uma branch (ver TestBuildBar). */
+  test: boolean
   /** Conexão com cada máquina (ver machines.ts). */
   connections: Record<string, Connection>
   /** Conversas de todas as máquinas, cada uma com `machine`. */
@@ -50,6 +52,7 @@ type Store = {
 export const useStore = create<Store>(() => ({
   connection: 'connecting',
   channel: 'release',
+  test: false,
   connections: {},
   catalog: [],
   catalogLoaded: false,
@@ -126,6 +129,7 @@ function checkHomeRestart(): void {
       }
       homeStartedAt = h.startedAt
       if ((h.channel ?? 'release') !== useStore.getState().channel) useStore.setState({ channel: h.channel ?? 'release' })
+      if (Boolean(h.test) !== useStore.getState().test) useStore.setState({ test: Boolean(h.test) })
     },
     () => {},
   )

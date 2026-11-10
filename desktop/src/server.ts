@@ -62,15 +62,21 @@ async function serviceHoldsPort(): Promise<boolean> {
 export class ServerSupervisor extends EventEmitter {
   mode: ServerMode | null = null;
   private readonly env: Record<string, string>;
+  private readonly spawns: boolean;
   private child: ChildProcess | null = null;
   private timer?: NodeJS.Timeout;
   private checking = false;
   private stopping = false;
 
-  /** @param env o ambiente do servidor: o do seu shell de login (ver shell-env.ts). */
-  constructor(env: Record<string, string>) {
+  /**
+   * @param env o ambiente do servidor: o do seu shell de login (ver shell-env.ts).
+   * @param spawns `false`: só abre a janela no que já responde na porta (o app de teste de uma branch,
+   * cujo servidor é a instância de teste; um deste app pegaria os seus dados de verdade).
+   */
+  constructor(env: Record<string, string>, spawns = true) {
     super();
     this.env = env;
+    this.spawns = spawns;
   }
 
   get owns(): boolean {
@@ -94,7 +100,7 @@ export class ServerSupervisor extends EventEmitter {
     this.checking = true;
     try {
       if ((await healthy()) || (await serviceHoldsPort())) this.setMode('attached');
-      else this.spawn();
+      else if (this.spawns) this.spawn();
     } finally {
       this.checking = false;
     }

@@ -307,6 +307,10 @@ O serviço sobe com `EDITR_CHANNEL=dev` e se atualiza sozinho: a cada minuto pro
 
 O app do PC também roda desse clone, sem empacotar (`deploy/editr-app.sh`, que o instalador põe no menu de apps e no autostart): recompilado, ele se reinicia sozinho quando a janela está fechada (na bandeja), ou na hora, por **Reiniciar para atualizar**. Feche e apague o AppImage, que aberto pega o autostart de volta. O `pnpm` não roda o postinstall do Electron (fora do `allowBuilds`); o lançador, o instalador e a atualização baixam o binário quando falta.
 
+#### Testar uma branch antes do merge
+
+De um worktree da branch, `./deploy/test-build.sh` compila o web e o app do PC dele, sobe uma instância de teste (o servidor do worktree numa porta livre a partir da 7338, com uma cópia dos dados do edit.r e o resto do HOME por link) e abre o app do PC nela, ao lado do de sempre: janela e pasta próprias, sem bandeja, avisos nem atualização, e uma faixa roxa no topo com a branch, o commit e a hora do build. Recompilar o web (`pnpm --filter web build`) recarrega a janela sozinha; mudou o servidor, `systemctl --user restart editr-test-<worktree>`. Fechar a janela derruba a instância. `--link` também publica na tailnet para o celular (com o PIN), `--fresh` copia os dados de novo e `--stop` fecha tudo. O que se faz no teste fica na cópia; conversas abertas no app de sempre não devem receber mensagem por lá.
+
 ## Usar pelo celular
 
 O que dá para fazer:

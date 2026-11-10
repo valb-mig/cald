@@ -12,7 +12,7 @@ import { AccessMonitor, keyOf, LOCAL } from './access.ts';
 import { activity } from './providers/claude/activity.ts';
 import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
-import { CHANNEL, HOST, MACHINE_NAME, PACKAGED, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
+import { CHANNEL, HOST, MACHINE_NAME, PACKAGED, PORT, TEST_BUILD, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
@@ -145,7 +145,8 @@ await pin.load();
 const machines = new MachineDirectory(policy);
 void machines.refresh();
 setInterval(() => void machines.list(), 15_000).unref();
-const push = new PushService(() => machines.bases());
+// A de teste de uma branch vê as mesmas conversas do PC que a de sempre: repassar dobraria cada aviso.
+const push = new PushService(() => (TEST_BUILD ? [] : machines.bases()));
 await push.load();
 push.on('error', (err) => app.log.warn({ err }, 'falha ao enviar notificação'));
 // Aparelho novo ou tentativa barrada: avisa sempre, como as perguntas, e abre na seção Acesso.
@@ -204,6 +205,8 @@ app.get('/api/health', async () => ({
   home: homedir(),
   // O app marca a versão dev (a main, ver updater.ts) na logo, para não confundir com a publicada.
   channel: CHANNEL,
+  // E a de teste de uma branch com a faixa da build no topo.
+  test: TEST_BUILD,
 }));
 
 /** As outras máquinas suas com o edit.r, para o app conectar em todas. */
@@ -770,8 +773,9 @@ const updater = new Updater(
   },
 );
 
-// Empacotado no app do PC não há repositório para puxar: sem as rotas, o app esconde o cartão.
-if (!PACKAGED) {
+// Empacotado no app do PC não há repositório para puxar, e no teste de uma branch o worktree é dela:
+// sem as rotas, o app esconde o cartão.
+if (!PACKAGED && !TEST_BUILD) {
   app.get('/api/update', async () => updater.status());
   app.post('/api/update', async () => updater.start());
   app.post('/api/update/restart', async () => {

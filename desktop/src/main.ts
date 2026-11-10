@@ -1,7 +1,9 @@
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, nativeTheme, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron';
 import { autostartEnabled, setAutostart } from './autostart.ts';
 import { Notifications } from './notifications.ts';
-import { BASE, ICON, PACKAGED, PRELOAD, SERVER_LOG, TRAY_ICON } from './paths.ts';
+import { BASE, ICON, PACKAGED, PRELOAD, SERVER_LOG, TEST, TRAY_ICON, WEB_DIST } from './paths.ts';
 import { ServerSupervisor } from './server.ts';
 import { Settings, type NotificationPrefs, type WindowState } from './settings.ts';
 import { loginShellEnv } from './shell-env.ts';
@@ -13,7 +15,8 @@ import { Updates } from './updates.ts';
  * celular; sair de verdade é pelo menu da bandeja ou Ctrl+Q.
  */
 
-app.setName('edit.r');
+// O app de teste de uma branch (ver deploy/test-build.sh) se apresenta com outro nome na barra do sistema.
+app.setName(TEST ? 'edit.r teste' : 'edit.r');
 
 // Aberto pelo autostart (ver autostart.ts): só a bandeja, sem a janela.
 const startHidden = process.argv.includes('--hidden');
@@ -98,10 +101,11 @@ function createWindow(): BrowserWindow {
     if (!startHidden) window.show();
   });
 
-  // Fechar esconde: o servidor e os avisos seguem, e a bandeja traz de volta.
+  // Fechar esconde: o servidor e os avisos seguem, e a bandeja traz de volta. O de teste não tem
+  // bandeja: fechar encerra o app (e o script que o abriu derruba a instância de teste).
   window.on('close', (e) => {
     saveWindow(window);
-    if (quitting) return;
+    if (quitting || TEST) return;
     e.preventDefault();
     window.hide();
   });
@@ -215,7 +219,7 @@ function createMenu(): void {
           { role: 'zoomOut', label: 'Diminuir' },
           { role: 'togglefullscreen', label: 'Tela cheia' },
           { type: 'separator' },
-          { label: 'Fechar a janela', click: () => win?.hide() },
+          { label: 'Fechar a janela', click: () => (TEST ? win?.close() : win?.hide()) },
           { label: 'Sair', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() },
         ],
       },
@@ -251,6 +255,37 @@ function handleIpc(): void {
   });
 }
 
+/**
+ * O app de teste acompanha a build: o `web/dist` recompilado (o `index.html` novo) recarrega a janela
+ * sozinho, sem o service worker de antes, que seguraria a versão velha.
+ */
+function watchBuild(): void {
+  const index = join(WEB_DIST, 'index.html');
+  const stamp = () => {
+    try {
+      return statSync(index).mtimeMs;
+    } catch {
+      // No meio do build, o dist esvaziado.
+      return 0;
+    }
+  };
+  let seen = stamp();
+  let reload: NodeJS.Timeout | undefined;
+  setInterval(() => {
+    const now = stamp();
+    if (!now || now === seen) return;
+    seen = now;
+    // Um instante para o fim do build (a compressão dos arquivos vem depois do index.html).
+    clearTimeout(reload);
+    reload = setTimeout(() => void reloadFresh(), 1_500);
+  }, 1_000).unref();
+}
+
+async function reloadFresh(): Promise<void> {
+  await session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+  win?.webContents.reloadIgnoringCache();
+}
+
 async function boot(): Promise<void> {
   createMenu();
   grantPermissions();
@@ -263,6 +298,7 @@ async function boot(): Promise<void> {
     navReady = false;
   });
   void win.loadURL(splash('Iniciando o edit.r…'));
+  if (TEST) return bootTest();
   createTray();
 
   // Instalado (não rodando do repositório), liga o "iniciar com o sistema" na primeira vez; depois,
@@ -299,6 +335,26 @@ async function boot(): Promise<void> {
   notifications.start();
 }
 
+/**
+ * O app de teste de uma branch: só a janela, na instância de teste que o script subiu. Sem bandeja,
+ * atualização nem avisos do sistema (os do app de sempre já avisam das mesmas conversas), e sem
+ * servidor próprio, que pegaria os seus dados de verdade.
+ */
+async function bootTest(): Promise<void> {
+  if (!win) return;
+  supervisor = new ServerSupervisor({}, false);
+  try {
+    await supervisor.start();
+  } catch {
+    void win.loadURL(splash('A instância de teste não respondeu.', `Nada em ${BASE}: ela sobe com o deploy/test-build.sh.`));
+    return;
+  }
+  // O service worker de uma build anterior, na mesma porta, abriria a versão velha.
+  await session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+  await win.loadURL(new URL(openArg(process.argv) ?? '/', BASE).href);
+  watchBuild();
+}
+
 if (!app.requestSingleInstanceLock()) {
   // Já aberto: o outro traz a janela (ver `second-instance`).
   app.quit();
@@ -308,8 +364,10 @@ if (!app.requestSingleInstanceLock()) {
     const route = openArg(argv);
     if (route || !argv.includes('--hidden')) showWindow(route);
   });
-  // Na bandeja, sem janela: o app continua.
-  app.on('window-all-closed', () => {});
+  // Na bandeja, sem janela: o app continua (o de teste, sem bandeja, sai).
+  app.on('window-all-closed', () => {
+    if (TEST) app.quit();
+  });
   app.on('before-quit', (e) => {
     quitting = true;
     notifications?.stop();
