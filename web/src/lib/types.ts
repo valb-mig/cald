@@ -435,10 +435,14 @@ export type GitFile = {
 export type DiffSide = 'staged' | 'unstaged' | 'head' | 'base'
 
 /** Atualizar o PC pelo celular (ver server/src/updater.ts). */
-export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'restart'
+export type UpdateStep = 'fetch' | 'switch' | 'merge' | 'install' | 'build' | 'desktop' | 'restart'
 export type UpdateStatus = {
   branch: string | null
   target: string
+  /** `dev`: segue a main e se atualiza sozinho; `release`: a versão publicada, atualizada pelo botão. */
+  channel: 'release' | 'dev'
+  /** Versão nova já compilada, esperando nenhuma conversa estar trabalhando para reiniciar. */
+  pendingRestart: boolean
   head: { sha: string; subject: string }
   incoming: { sha: string; subject: string }[]
   behind: number

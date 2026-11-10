@@ -22,6 +22,7 @@ const STEPS: Record<UpdateStep, string> = {
   merge: 'Atualizando os arquivos…',
   install: 'Instalando dependências…',
   build: 'Compilando o app…',
+  desktop: 'Compilando o app do PC…',
   restart: 'Reiniciando o servidor…',
 }
 
@@ -87,6 +88,14 @@ export function UpdateCard({ machine }: { machine: string }) {
     return () => clearInterval(timer)
   }, [running, restarting, load])
 
+  // No canal dev o job começa sozinho no servidor: com o cartão aberto, consulta de tempos em tempos.
+  const dev = status?.channel === 'dev'
+  useEffect(() => {
+    if (!dev || running || restarting) return
+    const timer = setInterval(() => void load(), 10_000)
+    return () => clearInterval(timer)
+  }, [dev, running, restarting, load])
+
   async function start() {
     setStarting(true)
     try {
@@ -113,16 +122,20 @@ export function UpdateCard({ machine }: { machine: string }) {
   // Noutra branch que já tem tudo da release (a main de quem desenvolve), também está em dia.
   const upToDate = Boolean(status && status.behind === 0)
   const blocked = Boolean(status && (status.dirty || (onTarget && status.ahead > 0) || status.busy.length > 0))
-  const postponed = job?.error === 'restart_postponed'
+  // Compilado e esperando as conversas pararem: pelo aviso do job ou pelo servidor já com versão pendente.
+  const waiting = job?.error === 'restart_postponed' || (status?.pendingRestart === true && !running)
 
   if (missing) return null
   return (
     <Group title="Atualização do PC">
       <div className="space-y-3 px-3 py-2.5 text-sm">
         {status && (
-          <p className="truncate text-xs text-muted-foreground">
-            Na {status.branch ?? 'versão solta'} · <span className="font-mono">{status.head.sha}</span> {status.head.subject}
-          </p>
+          <div className="space-y-0.5 text-xs text-muted-foreground">
+            {dev && <p>Canal dev: segue a main e se atualiza sozinho.</p>}
+            <p className="truncate">
+              Na {status.branch ?? 'versão solta'} · <span className="font-mono">{status.head.sha}</span> {status.head.subject}
+            </p>
+          </div>
         )}
         {error && !restarting && !running && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
@@ -131,9 +144,15 @@ export function UpdateCard({ machine }: { machine: string }) {
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
             {restarting ? STEPS.restart : STEPS[job!.step]}
           </p>
-        ) : postponed ? (
+        ) : waiting ? (
           <div className="space-y-2">
-            <Warning>Compilado, mas uma conversa começou a trabalhar: o reinício ficou para depois.</Warning>
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Loader2 className="mt-0.5 size-3.5 shrink-0" />
+              <span>Versão nova pronta: o servidor reinicia quando as conversas pararem.</span>
+            </p>
+            {status && status.busy.length > 0 && (
+              <p className="text-xs text-muted-foreground">Trabalhando: {status.busy.join(', ')}.</p>
+            )}
             <Button size="sm" onClick={() => void restartNow()}>
               Reiniciar agora
             </Button>
@@ -182,12 +201,12 @@ export function UpdateCard({ machine }: { machine: string }) {
             {onTarget && status.ahead > 0 && (
               <Warning>A {target} do PC tem commits que não estão no GitHub: resolva pelo terminal.</Warning>
             )}
-            {status.busy.length > 0 && <Warning>Esperando terminar: {status.busy.join(', ')}.</Warning>}
+            {!waiting && status.busy.length > 0 && <Warning>Esperando terminar: {status.busy.join(', ')}.</Warning>}
             {!status.canRestart && <Warning>O servidor não roda como serviço: depois de compilar, reinicie pelo terminal.</Warning>}
             <div className="flex gap-2">
               {!upToDate && (
                 <Button size="sm" disabled={blocked || starting} onClick={() => setConfirm(true)}>
-                  {starting ? <Loader2 className="animate-spin" /> : <Download />} Atualizar e reiniciar
+                  {starting ? <Loader2 className="animate-spin" /> : <Download />} {dev ? 'Atualizar agora' : 'Atualizar e reiniciar'}
                 </Button>
               )}
               <Button size="sm" variant="ghost" onClick={() => void load()}>
