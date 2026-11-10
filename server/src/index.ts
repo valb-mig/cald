@@ -311,9 +311,6 @@ app.get<{ Querystring: { cwd?: string } }>(
   async (req) => activity(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
 );
 
-// A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
-app.get('/api/office', async () => manager.office());
-
 app.get('/api/projects', async () => manager.projects());
 app.get('/api/projects/sources', async () => manager.projectSources());
 
@@ -918,13 +915,13 @@ app.post<{ Params: IdParams }>('/api/sessions/:id/delete', async (req) => {
 
 // ---- explorador e git do projeto ----
 
-type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide } };
+type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide; base?: string } };
 const projectQuery = {
   schema: {
     querystring: {
       type: 'object',
       required: ['cwd'],
-      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged', 'head', 'base'] } },
+      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged', 'head', 'base'] }, base: { type: 'string' } },
     },
   },
 };
@@ -1169,7 +1166,7 @@ app.get<ProjectQuery>('/api/git/base', projectQuery, async (req) => ({
 }));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
-  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
+  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side, req.query.base),
 }));
 
 // Controle de código-fonte pelo painel: preparar, tirar do stage, descartar (com volta), commit e sincronizar.
@@ -1254,7 +1251,7 @@ app.post<{ Body: { cwd: string; name: string } }>(
 );
 
 // O que a branch mudou desde que saiu da principal, para a lista "Desta branch" do painel.
-app.get<ProjectQuery>('/api/git/changes', projectQuery, async (req) => gitBranchChanges(await manager.knownCwd(req.query.cwd)));
+app.get<ProjectQuery>('/api/git/changes', projectQuery, async (req) => gitBranchChanges(await manager.knownCwd(req.query.cwd), req.query.base));
 
 // As branches para trocar, com quantos commits cada uma tem fora da principal; `fetch=1` consulta o remoto antes.
 app.get<{ Querystring: { cwd: string; fetch?: string } }>(

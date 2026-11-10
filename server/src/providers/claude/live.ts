@@ -6,9 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CLAUDE_BIN, CLAUDE_HOME, LIVE_FALLBACK_POLL_MS, childEnv } from './env.ts';
 import { HttpError } from '../../errors.ts';
-import type { OfficeSnapshot } from '../../office.ts';
 import type { ExternalSession, ExternalSessions } from '../types.ts';
-import { pcOffice } from './office.ts';
 
 const exec = promisify(execFile);
 
@@ -103,11 +101,6 @@ export class LiveRegistry extends EventEmitter implements ExternalSessions {
     const live = this.sessions.get(session.sessionId);
     if (!live) return;
     await stopPcSession(live);
-  }
-
-  office(session: ExternalSession): Promise<OfficeSnapshot> {
-    const live = this.sessions.get(session.sessionId);
-    return live ? pcOffice(live.sessionId, live) : Promise.resolve({ workers: [], events: [] });
   }
 }
 

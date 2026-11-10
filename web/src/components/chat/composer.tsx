@@ -1,4 +1,4 @@
-import { AppWindow, ArrowUp, Check, Code, Expand, GitBranch, Loader2, Lock, Mic, Monitor, Shrink, Square, SquareTerminal } from 'lucide-react'
+import { AppWindow, ArrowUp, Check, Code, Expand, Loader2, Lock, Mic, Monitor, Shrink, Square, SquareTerminal } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
@@ -13,6 +13,7 @@ import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
 import { useMachine } from '@/lib/machines'
 import { CLAUDE, currentMode, useFeatures, useProvider } from '@/lib/providers'
+import { BranchMenu } from './branch-menu'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AttachButton, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
@@ -395,12 +396,7 @@ export function Composer({
             <div className="min-h-0 overflow-hidden">
               <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', big ? 'h-11 border-b px-3.5' : 'h-8 pr-0 pl-2')}>
                 {remote && <RemoteChip {...remote} />}
-                {branch && (
-                  <span className="flex min-w-0 items-center gap-1 font-mono">
-                    <GitBranch className="size-3 shrink-0" />
-                    <span className="truncate">{branch}</span>
-                  </span>
-                )}
+                {branch && <BranchMenu machine={machine} cwd={cwd} branch={branch} working={working} />}
                 {/* Grande, os atalhos que valem nela (no toque, sem teclado, não). */}
                 {big && (
                   <span className="ml-auto hidden items-center gap-1 pointer-fine:flex">
