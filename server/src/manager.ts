@@ -271,8 +271,11 @@ export class Manager extends EventEmitter {
       byId.set(l.sessionId, entry);
     }
 
+    // As do painel sem conversa salva ainda: o título delas é só o rótulo do processo.
+    const unsaved = new Set<string>();
     // Sessões do painel por último: o processo do painel também pode aparecer entre as do terminal.
     for (const s of this.sessions.values()) {
+      if (!byId.has(s.id)) unsaved.add(s.id);
       const entry = byId.get(s.id) ?? {
         sessionId: s.id,
         provider: s.provider.id,
@@ -308,9 +311,11 @@ export class Manager extends EventEmitter {
       if (look) {
         entry.look = look;
         // Depois de um /clear, a primeira mensagem da conversa nova é o próprio comando, e o título sairia
-        // "/clear": até ela ter um de verdade, fica o da conversa de onde ela veio.
+        // "/clear"; antes dela, sairia o rótulo do processo (o primeiro pedido de lá), e a lista e a aba
+        // trocavam de nome no meio do /clear. Até ela ter um de verdade, fica o da conversa de onde ela veio.
         const before = titles.get(look);
-        if (/^\/[\w:-]+\s*$/.test(entry.title) && before && !before.startsWith('/')) entry.title = before;
+        const provisional = unsaved.has(entry.sessionId) || /^\/[\w:-]+\s*$/.test(entry.title);
+        if (provisional && before && !before.startsWith('/')) entry.title = before;
       }
       const name = this.meta.nameOf(entry.sessionId);
       if (name) entry.claudinhoName = name;
