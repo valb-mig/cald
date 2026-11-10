@@ -173,7 +173,8 @@ export function WorktreeMenu({ machine, cwd, tag, refresh }: { machine: string; 
             <AlertDialogDescription>
               {lost && status
                 ? `Ele tem ${[status.unmerged && plural(status.unmerged, 'commit que não voltou', 'commits que não voltaram') + ` para ${base}`, status.changed && plural(status.changed, 'arquivo sem commit', 'arquivos sem commit')].filter(Boolean).join(' e ')}. ${status.unmerged ? `A branch ${status.branch} fica com os commits, para trazer depois${status.changed ? ', e o que está sem commit se perde, sem volta.' : '.'}` : 'O que está sem commit se perde, sem volta.'}`
-                : `Apaga a pasta do worktree${tag.branch ? ` e a branch ${tag.branch}` : ''}. Tudo já está em ${base}.`}{' '}
+                : // Trocado para outra branch, a outra fica (ver ownBranch em server/src/worktrees.ts).
+                  `Apaga a pasta do worktree${tag.branch && status?.branch === tag.branch ? ` e a branch ${tag.branch}` : ''}. Tudo já está em ${base}.`}{' '}
               A conversa é fechada e fica na lista, só para leitura.
             </AlertDialogDescription>
           </AlertDialogHeader>

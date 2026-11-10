@@ -648,7 +648,7 @@ export class Manager extends EventEmitter {
     const busy = own.find((s) => s.state === 'running' || s.state === 'waiting' || s.activeAgents);
     if (busy) throw new HttpError(409, 'session_busy', { state: busy.state, agents: busy.activeAgents });
     await Promise.all(own.map((s) => s.shutdown()));
-    await removeWorktree(ref, status);
+    await removeWorktree(ref, status, info);
     await this.meta.setWorktree(ref.path, undefined);
     this.emit('catalog');
   }

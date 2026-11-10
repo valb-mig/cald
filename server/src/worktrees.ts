@@ -269,14 +269,26 @@ export async function mergeWorktree(ref: WorktreeRef, info?: WorktreeInfo): Prom
 export const unsaved = (s: WorktreeStatus) => s.unmerged > 0 || s.changed > 0;
 
 /**
+ * A branch que nasceu com o worktree: a gravada (ver WorktreeInfo) ou, sem registro, a que leva o nome
+ * dele (`editr/<nome>`, `worktree-<nome>`). Trocado para outra (pelo Claude ou pelo chip da caixa), a
+ * outra é do projeto, não dele: uma `main` integrada não pode sumir junto.
+ */
+function ownBranch(ref: WorktreeRef, branch: string, info?: WorktreeInfo): boolean {
+  if (info) return branch === info.branch;
+  return branch === ref.name || branch.endsWith(`/${ref.name}`) || branch.endsWith(`-${ref.name}`);
+}
+
+/**
  * Apaga o worktree e, se tudo dela já está na base, a branch dele. Quem chama já conferiu `unsaved` (ou
  * o usuário confirmou a perda) e fechou as conversas que estavam lá.
  */
-export async function removeWorktree(ref: WorktreeRef, s: WorktreeStatus): Promise<void> {
+export async function removeWorktree(ref: WorktreeRef, s: WorktreeStatus, info?: WorktreeInfo): Promise<void> {
   await gitWrite(ref.root, ['worktree', 'remove', ...(unsaved(s) ? ['--force'] : []), ref.path]);
-  // A branch sai junto só se tudo dela já está na base: com commits que não voltaram ela fica, e o
-  // trabalho ainda dá para trazer depois. A do checkout principal nunca sai.
-  if (s.branch && s.unmerged === 0 && s.branch !== s.current) await gitWrite(ref.root, ['branch', '-D', s.branch]).catch(() => undefined);
+  // A branch sai junto só se é a dele e tudo dela já está na base: com commits que não voltaram ela fica,
+  // e o trabalho ainda dá para trazer depois. A do checkout principal nunca sai.
+  if (s.branch && ownBranch(ref, s.branch, info) && s.unmerged === 0 && s.branch !== s.current) {
+    await gitWrite(ref.root, ['branch', '-D', s.branch]).catch(() => undefined);
+  }
 }
 
 /** Um worktree do repositório na lista da aba Claude: o status dele e de onde veio. */
