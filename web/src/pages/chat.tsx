@@ -39,6 +39,7 @@ import { useChatView } from '@/lib/chat-view'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
+import { QueueBar } from '@/components/chat/queue-bar'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
 import { SummaryDialog } from '@/components/chat/summary-dialog'
@@ -61,6 +62,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Veil } from '@/components/wallpaper/veil'
 import { api, errorMessage } from '@/lib/api'
+import { setQueuedSettings, useQueueEdit } from '@/lib/queue-edit'
 import { claudinhoName } from '@/lib/claudinho'
 import { workspaceColor } from '@/lib/workspaces'
 import { projectOf } from '@/lib/worktree'
@@ -269,6 +271,9 @@ export function ChatPage({ id }: { id: string }) {
   useBackToClose(phoneTab, () => setPanelShown(false))
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
+  // Com o Claude trabalhando, o modelo e o esforço escolhidos valem para a próxima mensagem (que entra na
+  // fila com eles), sem mexer no turno em andamento. Viram os da conversa quando ela para e a fila esvazia.
+  const [nextSettings, setNextSettings] = useState<Pick<RunOptions, 'model' | 'effort'>>({})
   // Texto da mensagem bifurcada, esperando o ID que o rekey vai trazer.
   const branched = useRef<string | null>(null)
   const glass = useGlass()
@@ -409,6 +414,21 @@ export function ChatPage({ id }: { id: string }) {
 
   // O painel do modo coding: só no PC, com espaço, sem o zen.
   const windows = coding && tabs && roomy && !zen
+
+  const inTurn = working || state === 'waiting'
+  // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+  const liveSettings = Object.keys(view.settings).length ? view.settings : pending
+  // A caixa mostra com que modelo e esforço a próxima mensagem vai.
+  const nextOf = { ...liveSettings, ...nextSettings }
+  const queueLength = entry?.queue?.length ?? 0
+  // A mensagem da fila aberta na caixa para editar (ver lib/queue-edit.ts).
+  const editingQueued = useQueueEdit((s) => s[id])
+  // Parou e a fila esvaziou: o que foi escolhido para a próxima vira o da conversa.
+  useEffect(() => {
+    if (inTurn || queueLength || !Object.keys(nextSettings).length) return
+    setNextSettings({})
+    api.settings(id, nextSettings).catch((err: unknown) => toast.error('Não deu para trocar o modelo', { description: errorMessage(err) }))
+  }, [inTurn, queueLength, nextSettings, id])
 
   return (
     <AgentsContext value={agentsContext}>
@@ -762,17 +782,39 @@ export function ChatPage({ id }: { id: string }) {
 
                     {owner === 'panel' ? (
                       <Composer
+                        // A fila de mensagens, no alto da casca da caixa.
+                        above={
+                          entry?.queue?.length ? (
+                            <QueueBar
+                              sessionId={id}
+                              provider={provider}
+                              queue={entry.queue}
+                              paused={entry.queuePaused}
+                            />
+                          ) : undefined
+                        }
                         docked={tabs}
                         sessionId={id}
                         cwd={cwd}
                         provider={provider}
                         branch={git.status?.branch}
-                        working={working || state === 'waiting'}
-                        // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-                        settings={Object.keys(view.settings).length ? view.settings : pending}
+                        working={inTurn}
+                        settings={editingQueued ? { ...liveSettings, model: editingQueued.model ?? liveSettings.model, effort: editingQueued.effort ?? liveSettings.effort } : nextOf}
                         context={context}
-                        onChangeSettings={async (patch) => {
-                          await api.settings(id, patch)
+                        onChangeSettings={async ({ model, effort, ...rest }) => {
+                          // Com uma mensagem da fila aberta na caixa, modelo e esforço são dela.
+                          if (editingQueued && (model || effort)) {
+                            setQueuedSettings(id, { model, effort })
+                            if (Object.keys(rest).length) await api.settings(id, rest)
+                            return
+                          }
+                          // Trabalhando, modelo e esforço ficam para a próxima mensagem; o modo vale na hora.
+                          if (inTurn && (model || effort)) {
+                            setNextSettings((s) => ({ ...s, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }))
+                            if (Object.keys(rest).length) await api.settings(id, rest)
+                            return
+                          }
+                          await api.settings(id, { model, effort, ...rest })
                         }}
                         onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
                         // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
@@ -808,7 +850,10 @@ export function ChatPage({ id }: { id: string }) {
                         }
                         onSend={(text, attachments) => {
                           pin()
-                          return enqueue(id, text, attachments)
+                          // Com o Claude trabalhando, a mensagem vai para a fila da conversa (ver QueueBar), com o
+                          // modelo e o esforço que a caixa mostra.
+                          const { model, effort } = nextOf
+                          return enqueue(id, text, attachments, { model, effort: (effort ?? undefined) as RunOptions['effort'] }, true)
                         }}
                         onInterrupt={() => api.interrupt(id).then(() => undefined)}
                       />
