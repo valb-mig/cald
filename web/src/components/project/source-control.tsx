@@ -46,7 +46,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { api, errorMessage, isOutdatedServer, OUTDATED_SERVER } from '@/lib/api'
 import { reloadGit, usePressMenu, useWide } from '@/lib/hooks'
-import { openViewer, useProjectPanel, type PanelProject } from '@/lib/project-panel'
+import { openViewer, showWorktree, useProjectPanel, type PanelProject } from '@/lib/project-panel'
 import type { BranchChanges, GitBranches, GitStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { openPanelTab } from '@/lib/workbench'
@@ -276,6 +276,12 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
       void loadBranches()
     })
 
+  // A pasta da conversa, não a que a barra mostra agora: tocar na branch dela, vendo um worktree, volta.
+  const openWorktree = (path: string) => {
+    const own = useProjectPanel.getState().project
+    if (own) showWorktree(own.machine, own.cwd, path)
+  }
+
   const createBranch = () => {
     const name = newBranch?.trim()
     if (!name || busy) return
@@ -497,7 +503,7 @@ export function SourceControlTab({ project, status, loading }: { project: PanelP
                   <Plus /> Nova branch…
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <BranchList branches={branches} error={branchesError} onPick={(name) => void switchTo(name)} onDelete={askDelete} />
+                <BranchList branches={branches} error={branchesError} onPick={(name) => void switchTo(name)} onOpenWorktree={openWorktree} onDelete={askDelete} />
               </DropdownMenuContent>
             </DropdownMenu>
             {status.upstream && (status.ahead > 0 || status.behind > 0) && (
@@ -651,11 +657,13 @@ function BranchList({
   branches,
   error,
   onPick,
+  onOpenWorktree,
   onDelete,
 }: {
   branches: GitBranches | null
   error: string | null
   onPick: (name: string) => void
+  onOpenWorktree: (path: string) => void
   onDelete: (d: Doomed) => void
 }) {
   if (error && !branches) return <p className="px-2 py-1.5 text-xs text-muted-foreground">{error}</p>
@@ -674,9 +682,9 @@ function BranchList({
       {branches.local.map((b) => (
         <DropdownMenuItem
           key={b.name}
-          disabled={b.current || b.worktree !== null}
-          onSelect={() => onPick(b.name)}
-          title={b.worktree ? `Aberta em outro worktree (${b.worktree})` : undefined}
+          disabled={b.current}
+          onSelect={() => (b.worktree ? onOpenWorktree(b.worktree) : onPick(b.name))}
+          title={b.worktree ? 'Abrir este worktree na barra' : undefined}
           className="group/branch gap-2 data-[disabled]:opacity-100"
         >
           <Check className={cn('shrink-0', !b.current && 'invisible')} />
