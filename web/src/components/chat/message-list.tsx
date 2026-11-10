@@ -673,7 +673,7 @@ export function MessageList({
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
   const shown = useMemo(() => items.filter((i) => !quiet(i)), [items])
-  const turns = useMemo(() => turnsOf(items), [items])
+  const turns = useMemo(() => turnsOf(items, working), [items, working])
   const heads = useMemo(() => replyHeads(shown), [shown])
   const name = claudinhoName(sessionId, useStore((s) => s.catalog.find((c) => c.sessionId === sessionId)?.claudinhoName))
   // A resposta que ainda não tem item na lista (o turno acabou de começar) põe o cabeçalho no fim ao vivo.
