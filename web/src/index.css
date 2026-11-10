@@ -268,6 +268,36 @@
   background: radial-gradient(circle at 100% 100%, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
 }
 
+/* A casca da caixa de mensagem presa ao pé da conversa (components/chat/composer.tsx, `docked`): sobe da
+   barra de baixo como uma aba, e as curvas dos lados a fundem com a casca, como a .rail-tab na borda. */
+.dock-tab {
+  --curve: 0.875rem;
+  --tab-fill: var(--shell);
+  background: var(--tab-fill);
+}
+.dock-tab.dock-glass {
+  --tab-fill: color-mix(in oklab, var(--shell) 70%, transparent);
+}
+.dock-tab::before,
+.dock-tab::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: var(--curve);
+  height: var(--curve);
+  pointer-events: none;
+}
+/* À esquerda: o círculo vazado no canto de cima à esquerda deixa cheio só o canto rente ao pé e à aba. */
+.dock-tab::before {
+  right: 100%;
+  background: radial-gradient(circle at 0 0, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
+}
+/* À direita: o mesmo, espelhado. */
+.dock-tab::after {
+  left: 100%;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--curve) - 0.5px), var(--tab-fill) var(--curve));
+}
+
 /* O terminal do painel (components/terminal.tsx) mostra a janela por trás: o xterm.css pinta de preto. */
 .cr-terminal .xterm-viewport,
 .cr-terminal .xterm-screen {
@@ -606,14 +636,7 @@
   }
 }
 
-/* Mapa mental (components/mindmap): o tracejado da ligação corre enquanto o agente trabalha. */
-@keyframes agent-flow {
-  to {
-    stroke-dashoffset: -11;
-  }
-}
-
-/* Mapa mental (components/mindmap): o ponto do chat aberto a partir de um nó pisca para ser achado. */
+/* O ponto do chat a que o "Responder" do agente leva pisca para ser achado. */
 @keyframes flash-item {
   0%,
   35% {

@@ -8,7 +8,6 @@ import { WorkspaceDot, WorkspacePill } from '@/components/workspaces/workspace-p
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { ProjectPanelButton } from '@/components/project/panel'
 import { ProjectPicker } from '@/components/project-picker'
-import { RepoLink } from '@/components/repo-link'
 import { Button } from '@/components/ui/button'
 import { Veil } from '@/components/wallpaper/veil'
 import { WorktreeToggle } from '@/components/worktree-toggle'
@@ -139,7 +138,6 @@ function NewChat({
             <ChevronDown className="size-3 shrink-0" />
           </div>
         </button>
-        {cwd && git.status?.remote && <RepoLink url={git.status.remote} />}
         {cwd && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
       </header>
 

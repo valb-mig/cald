@@ -20,7 +20,7 @@ import { openTab } from '@/lib/workbench'
 /**
  * Uma conversa em miniatura, na mesa do projeto (ver hub.tsx): as mensagens ao vivo, as aprovações e
  * perguntas para responder ali mesmo e a caixa de mensagem. É a mesma conversa da aba, sem o resto da
- * tela (mapa, agentes, menu): o topo a abre como aba, onde está tudo. `onEdit`: escrever nela deixa a
+ * tela (agentes, menu): o topo a abre como aba, onde está tudo. `onEdit`: escrever nela deixa a
  * mesa aberta, como na caixa da conversa nova.
  */
 export function MiniChat({ id, machine, onEdit, className }: { id: string; machine: string; onEdit?: () => void; className?: string }) {

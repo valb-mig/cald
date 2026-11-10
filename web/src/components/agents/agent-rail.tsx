@@ -154,7 +154,7 @@ export function AgentRail({
     const last = fresh.at(-1)
     if (last) reveal(list.current, last)
   }, [live])
-  // Em foco por fora (a linha no chat, o mapa, "Chamado por"): fica à vista aqui também.
+  // Em foco por fora (a linha no chat, "Chamado por"): fica à vista aqui também.
   useEffect(() => {
     if (focused) reveal(list.current, focused)
   }, [focused])

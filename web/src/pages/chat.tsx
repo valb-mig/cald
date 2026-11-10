@@ -4,7 +4,6 @@ import {
   Columns2,
   Copy,
   EllipsisVertical,
-  ExternalLink,
   GitFork,
   ListChecks,
   Lock,
@@ -12,20 +11,16 @@ import {
   Maximize2,
   Minimize2,
   LogOut,
-  MessagesSquare,
-  Monitor,
-  Network,
   Pencil,
   Pin,
   PinOff,
-  Smartphone,
   Server,
   Trash2,
   Volume2,
   VolumeOff,
   X,
 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Link } from 'wouter'
 import { AgentChat } from '@/components/agents/agent-chat'
@@ -33,8 +28,7 @@ import { AgentRail } from '@/components/agents/agent-rail'
 import { TeamPill } from '@/components/teams/team-pill'
 import { WorkspaceMenu, WorkspacePill } from '@/components/workspaces/workspace-pill'
 import { AgentsContext, agentTree } from '@/components/agents/model'
-import { ApprovalCard } from '@/components/chat/approval-card'
-import { Composer } from '@/components/chat/composer'
+import { Composer, RemoteDock } from '@/components/chat/composer'
 import { liveKey, useAutoScroll, useConversation } from '@/components/chat/feed'
 import { buildItems, type Item, type Keyed } from '@/components/chat/items'
 import { MessageList, wipeTime } from '@/components/chat/message-list'
@@ -45,7 +39,6 @@ import { useChatView } from '@/lib/chat-view'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
-import { QuestionCard } from '@/components/chat/question-card'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
 import { SummaryDialog } from '@/components/chat/summary-dialog'
@@ -54,13 +47,8 @@ import { WorktreeMenu } from '@/components/chat/worktree-menu'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
-import { firstSentence, mindTree } from '@/components/mindmap/model'
-import { MapPane } from '@/components/mindmap/pane'
-import { useChatDisplay } from '@/components/mindmap/view'
 import { ProjectPanelButton } from '@/components/project/panel'
-import { RepoLink } from '@/components/repo-link'
 import { SessionPicker } from '@/components/session-picker'
-import { StateBadge } from '@/components/state-badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -78,7 +66,7 @@ import { dropTools, publishTools } from '@/lib/chat-tools'
 import { claudinhoName } from '@/lib/claudinho'
 import { workspaceColor } from '@/lib/workspaces'
 import { projectOf } from '@/lib/worktree'
-import { projectName, stateInfo } from '@/lib/format'
+import { projectName } from '@/lib/format'
 import { PHONE_QUERY, useGitStatus, useHome, useMediaQuery, usePressMenu, useWide, useWidth } from '@/lib/hooks'
 import { useBackToClose } from '@/lib/back-close'
 import { useShowProject } from '@/lib/project-panel'
@@ -89,7 +77,7 @@ import { putDraft } from '@/lib/drafts'
 import { enqueue } from '@/lib/outbox'
 import { clearNotifications } from '@/lib/push'
 import { setAutoSpeech, speakNew, speechSupported, useSpeech } from '@/lib/speech'
-import { useMachine, useMachines } from '@/lib/machines'
+import { HOME, useMachine, useMachines } from '@/lib/machines'
 import { CLAUDE, useFeatures } from '@/lib/providers'
 import { CHAT_DRAG, closeChat, openBeside, swapChat, useDraggingChat, usePane, useSplit } from '@/lib/split'
 import { onLiveEvent, subscribe, unsubscribe, useStore } from '@/lib/store'
@@ -99,7 +87,6 @@ import { cn } from '@/lib/utils'
 import { useActivityPing } from '@/lib/wakatime'
 
 // O desenho do mapa mental só chega quando ele for aberto; a árvore (model.ts) é leve e fica aqui.
-const MindMap = lazy(() => import('@/components/mindmap/mind-map').then((m) => ({ default: m.MindMap })))
 
 /** Ocupação do contexto da sessão aberta no painel; relida a cada turno concluído. */
 function useContextUsage(id: string, enabled: boolean, turns: number): ContextUsage | null {
@@ -157,13 +144,13 @@ function useWipe(events: Keyed[], cut: number): { items: Item[]; elapsed: number
       wipes.set(marker.key, w)
     }
     const elapsed = Date.now() - w.at
-    return elapsed < wipeTime(w.items.length) ? { key: marker.key, items: w.items, elapsed } : null
+    return elapsed < wipeTime(w.items) ? { key: marker.key, items: w.items, elapsed } : null
     // Só quando chega um marco novo: os eventos seguintes não reiniciam a limpeza.
   }, [marker?.key])
   const [over, setOver] = useState<string | null>(null)
   useEffect(() => {
     if (!wipe) return
-    const done = setTimeout(() => setOver(wipe.key), wipeTime(wipe.items.length) - wipe.elapsed)
+    const done = setTimeout(() => setOver(wipe.key), wipeTime(wipe.items) - wipe.elapsed)
     return () => clearTimeout(done)
   }, [wipe])
   return wipe && over !== wipe.key ? wipe : null
@@ -179,11 +166,12 @@ export function ChatPage({ id }: { id: string }) {
   const [besideOpen, setBesideOpen] = useState(false)
   // Máquina da conversa (posta pelo ChatSplit, ver machines.ts): tudo desta tela vai para ela.
   const machine = useMachine()
-  const { view, entry, cwd, panelOpen, owner, state, waitingFor, working, history, events, cut, items, background, uses, queued } = useConversation(
+  const { view, entry, cwd, panelOpen, owner, state, working, history, events, cut, items, background, uses, queued } = useConversation(
     id,
     machine,
   )
-  const machineLabel = useMachines((s) => (s.machines.length > 1 ? s.machines.find((m) => m.id === machine)?.name : undefined))
+  // Só a conversa de outra máquina diz qual é: a desta é o normal.
+  const machineLabel = useMachines((s) => (machine !== HOME ? s.machines.find((m) => m.id === machine)?.name : undefined))
   // O agente que conduz a conversa (servidor antigo não diz: é o Claude): dele vêm os modelos, os modos e a bifurcação.
   const provider = entry?.provider ?? CLAUDE
   const canFork = useFeatures(machine, provider).fork
@@ -250,7 +238,6 @@ export function ChatPage({ id }: { id: string }) {
   // Turno encerrado com algo em segundo plano: a conversa ainda trabalha (como na lista de conversas).
   const inBackground = state === 'idle' && background.length > 0
   const shownState = state === 'idle' && (agentsWorking || inBackground) ? 'running' : state
-  const shownWaiting = inBackground ? 'background' : waitingFor
   const turns = useMemo(() => view.events.filter((e) => e.kind === 'result').length, [view.events])
   const context = useContextUsage(id, panelOpen, turns)
   // Com projeto (não a pasta pessoal): explorador de arquivos e git no topo.
@@ -268,6 +255,8 @@ export function ChatPage({ id }: { id: string }) {
       error: (err) => errorMessage(err),
     })
   }
+  // O projeto de origem, também num worktree: qual worktree, o chip dele no topo já diz.
+  const projectLabel = projectName(cwd ? projectOf(cwd) : cwd)
   const workspaceLabel = entry?.workspace && (
     <span className="flex min-w-0 shrink items-center gap-1">
       <span className="size-2 shrink-0 rounded-full" style={{ background: workspaceColor(entry.workspace.color) }} />
@@ -306,8 +295,6 @@ export function ChatPage({ id }: { id: string }) {
     history.events === null,
   ])
 
-  // Mapa mental (components/mindmap): no lugar do chat ou, com espaço, ao lado dele.
-  const [display, setDisplay] = useChatDisplay()
   const areaRef = useRef<HTMLDivElement>(null)
   // Soltar imagens e documentos em qualquer lugar da conversa anexa todos na caixa de mensagem dela.
   const drop = useFileDrop((list) => {
@@ -320,49 +307,34 @@ export function ChatPage({ id }: { id: string }) {
   const roomy = useWidth(rowRef) >= 1000
   const coding = useChatView(id) === 'coding'
   // Estreita (várias lado a lado no PC): só o essencial no topo, o resto vai para o menu. No celular, o
-  // topo fica quase como no zen: o voltar, a conversa, o mapa mental e os arquivos e o git, sem menu.
+  // topo fica quase como no zen: o voltar, a conversa e os arquivos e o git, sem menu.
   const slim = areaWidth < 480 || !tabs
   const toggleAutoSpeech = () => {
     setAutoSpeech(id, !autoSpeech)
     if (autoSpeech) toast('Leitura automática desligada')
     else toast('Leitura automática ligada', { description: 'As respostas novas do Claude serão lidas em voz alta.' })
   }
-  const shown = display === 'both' && !roomy ? 'map' : display
-  const { label: stateLabel, tone: stateTone } = stateInfo(shownState, shownWaiting)
-  // Pôr um agente em foco (pelo trilho, pela linha dele no chat, pelo mapa): com só o mapa na tela, volta ao chat.
+  // Pôr um agente em foco (pelo trilho, pela linha dele no chat).
   const openAgent = useCallback(
     (agent: string) => {
       setAgentFocus({ session: id, agent })
-      if (shown === 'map') setDisplay('chat')
     },
-    [id, shown, setDisplay],
+    [id],
   )
   const agentsContext = useMemo(() => ({ tree: agents, open: openAgent, team: entry?.team }), [agents, openAgent, entry?.team])
-  // O mapa só mostra a primeira frase do que o Claude está escrevendo: assinar o texto inteiro
-  // refaria a árvore e o layout a cada delta.
-  const streamHead = useStore((s) => {
-    const text = shown === 'chat' ? '' : s.streams[id]
-    return text ? firstSentence(text) || 'Escrevendo…' : ''
-  })
-  const mapRoot = useMemo(
-    () => (shown === 'chat' ? null : mindTree({ seed: id, items, title: entry?.title ?? 'Conversa', rootMeta: stateLabel, working, streaming: streamHead, agents })),
-    [shown, id, items, entry?.title, stateLabel, working, streamHead, agents],
-  )
-  // Aprovações e perguntas esperando: com só o mapa na tela, ficam acima do campo de mensagem.
+  // Aprovações e perguntas esperando: o "Responder" do agente em foco leva até a delas.
   const requests = useMemo(
     () => items.filter((i): i is Extract<Item, { type: 'approval' | 'question' }> => (i.type === 'approval' || i.type === 'question') && !i.resolution),
     [items],
   )
-  const dockRef = useRef<HTMLDivElement>(null)
   const flash = (el: HTMLElement | null | undefined) => {
     if (!el) return
     el.classList.remove('flash-item')
     void el.offsetWidth // recomeça a animação se já estava piscando
     el.classList.add('flash-item')
   }
-  // Do mapa para o ponto do chat: o chat continua montado por baixo, então o item já está lá.
+  // Leva ao ponto do chat (`data-item`) e o faz piscar para ser achado.
   const jumpTo = (key: string) => {
-    if (shown === 'map') setDisplay('chat')
     leaveAgent()
     requestAnimationFrame(() => {
       const el = scrollRef.current?.querySelector<HTMLElement>(`[data-item="${CSS.escape(key)}"]`)
@@ -370,7 +342,6 @@ export function ChatPage({ id }: { id: string }) {
       flash(el)
     })
   }
-  const openRequest = (key: string) => (shown === 'map' ? flash(dockRef.current) : jumpTo(key))
   // O agente em foco pede aprovação: o cartão de responder fica no chat, e "Responder" leva até ele.
   const answerAgent = () => {
     const own = new Set(focused?.entries.flatMap((e) => (e.kind === 'tool' ? [e.use.id] : [])))
@@ -433,8 +404,8 @@ export function ChatPage({ id }: { id: string }) {
       toast.success('Conversa bifurcada', { description: 'A original continua na lista, com tudo o que já estava escrito.' })
     })
 
-  // O painel do modo coding: só no PC, com espaço, sem o mapa ao lado nem o zen.
-  const windows = coding && tabs && roomy && shown === 'chat' && !zen
+  // O painel do modo coding: só no PC, com espaço, sem o zen.
+  const windows = coding && tabs && roomy && !zen
 
   return (
     <AgentsContext value={agentsContext}>
@@ -507,8 +478,9 @@ export function ChatPage({ id }: { id: string }) {
                     <div className="flex min-w-0 items-center gap-1.5 overflow-x-clip text-xs text-muted-foreground">
                       <span className="shrink-0 font-medium text-foreground/70">{name}</span>
                       <span>·</span>
-                      {/* Conversa de um workspace: a cor e o nome dele antes do projeto. No celular, o trecho todo
-                          abre o menu do workspace (no PC ele fica na caixa, ao lado do time). */}
+                      {/* Só o que a conversa não diz em outro lugar: quem responde e o projeto (o worktree e a branch
+                          ficam no chip ao lado e na casca da caixa; o estado, no claudinho). No celular, o trecho
+                          abre o menu do workspace, com a cor e o nome dele (no PC ele fica na caixa, ao lado do time). */}
                       {phone && wsProject ? (
                         <WorkspaceMenu machine={machine} project={wsProject} value={entry?.workspace} onChange={changeWorkspace} label="Trocar o workspace" side="bottom">
                           <button
@@ -517,27 +489,18 @@ export function ChatPage({ id }: { id: string }) {
                             className="-my-1.5 flex min-w-0 shrink items-center gap-1 py-1.5"
                           >
                             {workspaceLabel}
-                            <span className="min-w-0 truncate">{projectName(cwd)}</span>
+                            <span className="min-w-0 truncate">{projectLabel}</span>
                             <ChevronDown className="size-3 shrink-0" />
                           </button>
                         </WorkspaceMenu>
                       ) : (
-                        <>
-                          {workspaceLabel}
-                          <span className="min-w-0 truncate">{projectName(cwd)}</span>
-                        </>
+                        <span className="min-w-0 truncate">{projectLabel}</span>
                       )}
                       {machineLabel && (
                         <span className="flex shrink-0 items-center gap-0.5">
                           <Server className="size-3" />
                           {machineLabel}
                         </span>
-                      )}
-                      {owner === 'pc' && <Monitor className="size-3 shrink-0" />}
-                      {/* No celular, aberta aqui e concluída são o normal: ficam sem marca, como na lista. */}
-                      {owner === 'panel' && !slim && <Smartphone className="size-3 shrink-0" />}
-                      {(!slim || stateTone !== 'done') && (
-                        <StateBadge state={shownState} waitingFor={shownWaiting} className="h-5 shrink-0 px-1.5 text-[10px]" />
                       )}
                       {/* Quem mais trabalha agora nos mesmos arquivos; estreito, só os claudinhos. */}
                       <PeerChip id={id} machine={machine} cwd={cwd} compact={slim} />
@@ -557,27 +520,8 @@ export function ChatPage({ id }: { id: string }) {
                       {autoSpeech ? <Volume2 /> : <VolumeOff />}
                     </Button>
                   )}
-                  {!slim && (
-                    <Button variant="ghost" size="icon" onClick={() => setZen(id)} aria-label="Modo zen: só esta conversa na tela" title="Modo zen">
-                      <Minimize2 />
-                    </Button>
-                  )}
-                  {/* O mapa mental fica no topo também no celular, ao lado dos arquivos e do git. */}
-                  {(!slim || !tabs) && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}
-                      aria-pressed={shown !== 'chat'}
-                      aria-label={shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                      title={shown === 'chat' ? 'Mapa mental' : 'Chat'}
-                    >
-                      {shown === 'chat' ? <Network /> : <MessagesSquare />}
-                    </Button>
-                  )}
                   {/* Num worktree: o que falta trazer para a de origem, e o "Trazer" e o "Remover" no menu. */}
                   {entry?.worktree && cwd && <WorktreeMenu machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
-                  {project && git.status?.remote && !slim && <RepoLink url={git.status.remote} />}
                   {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
                   {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
                   {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: apagar, no toque longo da lista. */}
@@ -597,19 +541,6 @@ export function ChatPage({ id }: { id: string }) {
                                 {autoSpeech ? <VolumeOff /> : <Volume2 />} {autoSpeech ? 'Desligar a leitura automática' : 'Ler as respostas em voz alta'}
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem onSelect={() => setDisplay(shown === 'chat' ? 'map' : 'chat')}>
-                              {shown === 'chat' ? <Network /> : <MessagesSquare />} {shown === 'chat' ? 'Ver como mapa mental' : 'Voltar ao chat'}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setZen(id)}>
-                              <Minimize2 /> Modo zen
-                            </DropdownMenuItem>
-                            {project && git.status?.remote && (
-                              <DropdownMenuItem asChild>
-                                <a href={git.status.remote} target="_blank" rel="noreferrer">
-                                  <ExternalLink /> {new URL(git.status.remote).hostname === 'github.com' ? 'Abrir no GitHub' : 'Abrir o repositório'}
-                                </a>
-                              </DropdownMenuItem>
-                            )}
                             <DropdownMenuSeparator />
                           </>
                         )}
@@ -625,6 +556,9 @@ export function ChatPage({ id }: { id: string }) {
                         )}
                         <DropdownMenuItem onSelect={() => setSummaryOpen(true)}>
                           <ListChecks /> Resumo da sessão
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setZen(id)}>
+                          <Minimize2 /> Modo zen
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() =>
@@ -688,17 +622,13 @@ export function ChatPage({ id }: { id: string }) {
                       onFocus={(agent) => (agent ? openAgent(agent) : leaveAgent())}
                       // No PC a casca em volta da janela é sempre opaca, e a aba é ela; no celular, com a cena, vidro.
                       glass={glass && !tabs}
-                      inert={shown === 'map'}
                       className={cn(
                         // Logo abaixo do cabeçalho; no zen, abaixo do entalhe. O máximo deixa espaço para a curva de baixo.
                         zen ? 'top-[calc(var(--safe-top)+0.5rem)] max-h-[calc(100%-var(--safe-top)-2rem)]' : 'top-2 max-h-[calc(100%-2rem)]',
-                        shown === 'map' && 'invisible',
                       )}
                     />
                   )}
-                  {/* Só o mapa: o chat segue montado por baixo (o mapa pula para os pontos dele), mas some de
-                      vista, senão apareceria através do mapa quando ele fica transparente sobre o fundo animado. */}
-                  <div className={cn('relative min-w-0 flex-1', shown === 'map' && 'invisible')} inert={shown === 'map'}>
+                  <div className="relative min-w-0 flex-1">
                     {/* O escurecido embaixo das mensagens, de lado a lado. Fica fora do scroller para não rolar
                         junto com o texto. */}
                     {scrim !== null && <Veil dim={scrim} />}
@@ -794,21 +724,6 @@ export function ChatPage({ id }: { id: string }) {
                       </Button>
                     )}
                   </div>
-                  {mapRoot && (
-                    <MapPane beside={shown === 'both'}>
-                      <Suspense>
-                        <MindMap
-                          sessionId={id}
-                          root={mapRoot}
-                          title={entry?.title ?? 'Conversa'}
-                          onJump={jumpTo}
-                          onAgent={openAgent}
-                          onRequest={openRequest}
-                          side={roomy ? { on: shown === 'both', toggle: () => setDisplay(shown === 'both' ? 'map' : 'both') } : null}
-                        />
-                      </Suspense>
-                    </MapPane>
-                  )}
                 </div>
 
                 {/* Encolhida (celular em pé, digitando na outra): some sem desmontar, sem perder rascunho nem leitura. */}
@@ -818,27 +733,11 @@ export function ChatPage({ id }: { id: string }) {
                   {scrim !== null && <Veil dim={scrim} />}
                   {/* Posicionado para ficar por cima do véu, que é absoluto. */}
                   <div className="relative flex flex-col">
-                    {shown === 'map' && owner === 'panel' && requests.length > 0 && (
-                      <div
-                        ref={dockRef}
-                        className={cn(
-                          'max-h-[45dvh] shrink-0 space-y-3 overflow-y-auto border-t px-4 py-3',
-                          glass ? 'bg-background/70 backdrop-blur-md' : 'bg-background',
-                        )}
-                      >
-                        {requests.map((r) =>
-                          r.type === 'approval' ? (
-                            <ApprovalCard key={r.key} type={r.type} req={r.req} agent={r.agent} sessionId={id} actionable={panelOpen} />
-                          ) : (
-                            <QuestionCard key={r.key} type={r.type} req={r.req} sessionId={id} actionable={panelOpen} />
-                          ),
-                        )}
-                      </div>
-                    )}
                     <SpeechPlayer sessionId={id} />
 
                     {owner === 'panel' ? (
                       <Composer
+                        docked={tabs}
                         sessionId={id}
                         cwd={cwd}
                         provider={provider}
@@ -888,22 +787,20 @@ export function ChatPage({ id }: { id: string }) {
                         }}
                         onInterrupt={() => api.interrupt(id).then(() => undefined)}
                       />
+                    ) : owner === 'pc' && (state !== 'idle' || entry?.pcTakeover === false) ? (
+                      // Daqui não dá para enviar: trabalhando lá fora, ou num lugar de onde o painel não a tira.
+                      <RemoteDock via={entry?.pcVia ?? 'terminal'} busy={state !== 'idle'} docked={tabs} />
                     ) : (
                       <Composer
+                        docked={tabs}
                         sessionId={id}
                         cwd={cwd}
                         provider={provider}
                         branch={git.status?.branch}
                         working={false}
-                        // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa e no terminal) e a
-                        // continua aqui; cada mensagem mostra de onde saiu, então não há botão de assumir.
-                        hint={
-                          owner !== 'pc'
-                            ? 'Enviar retoma esta conversa aqui pelo celular.'
-                            : state === 'idle'
-                              ? 'Aberta no PC. Enviar a encerra lá e a continua aqui, com todo o contexto.'
-                              : 'Trabalhando no PC. Dá para mandar daqui quando ela parar.'
-                        }
+                        // Aberta no PC, enviar a encerra lá (o servidor só faz isso com ela ociosa) e a continua aqui;
+                        // a caixa mostra onde ela está (ver RemoteChip). Fechada em todo lugar, enviar só a retoma.
+                        remote={owner === 'pc' ? { via: entry?.pcVia ?? 'terminal' } : undefined}
                         settings={pending}
                         context={null}
                         onChangeSettings={(patch) => setPending((p) => ({ ...p, ...patch }))}

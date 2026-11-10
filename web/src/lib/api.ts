@@ -529,7 +529,10 @@ export function errorMessage(err: unknown): string {
     case 'live_on_pc':
       return 'Esta sessão está aberta no PC. Feche-a lá primeiro.'
     case 'unsupported_entrypoint':
-      return 'Esta sessão está aberta no VSCode. Feche-a lá para continuar daqui.'
+      // Fora do terminal, o painel não a tira de lá: o VSCode, ou outro app (um host do SDK, como outro edit.r).
+      return String(err.details.entrypoint ?? '').includes('vscode')
+        ? 'Esta sessão está aberta no VSCode. Feche-a lá para continuar daqui.'
+        : 'Esta sessão está aberta em outro app. Feche-a lá para continuar daqui.'
     case 'session_busy':
       return err.details.agents
         ? 'Ainda há subagentes trabalhando. Aguarde terminarem para liberar.'

@@ -228,6 +228,10 @@ export type ExternalSession = {
   waitingFor?: string;
   name?: string;
   startedAt: number;
+  /** De onde: o terminal, o VSCode, o app do Claude ou outro app (um host do SDK, como outro edit.r). */
+  via?: 'terminal' | 'vscode' | 'desktop' | 'app';
+  /** Se o painel consegue fechá-la lá para continuar aqui (só a do terminal, ver stopPcSession). */
+  takeover?: boolean;
 };
 
 /** As conversas do agente abertas no PC, fora do painel. Avisa `change` quando a lista muda. */

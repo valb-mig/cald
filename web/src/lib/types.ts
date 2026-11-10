@@ -97,6 +97,9 @@ export type CatalogEntry = {
   state: CatalogState;
   waitingFor?: string;
   pcKind?: 'interactive' | 'background';
+  /** Aberta fora do painel: de onde, e se dá para fechar lá e continuar aqui. */
+  pcVia?: 'terminal' | 'vscode' | 'desktop' | 'app';
+  pcTakeover?: boolean;
   pending?: { requestId: string; kind: PendingKind }[];
   /** Subagentes trabalhando agora (só sessões do painel). */
   agents?: number;

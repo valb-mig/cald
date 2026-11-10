@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Clock, Code, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Monitor, Pause, Play, Smartphone, SquareTerminal } from 'lucide-react'
+import { Check, CircleAlert, Clock, Code, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Monitor, Pause, Play, RotateCw, Smartphone, SquareTerminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toolLine } from '@/components/agents/model'
@@ -9,6 +9,7 @@ import { Markdown, StreamingMarkdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
+import { claudinhoName } from '@/lib/claudinho'
 import { duration, messageTime } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { machineOf } from '@/lib/machines'
@@ -25,18 +26,29 @@ import { EFFORTS, prettyModel } from './composer-controls'
 import { GalleryContext, galleryOf, useGallery } from './gallery'
 import type { Item } from './items'
 import { QuestionCard } from './question-card'
-import { lastAnswersOf, linksOf, turnsOf, type ToolEntry, type TurnInfo } from './turn'
+import { linksOf, turnsOf, type ToolEntry, type TurnInfo } from './turn'
 import { TurnDialog, type TurnSection } from './turn-dialog'
 
-function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
+/** Um aviso curto no fio, sem os traços de divisória: só o que deu errado chega aqui. */
+function Alert({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn('flex items-center gap-3 text-xs text-muted-foreground', className)}>
-      <div className="h-px flex-1 bg-border" />
-      <span className="shrink-0">{children}</span>
-      <div className="h-px flex-1 bg-border" />
+    <div className={cn('flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400', className)}>
+      <CircleAlert className="mt-px size-3.5 shrink-0" />
+      <span className="min-w-0 whitespace-pre-wrap">{children}</span>
     </div>
   )
 }
+
+/**
+ * Marcos do fio que não aparecem: o turno que acabou bem ou foi interrompido, o contexto compactando, a
+ * conversa limpa e o processo do painel que saiu sem erro. Continuam nos itens (os turnos e o
+ * resumo contam com eles); na tela, a conversa fica só com as mensagens.
+ */
+const quiet = (item: Item) =>
+  (item.type === 'result' && (item.result.ok || item.result.subtype === 'error_during_execution')) ||
+  item.type === 'compacting' ||
+  item.type === 'cleared' ||
+  (item.type === 'exit' && !item.error)
 
 // Menção a arquivo: "@" no início ou depois de espaço (não pega e-mails); ou a um item do TODO, "TODO:3".
 const MENTION = /(^|\s)(@[^\s]+|TODO:\d+\b)/gi
@@ -85,13 +97,16 @@ const VIA: Record<NonNullable<Sent['via']>, string> = { editr: 'edit.r', cald: '
  * Por onde, de que máquina e quando a mensagem saiu: "Terminal · archlinux · 14:32". Com isso não
  * precisa de "assumir": a conversa pode ir do terminal para o celular e voltar, e cada mensagem diz de onde veio.
  */
-function SentLine({ sent }: { sent: Sent }) {
+function SentLine({ sent, className }: { sent: Sent; className?: string }) {
   const parts = [sent.via && VIA[sent.via], sent.device, sent.at !== undefined && messageTime(sent.at)].filter(Boolean)
   if (!parts.length) return null
   // Do app sem saber o aparelho (mensagens de antes de o edit.r guardar isso), fica sem ícone.
   const Icon = sent.via === 'terminal' ? SquareTerminal : sent.via === 'vscode' ? Code : sent.mobile ? Smartphone : sent.via === 'desktop' || sent.mobile === false ? Monitor : null
   return (
-    <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground" title={sent.at !== undefined ? new Date(sent.at).toLocaleString('pt-BR') : undefined}>
+    <div
+      className={cn('flex items-center gap-1 px-1 text-[11px] leading-none text-muted-foreground', className)}
+      title={sent.at !== undefined ? new Date(sent.at).toLocaleString('pt-BR') : undefined}
+    >
       {Icon && <Icon className="size-3 shrink-0" />}
       <span className="truncate">{parts.join(' · ')}</span>
     </div>
@@ -121,8 +136,19 @@ function UserBubble({
   onBranch?: () => void
 }) {
   const { mine } = useGallery()
+  // O bifurcar e o de onde saiu ficam escondidos, para a mensagem vir sozinha: no PC, voltam ao passar o
+  // mouse (ou com o foco); no toque, que não tem isso, tocar na mensagem mostra e esconde.
+  const [peek, setPeek] = useState(false)
+  const toggle = () => {
+    if (!matchMedia('(pointer: coarse)').matches || window.getSelection()?.toString()) return
+    setPeek((p) => !p)
+  }
+  const extra = cn(
+    'transition-opacity duration-150',
+    peek ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:pointer-events-none',
+  )
   return (
-    <div className="group flex scroll-mt-16 flex-col items-end gap-1.5" data-user-msg={anchor}>
+    <div className="group relative flex scroll-mt-16 flex-col items-end gap-2.5" data-user-msg={anchor}>
       {images && images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {images.map((key) => (
@@ -139,45 +165,53 @@ function UserBubble({
               onClick={onBranch}
               title="Bifurcar daqui"
               aria-label="Bifurcar a conversa nesta mensagem"
-              // No celular não há "passar o mouse": o botão fica sempre lá, só apagado.
-              className="shrink-0 text-muted-foreground opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              className={cn('shrink-0 text-muted-foreground', extra)}
             >
               <GitFork />
             </Button>
           )}
-          <div className="min-w-0 rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
+          <div onClick={toggle} className="min-w-0 rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
             {withMentions(text)}
             {text && files?.length ? '\n\n' : null}
             {files?.map((name, i) => <FileChip key={i} name={name} title={name} />)}
           </div>
         </div>
       )}
-      {sent && <SentLine sent={sent} />}
+      {/* Fora do fluxo, no vão até a próxima mensagem: aparecer não empurra nada. */}
+      {sent && <SentLine sent={sent} className={cn('absolute top-full right-0 mt-0.5', extra)} />}
     </div>
   )
 }
 
 /** Mensagem que ainda não chegou ao PC: relógio enquanto espera, e o motivo se não deu para enviar. */
-function QueuedBubble({ item, sessionId }: { item: OutboxItem; sessionId: string }) {
+/**
+ * `reason`: o motivo da falha por extenso. Várias seguidas pelo mesmo motivo dizem ele uma vez só, na
+ * última; as outras ficam só com o sinal e os botões (o motivo inteiro fica na dica).
+ */
+function QueuedBubble({ item, sessionId, reason }: { item: OutboxItem; sessionId: string; reason: boolean }) {
   const connection = useStore((s) => s.connections[machineOf(sessionId)] ?? 'connecting')
   const images = item.attachments.flatMap((a) => (a.thumb ? [a.thumb] : []))
   const files = item.attachments.flatMap((a) => (a.thumb ? [] : [a.name]))
   const action = 'font-medium text-foreground underline-offset-2 hover:underline'
+  const failed = item.status === 'failed'
   return (
     <div className="chat-pop space-y-1">
-      <UserBubble sessionId={sessionId} text={item.text} images={images} files={files} />
-      {item.status === 'failed' ? (
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
-          <span className="flex min-w-0 items-center gap-1 text-red-600 dark:text-red-400">
+      {/* Não enviada fica apagada: ela ainda não faz parte da conversa. */}
+      <div className={cn(failed && 'opacity-55')}>
+        <UserBubble sessionId={sessionId} text={item.text} images={images} files={files} />
+      </div>
+      {failed ? (
+        <div className="flex items-center justify-end gap-0.5 text-xs">
+          <span title={item.error} className="flex min-w-0 items-center gap-1 pr-1 text-red-600 dark:text-red-400">
             <CircleAlert className="size-3.5 shrink-0" />
-            Não enviada: {item.error}
+            <span className="truncate">{reason ? item.error : 'Não enviada'}</span>
           </span>
-          <button type="button" className={action} onClick={() => retryItem(item.id)}>
-            Tentar de novo
-          </button>
-          <button type="button" className={action} onClick={() => discard(item.id)}>
-            Descartar
-          </button>
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground" onClick={() => retryItem(item.id)} title="Tentar de novo" aria-label="Tentar de novo">
+            <RotateCw />
+          </Button>
+          <Button variant="ghost" size="icon-xs" className="text-muted-foreground" onClick={() => discard(item.id)} title="Descartar" aria-label="Descartar">
+            <X />
+          </Button>
         </div>
       ) : (
         <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
@@ -241,7 +275,7 @@ function TurnShortcuts({ turn, cwd, sessionId }: { turn: TurnInfo; cwd?: string;
 }
 
 /** Copia a resposta como o Claude escreveu, em Markdown, para colar num issue, num doc ou em outro chat. */
-function CopyMarkdown({ text }: { text: string }) {
+function CopyMarkdown({ text, compact = false }: { text: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -250,9 +284,9 @@ function CopyMarkdown({ text }: { text: string }) {
   }, [copied])
   return (
     <Button
-      variant="secondary"
-      size="sm"
-      className="rounded-full pr-3.5"
+      variant={compact ? 'ghost' : 'secondary'}
+      size={compact ? 'icon-xs' : 'sm'}
+      className={compact ? 'rounded-full text-muted-foreground' : 'rounded-full pr-3.5'}
       onClick={() =>
         navigator.clipboard.writeText(text).then(
           () => setCopied(true),
@@ -263,16 +297,16 @@ function CopyMarkdown({ text }: { text: string }) {
       title="Copiar a resposta em Markdown"
     >
       {copied ? <Check /> : <Copy />}
-      {copied ? 'Copiado' : 'Copiar'}
+      {!compact && (copied ? 'Copiado' : 'Copiar')}
     </Button>
   )
 }
 
 /**
- * Resposta do Claude. Na última de cada turno, quem escreveu e os atalhos do que o turno fez
- * embaixo. **Ouvir** e **Copiar** (em Markdown) vêm no fim da fileira e só aparecem com o mouse em
- * cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular, sem mouse,
- * ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
+ * Resposta do Claude (quem escreveu fica no alto da resposta, ver ReplyHeader). Na última de cada turno,
+ * os atalhos do que o turno fez embaixo. Os atalhos, **Ouvir** e **Copiar** (em Markdown) só aparecem
+ * com o mouse em cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular,
+ * sem mouse, ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
  * de controle fica em cima da caixa de mensagem); lendo, o botão fica à vista. `fresh`: acabou de
  * chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
  */
@@ -280,8 +314,6 @@ function AssistantMessage({
   id,
   sessionId,
   text,
-  model,
-  effort,
   turn,
   cwd,
   fresh,
@@ -289,61 +321,129 @@ function AssistantMessage({
   id: string
   sessionId: string
   text: string
-  model?: string
-  effort?: string
   turn?: TurnInfo
   cwd?: string
   fresh: boolean
 }) {
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
+  const links = useMemo(() => (turn ? linksOf(turn).length : 0), [turn])
+  // A fileira de baixo só existe com os atalhos do turno.
+  const row = Boolean(turn && (turn.files.length > 0 || turn.commands.length > 0 || links > 0))
+  const hidden = !state && 'opacity-0 group-hover/answer:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'
+  const actions = (
+    <>
+      {speechSupported && (
+        <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
+          {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+          {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
+        </Button>
+      )}
+      <CopyMarkdown text={text} />
+    </>
+  )
   return (
-    <div className="group/answer">
+    <div className="group/answer relative">
       <ReadingLine value={line}>
         <Markdown text={text} chat />
       </ReadingLine>
-      <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
-        {model && <WrittenBy model={model} effort={effort} />}
-        {turn && <TurnShortcuts turn={turn} cwd={cwd} sessionId={sessionId} />}
-        <span
-          className={cn(
-            'flex items-center gap-1.5 transition-opacity duration-150',
-            !state && 'opacity-0 group-hover/answer:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100',
-          )}
-        >
-          {speechSupported && (
-            <Button variant={state ? 'default' : 'secondary'} size="sm" className="rounded-full pr-3.5" onClick={() => toggleSpeech(id, text)}>
-              {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
-              {state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
-            </Button>
-          )}
-          <CopyMarkdown text={text} />
-        </span>
-      </Arrival>
+      {row ? (
+        <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
+          {/* Os atalhos do turno vêm junto dos botões: só com o mouse em cima (no toque, sempre). */}
+          <span className={cn('flex flex-wrap items-center gap-1.5 transition-opacity duration-150', hidden)}>
+            {turn && <TurnShortcuts turn={turn} cwd={cwd} sessionId={sessionId} />}
+            {actions}
+          </span>
+        </Arrival>
+      ) : (
+        // Sem a fileira (as respostas do meio do turno), os botões guardariam lugar embaixo só para aparecer
+        // com o mouse. No PC, viram dois ícones no vão até o que vem depois, no canto de baixo: não cobrem
+        // o texto nem empurram nada. No toque, sem mouse, ficam embaixo e sempre à vista, como na fileira.
+        <Arrival fresh={fresh} delay={120}>
+          <span className="mt-2 flex items-center gap-1.5 pointer-fine:hidden">{actions}</span>
+          <span
+            className={cn(
+              'absolute top-full right-0 -mt-1 flex items-center pointer-coarse:hidden',
+              'transition-opacity duration-150',
+              !state && 'pointer-events-none opacity-0 group-hover/answer:pointer-events-auto group-hover/answer:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100',
+            )}
+          >
+            {speechSupported && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn('rounded-full', state ? 'text-foreground' : 'text-muted-foreground')}
+                onClick={() => toggleSpeech(id, text)}
+                aria-label={state === 'playing' ? 'Pausar a leitura' : 'Ouvir a resposta'}
+                title={state === 'playing' ? 'Pausar' : state === 'paused' ? 'Continuar' : 'Ouvir'}
+              >
+                {state === 'playing' ? <Pause className="fill-current" /> : <Play className="fill-current" />}
+              </Button>
+            )}
+            <CopyMarkdown text={text} compact />
+          </span>
+        </Arrival>
+      )}
     </div>
   )
 }
 
 /**
- * Quem escreveu a resposta: a marca do Claude, o modelo e o esforço com que pensou, discretos no começo
- * da fileira. O id completo do modelo fica na dica, para quando o nome curto não bastar.
+ * Com que a resposta foi escrita: a marca do Claude, o modelo e o esforço com que pensou, pequenos na
+ * ponta direita do cabeçalho. O id completo do modelo fica na dica, para quando o nome curto não bastar.
  */
 function WrittenBy({ model, effort }: { model: string; effort?: string }) {
   return (
-    <span title={effort ? `${model} · esforço ${effort}` : model} className="flex items-center gap-1 pr-1.5 text-xs text-muted-foreground">
-      <ClaudeMark className="size-3.5" />
+    <span title={effort ? `${model} · esforço ${effort}` : model} className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/80">
+      <ClaudeMark className="size-3" />
       {prettyModel(model)}
       {effort && ` · ${(EFFORTS[effort] ?? effort).toLowerCase()}`}
     </span>
   )
 }
 
-function resultLabel(result: Extract<Item, { type: 'result' }>['result']): string {
-  if (result.ok) return `Concluído em ${duration(result.durationMs)}`
-  if (result.subtype === 'error_during_execution') return 'Interrompido'
-  if (result.subtype === 'error_max_turns') return 'Parou no limite de turnos'
-  return 'Terminou com erro'
+/**
+ * Quem responde, no alto de cada resposta, como a foto e o nome de quem posta numa rede social: o
+ * claudinho da conversa, o nome dele e, quando já se sabe, o modelo e o esforço do turno.
+ */
+function ReplyHeader({ sessionId, name, model, effort }: { sessionId: string; name: string; model?: string; effort?: string }) {
+  return (
+    // Um respiro a mais em cima: a resposta se separa da sua mensagem, como um post respondendo outro.
+    <div className="mb-2 flex min-w-0 items-center justify-between gap-3 pt-2">
+      <span className="flex min-w-0 items-center gap-2">
+        <Claudinho seed={sessionId} size={22} />
+        <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+      </span>
+      {model && <WrittenBy model={model} effort={effort} />}
+    </div>
+  )
 }
+
+type Byline = { model?: string; effort?: string }
+
+/**
+ * Onde começa cada resposta (o primeiro item depois de uma mensagem sua, ou do começo da lista) e o
+ * modelo com que ela foi escrita: o da última resposta do turno, como era a assinatura no pé dela.
+ */
+function replyHeads(items: Item[]): Map<string, Byline> {
+  const heads = new Map<string, Byline>()
+  let open: Byline | null = null
+  for (const item of items) {
+    if (item.type === 'user') {
+      open = null
+      continue
+    }
+    if (!open) heads.set(item.key, (open = {}))
+    if (item.type === 'assistant' && item.model) {
+      open.model = item.model
+      open.effort = item.effort
+    }
+  }
+  return heads
+}
+
+const failureLabel = (result: Extract<Item, { type: 'result' }>['result']) =>
+  result.subtype === 'error_max_turns' ? 'Parou no limite de turnos' : 'Terminou com erro'
 
 function ItemView({
   item,
@@ -353,14 +453,11 @@ function ItemView({
   turn,
   cwd,
   fresh,
-  signed,
 }: {
   item: Item
   sessionId: string
   actionable: boolean
   fresh: boolean
-  /** Resposta com quem a escreveu: só a última de cada turno, para o modelo não se repetir na tela toda. */
-  signed: boolean
   onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
   cwd?: string
@@ -383,8 +480,6 @@ function ItemView({
           id={`${sessionId}:${item.key}`}
           sessionId={sessionId}
           text={item.text}
-          model={signed ? item.model : undefined}
-          effort={item.effort}
           turn={turn}
           cwd={cwd}
           fresh={fresh}
@@ -398,24 +493,25 @@ function ItemView({
         </div>
       )
     case 'activity':
-      return <Activity sessionId={sessionId} entries={item.entries} summary />
+      return (
+        // Os passos ficam um pouco recuados e um fio em L os liga à mensagem de cima (ou ao avatar, quando
+        // abrem a resposta): sobe do centro do avatar (11px) pelo vão entre os dois, desce até o meio da
+        // linha deles (16px) e para a 4px do ícone, que fica em 24px de recuo mais os 8px da linha.
+        <div className="relative pl-6 before:pointer-events-none before:absolute before:-top-4 before:left-[10.5px] before:h-8 before:w-[17.5px] before:rounded-bl-[10px] before:border-b before:border-l before:border-foreground/15">
+          <Activity sessionId={sessionId} entries={item.entries} summary />
+        </div>
+      )
     case 'approval':
       return <ApprovalCard {...item} sessionId={sessionId} actionable={actionable} />
     case 'question':
       return <QuestionCard {...item} sessionId={sessionId} actionable={actionable} />
     case 'result':
-      return <Divider className={cn(!item.result.ok && 'text-amber-700 dark:text-amber-400')}>{resultLabel(item.result)}</Divider>
+      return <Alert>{failureLabel(item.result)}</Alert>
     case 'exit':
-      return (
-        <div className="space-y-1">
-          <Divider>Processo do painel encerrado</Divider>
-          {item.error && <p className="text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{item.error}</p>}
-        </div>
-      )
+      return <Alert className="text-red-600 dark:text-red-400">O processo do painel caiu: {item.error}</Alert>
     case 'compacting':
-      return <Divider>Compactando o contexto…</Divider>
     case 'cleared':
-      return <Divider>Conversa limpa</Divider>
+      return null
   }
 }
 
@@ -449,7 +545,7 @@ function WorkingLine({ sessionId, items }: { sessionId: string; items: Item[] })
  * O fim da conversa enquanto o Claude trabalha: o texto que ele está escrevendo ou o "Trabalhando…".
  * É o único pedaço da lista que acompanha cada delta do streaming; o resto só muda com eventos.
  */
-function LiveTail({ sessionId, working, items }: { sessionId: string; working: boolean; items: Item[] }) {
+function LiveTail({ sessionId, working, items, head }: { sessionId: string; working: boolean; items: Item[]; head: string | null }) {
   const streaming = useStore((s) => s.streams[sessionId] ?? '')
   // A cada atualização, só o último bloco do markdown é reprocessado (ver StreamingMarkdown), mas a
   // lista dos blocos é refeita e cresce com a resposta: quanto maior ela fica, mais espaçadas as
@@ -458,8 +554,22 @@ function LiveTail({ sessionId, working, items }: { sessionId: string; working: b
   const cheer = useTurnCheer(working, items.findLast((i): i is ResultItem => i.type === 'result'))
   // Ao terminar vai direto para vazio: atrasado, o texto parcial ficaria na tela junto da resposta pronta.
   const text = streaming && typed
-  if (text) return <StreamingMarkdown text={text} className="chat-enter opacity-90" chat />
-  if (working) return <WorkingLine sessionId={sessionId} items={items} />
+  // A resposta sem nenhum item ainda: o cabeçalho dela vem aqui, e fica no lugar quando o item chegar.
+  const header = head !== null && <ReplyHeader sessionId={sessionId} name={head} />
+  if (text)
+    return (
+      <div>
+        {header}
+        <StreamingMarkdown text={text} className="chat-enter opacity-90" chat />
+      </div>
+    )
+  if (working)
+    return (
+      <div>
+        {header}
+        <WorkingLine sessionId={sessionId} items={items} />
+      </div>
+    )
   // O turno acabou bem: o claudinho do "Trabalhando…" faz o joinha e sai.
   return cheer ? (
     <div className="claudinho-bye flex items-center" aria-hidden>
@@ -526,7 +636,11 @@ function useTyped(text: string, ms: number): string {
 const WIPE_STEP = 35
 const WIPE_MS = 180
 /** Quanto dura apagar `count` itens. */
-export const wipeTime = (count: number) => (count ? (count - 1) * WIPE_STEP + WIPE_MS : 0)
+export const wipeTime = (items: Item[]) => {
+  // Só os que aparecem entram na conta (ver `quiet`).
+  const count = items.filter((i) => !quiet(i)).length
+  return count ? (count - 1) * WIPE_STEP + WIPE_MS : 0
+}
 
 export function MessageList({
   items,
@@ -558,8 +672,13 @@ export function MessageList({
   cwd?: string
 }) {
   const gallery = useMemo(() => galleryOf(items, sessionId), [items, sessionId])
+  const shown = useMemo(() => items.filter((i) => !quiet(i)), [items])
   const turns = useMemo(() => turnsOf(items), [items])
-  const lastAnswers = useMemo(() => lastAnswersOf(items), [items])
+  const heads = useMemo(() => replyHeads(shown), [shown])
+  const name = claudinhoName(sessionId, useStore((s) => s.catalog.find((c) => c.sessionId === sessionId)?.claudinhoName))
+  // A resposta que ainda não tem item na lista (o turno acabou de começar) põe o cabeçalho no fim ao vivo.
+  const last = shown.at(-1)
+  const tailHead = !last || last.type === 'user'
   const isFresh = useArrivals(sessionId, items.map((i) => i.key))
   // Conversa saindo da tela cala a leitura dela; a de outra conversa aberta ao lado segue.
   useEffect(() => () => stopSpeakingIn(sessionId), [sessionId])
@@ -567,18 +686,20 @@ export function MessageList({
     // Tocar numa imagem abre a tela cheia passando pelas outras do mesmo lado da conversa.
     <GalleryContext value={gallery}>
       <div className="space-y-4 px-4 py-4">
-        {items.map((item, i) => (
-          // `data-item`: o mapa mental leva até aqui ao tocar num nó.
+        {shown.map((item, i) => (
+          // `data-item`: o "Responder" do agente em foco leva até aqui.
           <div
             key={item.key}
             data-item={item.key}
             className={cn('scroll-mt-16 rounded-xl', wipe !== undefined && 'chat-wipe')}
             style={
               wipe !== undefined
-                ? { animationDuration: `${WIPE_MS}ms`, animationDelay: `${(items.length - 1 - i) * WIPE_STEP - wipe}ms` }
+                ? { animationDuration: `${WIPE_MS}ms`, animationDelay: `${(shown.length - 1 - i) * WIPE_STEP - wipe}ms` }
                 : undefined
             }
           >
+            {/* Parado: ele já estava no fim ao vivo, desde que o turno começou. */}
+            {heads.has(item.key) && <ReplyHeader sessionId={sessionId} name={name} {...heads.get(item.key)} />}
             {/* A mensagem do usuário substitui o balão da fila, que já entrou animado, e a resposta, o texto
                 do streaming: as duas entram paradas, para não piscar. O resto chega com animação. */}
             <Arrival fresh={item.type !== 'user' && item.type !== 'assistant' && isFresh(item.key)}>
@@ -590,17 +711,16 @@ export function MessageList({
                 turn={turns.get(item.key)}
                 cwd={cwd}
                 fresh={isFresh(item.key)}
-                signed={lastAnswers.has(item.key)}
               />
             </Arrival>
           </div>
         ))}
-        {queued.map((item) => (
-          <QueuedBubble key={item.id} item={item} sessionId={sessionId} />
+        {queued.map((item, i) => (
+          <QueuedBubble key={item.id} item={item} sessionId={sessionId} reason={item.status === 'failed' && queued[i + 1]?.error !== item.error} />
         ))}
         {wipe === undefined && (
           <>
-            <LiveTail sessionId={sessionId} working={working} items={items} />
+            <LiveTail sessionId={sessionId} working={working} items={items} head={tailHead && !queued.length ? name : null} />
             {/* Fica na tela também durante os turnos: num monitor, cada novidade acorda o Claude. */}
             <BackgroundTasks sessionId={sessionId} tasks={background} uses={uses} actionable={actionable} />
           </>
