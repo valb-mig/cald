@@ -4,7 +4,7 @@ import { navigate } from 'wouter/use-browser-location'
 import { CommandPalette } from '@/components/command-palette'
 import { ComputerSheet } from '@/components/computer-sheet'
 import { LockScreen } from '@/components/lock-screen'
-import { BottomNav, ConnectionBanner } from '@/components/layout'
+import { BottomNav, ConnectionBanner, TestBuildBar } from '@/components/layout'
 import { ProjectBar } from '@/components/project/panel'
 import { QuickOpen } from '@/components/project/quick-open'
 import { HabilidadesDialog } from '@/components/habilidades-dialog'
@@ -41,7 +41,7 @@ import { startSounds } from '@/lib/sounds'
 import { startTitle } from '@/lib/title'
 import { desktop } from '@/lib/desktop'
 import { syncPush } from '@/lib/push'
-import { connect } from '@/lib/store'
+import { connect, useStore } from '@/lib/store'
 import { watchUpdates } from '@/lib/update'
 import { rememberTab } from '@/lib/tabs'
 import { cn } from '@/lib/utils'
@@ -126,131 +126,149 @@ function Panel() {
   // A salinha fica sozinha na tela, sem a lista nem as abas: é para deixar de fundo.
   if (location === '/salinha') {
     return (
-      <div className="flex h-dvh flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-        <ConnectionBanner />
-        <Suspense>
-          <OfficePage />
-        </Suspense>
-      </div>
+      <BuildFrame>
+        <div className="flex min-h-0 flex-1 flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+          <ConnectionBanner />
+          <Suspense>
+            <OfficePage />
+          </Suspense>
+        </div>
+      </BuildFrame>
     )
   }
 
   return (
-    // Na horizontal, o entalhe da câmera fica num dos lados.
-    <div
-      className={cn(
-        'relative isolate flex h-dvh',
-        // No PC, ilhas soltas sobre o fundo: a barra lateral e a casca, com a mesma margem em volta e entre elas.
-        // No claro, a margem é da cor da janela; no escuro, funda como as ilhas (ver index.css).
-        // No celular, a casca é a tela, sem margem: a janela vai até a borda e cuida dos entalhes por
-        // dentro (ver Pane); só o entalhe do lado, deitado, fica de fora.
-        wide
-          ? 'bg-background py-frame pr-[max(var(--frame),env(safe-area-inset-right))] pl-[max(var(--frame),env(safe-area-inset-left))] dark:bg-shell'
-          : 'bg-shell pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]',
-      )}
-    >
-      {/* No PC, a cena animada é o fundo do app inteiro: aparece na margem e, pelo recorte da casca, na
-          janela das conversas, contínua. No celular ela fica só atrás da conversa (ver pages/split.tsx). */}
-      {wide && <Wallpaper className="-z-10" />}
-      {wide && !zen && (
-        <>
-          <Sidebar />
-          <SidebarHandle />
-        </>
-      )}
-      {/* A casca (ver index.css): as conversas e a barra do projeto numa ilha só. No celular não há casca. */}
-      {/* Com o composer expandido, a casca sobe acima da barra lateral e da alça entre as ilhas, para o
-          escurecido dele (preso no `isolate` daqui) cobrir a tela toda. */}
-      <div className="relative isolate flex min-w-0 flex-1 has-[[data-big]]:z-30 wide:overflow-hidden wide:rounded-island wide:shadow-island">
-        {wide && <ShellPaint />}
-        {/* Relativo para o arquivo aberto pela barra do projeto cobrir só a área das conversas. */}
-        {/* No celular, com o aviso de sem conexão no alto, é ele que desvia do entalhe, e a janela embaixo não. */}
-        <div
-          className={cn(
-            'relative flex min-w-0 flex-1 flex-col',
-            wide ? 'p-gap' : 'mx-auto max-w-2xl has-[[data-banner]]:[--safe-top:0px] compact:max-w-none',
-          )}
-        >
-          <ConnectionBanner />
-          <Switch>
-            <Route path="/s/:id">
-              {/* No PC, abas como no VSCode (ver lib/workbench.ts); no celular, a tela segue a URL. */}
-              {wide ? (
-                <Workbench />
-              ) : (
-                // Como no PC, onde a janela da conversa é um recorte na casca: com fundo animado, a cena
-                // fica por cima da cor de fundo do app (no escuro, a da casca), e não do cinza da janela.
-                <Pane className={cn(glass && 'dark:bg-shell')}>
-                  <ChatSplit />
-                </Pane>
-              )}
-            </Route>
-            {/* As abas com um arquivo, issue ou PR em foco (ver WORKBENCH_PATH); no celular não há abas. */}
-            <Route path="/abas">{wide ? <Workbench /> : <Redirect to="/" />}</Route>
-            {/* No PC, a conversa nova abre numa aba, ao lado do que já estava aberto; no celular, é uma tela. */}
-            <Route path="/nova">
-              {wide ? (
-                <NewChatTab />
-              ) : (
-                <Pane>
-                  <NewChatPage />
-                </Pane>
-              )}
-            </Route>
-            {/* O workspace: no PC, numa aba (como o hub do projeto); no celular, uma tela. */}
-            <Route path="/w/:id">
-              {(params) =>
-                wide ? (
-                  <WorkspaceTab id={params.id} />
+    <BuildFrame>
+      {/* Na horizontal, o entalhe da câmera fica num dos lados. */}
+      <div
+        className={cn(
+          'relative isolate flex min-h-0 flex-1',
+          // No PC, ilhas soltas sobre o fundo: a barra lateral e a casca, com a mesma margem em volta e entre elas.
+          // No claro, a margem é da cor da janela; no escuro, funda como as ilhas (ver index.css).
+          // No celular, a casca é a tela, sem margem: a janela vai até a borda e cuida dos entalhes por
+          // dentro (ver Pane); só o entalhe do lado, deitado, fica de fora.
+          wide
+            ? 'bg-background py-frame pr-[max(var(--frame),env(safe-area-inset-right))] pl-[max(var(--frame),env(safe-area-inset-left))] dark:bg-shell'
+            : 'bg-shell pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]',
+        )}
+      >
+        {/* No PC, a cena animada é o fundo do app inteiro: aparece na margem e, pelo recorte da casca, na
+            janela das conversas, contínua. No celular ela fica só atrás da conversa (ver pages/split.tsx). */}
+        {wide && <Wallpaper className="-z-10" />}
+        {wide && !zen && (
+          <>
+            <Sidebar />
+            <SidebarHandle />
+          </>
+        )}
+        {/* A casca (ver index.css): as conversas e a barra do projeto numa ilha só. No celular não há casca. */}
+        {/* Com o composer expandido, a casca sobe acima da barra lateral e da alça entre as ilhas, para o
+            escurecido dele (preso no `isolate` daqui) cobrir a tela toda. */}
+        <div className="relative isolate flex min-w-0 flex-1 has-[[data-big]]:z-30 wide:overflow-hidden wide:rounded-island wide:shadow-island">
+          {wide && <ShellPaint />}
+          {/* Relativo para o arquivo aberto pela barra do projeto cobrir só a área das conversas. */}
+          {/* No celular, com o aviso de sem conexão no alto, é ele que desvia do entalhe, e a janela embaixo não. */}
+          <div
+            className={cn(
+              'relative flex min-w-0 flex-1 flex-col',
+              wide ? 'p-gap' : 'mx-auto max-w-2xl has-[[data-banner]]:[--safe-top:0px] compact:max-w-none',
+            )}
+          >
+            <ConnectionBanner />
+            <Switch>
+              <Route path="/s/:id">
+                {/* No PC, abas como no VSCode (ver lib/workbench.ts); no celular, a tela segue a URL. */}
+                {wide ? (
+                  <Workbench />
+                ) : (
+                  // Como no PC, onde a janela da conversa é um recorte na casca: com fundo animado, a cena
+                  // fica por cima da cor de fundo do app (no escuro, a da casca), e não do cinza da janela.
+                  <Pane className={cn(glass && 'dark:bg-shell')}>
+                    <ChatSplit />
+                  </Pane>
+                )}
+              </Route>
+              {/* As abas com um arquivo, issue ou PR em foco (ver WORKBENCH_PATH); no celular não há abas. */}
+              <Route path="/abas">{wide ? <Workbench /> : <Redirect to="/" />}</Route>
+              {/* No PC, a conversa nova abre numa aba, ao lado do que já estava aberto; no celular, é uma tela. */}
+              <Route path="/nova">
+                {wide ? (
+                  <NewChatTab />
                 ) : (
                   <Pane>
-                    <WorkspaceScreen id={params.id} />
+                    <NewChatPage />
                   </Pane>
-                )
-              }
-            </Route>
-            <Route path="/compartilhar">
-              <Pane>
-                <SharePage />
-              </Pane>
-            </Route>
-            {/* No celular não há início: o app abre nas conversas. */}
-            <Route path="/">
-              {wide ? (
+                )}
+              </Route>
+              {/* O workspace: no PC, numa aba (como o hub do projeto); no celular, uma tela. */}
+              <Route path="/w/:id">
+                {(params) =>
+                  wide ? (
+                    <WorkspaceTab id={params.id} />
+                  ) : (
+                    <Pane>
+                      <WorkspaceScreen id={params.id} />
+                    </Pane>
+                  )
+                }
+              </Route>
+              <Route path="/compartilhar">
                 <Pane>
-                  <WideHome />
+                  <SharePage />
                 </Pane>
-              ) : (
-                <Redirect to="/conversas" replace />
-              )}
-            </Route>
-            <Route>
-              {wide ? (
-                <Pane>
-                  <TabPages wide />
-                </Pane>
-              ) : (
-                <TabPages wide={false} />
-              )}
-            </Route>
-          </Switch>
-          {/* No PC, embaixo das conversas: o painel de comandos e a barra de status, como no VSCode. */}
-          {wide && <BottomPanel />}
-          {wide && <StatusBar />}
-          <ProjectViewer />
-          {/* A página do Claude no celular, por cima do arquivo, se ela foi aberta dele. */}
-          <PrototypeDialog />
-          {/* O artefato no celular, em tela cheia: por cima da galeria, se foi aberto dela. */}
-          <ArtefatoDialog />
+              </Route>
+              {/* No celular não há início: o app abre nas conversas. */}
+              <Route path="/">
+                {wide ? (
+                  <Pane>
+                    <WideHome />
+                  </Pane>
+                ) : (
+                  <Redirect to="/conversas" replace />
+                )}
+              </Route>
+              <Route>
+                {wide ? (
+                  <Pane>
+                    <TabPages wide />
+                  </Pane>
+                ) : (
+                  <TabPages wide={false} />
+                )}
+              </Route>
+            </Switch>
+            {/* No PC, embaixo das conversas: o painel de comandos e a barra de status, como no VSCode. */}
+            {wide && <BottomPanel />}
+            {wide && <StatusBar />}
+            <ProjectViewer />
+            {/* A página do Claude no celular, por cima do arquivo, se ela foi aberta dele. */}
+            <PrototypeDialog />
+            {/* O artefato no celular, em tela cheia: por cima da galeria, se foi aberto dela. */}
+            <ArtefatoDialog />
+          </div>
+          {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
+          <ProjectBar hidden={zen} />
+          <QuickOpen />
+          <CommandPalette />
+          <HabilidadesDialog />
+          <ArtefatosDialog />
         </div>
-        {/* Arquivos e git do projeto da conversa em foco, à direita como no VSCode. */}
-        <ProjectBar hidden={zen} />
-        <QuickOpen />
-        <CommandPalette />
-        <HabilidadesDialog />
-        <ArtefatosDialog />
+        <ComputerSheet />
       </div>
-      <ComputerSheet />
+    </BuildFrame>
+  )
+}
+
+/**
+ * A tela inteira do app. Na build de teste de uma branch, a faixa dela fica no topo, por cima de tudo, e
+ * o app embaixo; o entalhe do celular fica com a faixa, e o app não desvia dele de novo (`--safe-top`).
+ */
+function BuildFrame({ children }: { children: React.ReactNode }) {
+  const test = useStore((s) => s.test)
+  return (
+    <div className={cn('flex h-dvh flex-col', test && '[--safe-top:0px]')}>
+      {test && <TestBuildBar />}
+      {children}
     </div>
   )
 }

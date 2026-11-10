@@ -174,7 +174,7 @@ export const artefatoViewUrl = (m: string, id: string, n: number, entry: string)
 
 export const api = {
   health: (m: string) =>
-    request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string; channel?: 'release' | 'dev' }>('GET', `${at(m)}/health`),
+    request<{ ok: boolean; name?: string; tailnetHost: string | null; startedAt: number; home: string; channel?: 'release' | 'dev'; test?: boolean }>('GET', `${at(m)}/health`),
   projects: (m: string) => request<string[]>('GET', `${at(m)}/projects`),
   /** Git de cada projeto; `fetch` consulta antes o remoto (mais lento). */
   projectsGit: (m: string, fetch = false) =>

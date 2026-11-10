@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -5,6 +6,17 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // `BACKEND`: outra instância do servidor (ex.: uma de teste em :7338).
+
+/** A branch e o commit de onde sai o build: a faixa da build de teste mostra (ver TestBuildBar). */
+function gitInfo(): { branch: string; commit: string; dirty: boolean } | null {
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  try {
+    return { branch: git('rev-parse', '--abbrev-ref', 'HEAD'), commit: git('rev-parse', '--short', 'HEAD'), dirty: git('status', '--porcelain').length > 0 }
+  } catch {
+    // Fora de um repositório git (um pacote): sem a branch.
+    return null
+  }
+}
 const backend = process.env.BACKEND ?? 'http://127.0.0.1:7337'
 
 export default defineConfig({
@@ -71,6 +83,7 @@ export default defineConfig({
   },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })),
+    __BUILD_GIT__: JSON.stringify(gitInfo()),
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },

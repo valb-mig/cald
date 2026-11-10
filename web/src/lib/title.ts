@@ -12,8 +12,13 @@ export function startTitle(): void {
   started = true
   // O nome do site, como está no index.html.
   const base = document.title
-  // No canal dev o nome ganha " dev": a janela e a aba se distinguem da versão pública.
-  const name = () => (useStore.getState().channel === 'dev' ? `${base} dev` : base)
+  // No canal dev o nome ganha " dev": a janela e a aba se distinguem da versão pública. A build de teste
+  // de uma branch leva o nome dela, para a janela não se confundir com a de sempre na barra do sistema.
+  const name = () => {
+    const { channel, test } = useStore.getState()
+    if (test) return `${base} teste${__BUILD_GIT__ ? ` · ${__BUILD_GIT__.branch}` : ''}`
+    return channel === 'dev' ? `${base} dev` : base
+  }
   const show = (n: number) => {
     const title = n ? `(${n}) Esperando resposta · ${name()}` : name()
     if (document.title !== title) document.title = title
@@ -21,6 +26,6 @@ export function startTitle(): void {
   const asking = () => useStore.getState().catalog.filter((c) => c.state === 'waiting').length
   show(asking())
   useStore.subscribe((s, prev) => {
-    if (s.catalog !== prev.catalog || s.channel !== prev.channel) show(asking())
+    if (s.catalog !== prev.catalog || s.channel !== prev.channel || s.test !== prev.test) show(asking())
   })
 }
