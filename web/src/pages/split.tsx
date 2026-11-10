@@ -15,7 +15,7 @@ import {
   useSplit,
   useSplitSizes,
 } from '@/lib/split'
-import { useStore } from '@/lib/store'
+import { chatKey, useStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useZen } from '@/lib/zen'
 import { ChatPage } from './chat'
@@ -120,7 +120,7 @@ export function ChatSplit() {
         const collapsed = split && stacked && touch && typing !== null && typing !== id
         const offstage = zen !== null && zen !== id
         return (
-          <Fragment key={id}>
+          <Fragment key={chatKey(id)}>
             {i > 0 && !zen && <Divider a={shown[i - 1]!} b={id} stacked={stacked} />}
             <PaneContext value={{ split, focused: id === focused, collapsed }}>
               <div

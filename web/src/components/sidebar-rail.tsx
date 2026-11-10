@@ -11,7 +11,7 @@ import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { useInboxCount } from '@/lib/inbox'
 import { CLAUDE } from '@/lib/providers'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
-import { useStore } from '@/lib/store'
+import { chatKey, useStore } from '@/lib/store'
 import { useWakatimeToday } from '@/lib/wakatime'
 import type { UsageWindow } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -274,7 +274,7 @@ function RailChats() {
       <div className="my-1 h-px w-6 shrink-0 bg-foreground/10" />
       <div className="chat-enter flex min-h-0 flex-col items-center gap-1 overflow-y-auto [scrollbar-width:none] [animation-delay:120ms]">
         {ids.map((id) => (
-          <RailChat key={id} id={id} active={id === focused} />
+          <RailChat key={chatKey(id)} id={id} active={id === focused} />
         ))}
       </div>
     </>
