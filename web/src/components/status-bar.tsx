@@ -12,6 +12,7 @@ import { setChatView, useChatView } from '@/lib/chat-view'
 import { editorCommands, useEditorCursor } from '@/lib/editor-cursor'
 import { projectName, toolSummary } from '@/lib/format'
 import { useGitStatus, useHome } from '@/lib/hooks'
+import { useLock } from '@/lib/lock'
 import { HOME, machineOf } from '@/lib/machines'
 import { setPanelShown, setPanelTab, useProjectPanel } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
@@ -90,7 +91,7 @@ export function StatusBar() {
       )}
       <span className="flex-1" />
       <CursorItems />
-      <PanelButton tab="terminal" label="Terminal" title="O terminal do projeto, na pasta dele" icon={SquareTerminal} />
+      <PanelButton tab="terminal" label="Terminal" title="O terminal do projeto, na pasta dele · Ctrl+J" icon={SquareTerminal} />
       <PanelButton tab="commands" label="Comandos" title="Os comandos que o Claude rodou nesta conversa, com a resposta de cada um" icon={Bug} count={commands} />
     </footer>
   )
@@ -455,6 +456,24 @@ export function BottomPanel() {
     // A máquina desta página é `''`: o que diz se há lugar é a pasta.
     if (open && tab === 'terminal' && none && placeCwd) newTerminal({ machine: placeMachine ?? HOME, cwd: placeCwd })
   }, [open, tab, none, placeMachine, placeCwd])
+
+  // Ctrl+J, como no VSCode: abre o painel no terminal (que já chega com o foco) e, nele, fecha. Vale
+  // também de dentro do terminal, onde o Ctrl+J seria só uma quebra de linha para o shell.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'j') return
+      if (useLock.getState().status === 'locked') return
+      // No lugar dos downloads do navegador.
+      e.preventDefault()
+      e.stopPropagation()
+      const closing = useBottomPanel.getState().open && useBottomPanel.getState().tab === 'terminal'
+      // Fechado com o foco nele, o foco não fica preso num terminal escondido.
+      if (closing && document.activeElement instanceof HTMLElement && document.activeElement.closest('.xterm')) document.activeElement.blur()
+      toggleBottomPanel('terminal')
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [])
 
   const fit = (h: number) => Math.round(Math.min(window.innerHeight * 0.7, Math.max(PANEL_MIN_HEIGHT, h)))
   const tabClass = (t: BottomTab) =>

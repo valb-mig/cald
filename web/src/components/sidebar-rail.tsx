@@ -1,4 +1,4 @@
-import { FolderGit2, House, Inbox, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
+import { ChartNoAxesColumn, FolderGit2, House, Inbox, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { useShallow } from 'zustand/react/shallow'
 import { EditrMark, Claudinho, DevTag } from '@/components/claudinho'
@@ -9,6 +9,7 @@ import { claudinhoName } from '@/lib/claudinho'
 import { bytes, resetTime, shortDuration } from '@/lib/format'
 import { HOME, useMachineFilter, useMachines } from '@/lib/machines'
 import { useInboxCount } from '@/lib/inbox'
+import { setMetersShown, useMeters, type MeterKey } from '@/lib/meters'
 import { CLAUDE } from '@/lib/providers'
 import { setSidebarCollapsed, toggleSidebarView, useSidebar } from '@/lib/sidebar'
 import { chatKey, useStore } from '@/lib/store'
@@ -28,6 +29,7 @@ const BAR = {
 
 type Level = keyof typeof BAR
 type Metric = {
+  id: MeterKey
   label: string
   percent: number | null
   tip: string
@@ -194,6 +196,7 @@ function useMetrics(): Metric[] {
     ...(coding
       ? [
           {
+            id: 'today' as const,
             label: 'Hoje',
             percent: (coding.seconds / goal) * 100,
             level: coding.seconds >= goal ? ('done' as const) : ('normal' as const),
@@ -203,30 +206,93 @@ function useMetrics(): Metric[] {
         ]
       : []),
     {
+      id: 'cpu' as const,
       label: 'CPU',
       percent: system ? system.cpu.percent : null,
       tip: of(system ? `CPU: ${Math.round(system.cpu.percent)}% · carga ${system.cpu.load[0].toLocaleString('pt-BR')}` : 'CPU: carregando'),
     },
     {
+      id: 'mem' as const,
       label: 'Mem.',
       percent: system ? (system.memory.used / system.memory.total) * 100 : null,
       tip: of(system ? `Memória: ${bytes(system.memory.used)} de ${bytes(system.memory.total)}` : 'Memória: carregando'),
     },
     // Os limites são do Claude: abrem o uso na página dele, na seção Agentes.
-    { label: '5 h', percent: plan?.fiveHour?.utilization ?? null, tip: of(windowTip('Claude · 5 h', plan?.fiveHour)), open: openUsage },
-    { label: 'Semana', percent: plan?.sevenDay?.utilization ?? null, tip: of(windowTip('Claude · semana', plan?.sevenDay)), open: openUsage },
+    { id: 'five' as const, label: '5 h', percent: plan?.fiveHour?.utilization ?? null, tip: of(windowTip('Claude · 5 h', plan?.fiveHour)), open: openUsage },
+    { id: 'week' as const, label: 'Semana', percent: plan?.sevenDay?.utilization ?? null, tip: of(windowTip('Claude · semana', plan?.sevenDay)), open: openUsage },
   ]
+}
+
+/** As medidas que o usuário ligou nas configurações, e o pior alerta entre elas. */
+function useVisibleMetrics() {
+  const metrics = useMetrics()
+  const enabled = useMeters((s) => s.enabled)
+  const visible = metrics.filter((m) => enabled[m.id])
+  const alert = visible.reduce<Level | null>((worst, m) => {
+    const level = levelOf(m)
+    return level === 'critical' || (level === 'warning' && worst !== 'critical') ? level : worst
+  }, null)
+  return { visible, alert }
+}
+
+/**
+ * O ícone que mostra e esconde as medidas: aparece ao passar o mouse na área (no toque, fica apagado
+ * à vista). Escondidas e com alerta, ele fica sempre à vista na cor do alerta, para não perder o aviso.
+ */
+function MetersToggle({ alert, side = 'right', className }: { alert: Level | null; side?: 'left' | 'right'; className?: string }) {
+  const shown = useMeters((s) => s.shown)
+  const label = shown ? 'Esconder as estatísticas' : alert && !shown ? 'Mostrar as estatísticas · há um alerta' : 'Mostrar as estatísticas'
+  const flagged = !shown && alert
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={shown}
+          onClick={() => setMetersShown(!shown)}
+          className={cn(
+            'flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[opacity,colors] hover:bg-foreground/5 hover:text-foreground focus-visible:opacity-100 [&_svg]:size-3.5',
+            flagged ? 'opacity-100' : 'opacity-0 group-hover/meters:opacity-100 pointer-coarse:opacity-50',
+            flagged && (alert === 'critical' ? 'text-[#d03b3b] hover:text-[#d03b3b]' : 'text-[#c98a00] hover:text-[#c98a00] dark:text-[#fab219] dark:hover:text-[#fab219]'),
+            className,
+          )}
+        >
+          <ChartNoAxesColumn />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side={side}>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** Abre e fecha as medidas com um deslizar curto (sem ele, com movimento reduzido). */
+function Reveal({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn('grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none', open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}
+      inert={!open}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  )
 }
 
 /** Na alça (com a lista recolhida), as medidas empilhadas; tocar em uma abre o painel Computador. */
 function RailMeters() {
-  const metrics = useMetrics()
+  const { visible, alert } = useVisibleMetrics()
+  const shown = useMeters((s) => s.shown)
+  if (!visible.length) return null
   return (
-    // Entram suaves enquanto a lista recolhe, um pouco depois de ela começar a fechar.
-    <div className="chat-enter flex flex-col items-center gap-1.5 [animation-delay:120ms]">
-      {metrics.map((m) => (
-        <RailMeter key={m.label} {...m} />
-      ))}
+    <div className="group/meters flex flex-col items-center">
+      <MetersToggle alert={alert} />
+      <Reveal open={shown}>
+        <div className="flex flex-col items-center gap-1.5 pt-1">
+          {visible.map((m) => (
+            <RailMeter key={m.id} {...m} />
+          ))}
+        </div>
+      </Reveal>
     </div>
   )
 }
@@ -237,13 +303,22 @@ function RailMeters() {
  */
 /** `className`: no celular, no alto da lista de conversas, as medidas vão em duas colunas. */
 export function SidebarMeters({ className }: { className?: string }) {
-  const metrics = useMetrics()
+  const { visible, alert } = useVisibleMetrics()
+  const shown = useMeters((s) => s.shown)
+  if (!visible.length) return null
   return (
     <TooltipProvider delayDuration={200}>
-      <div className={cn('shrink-0 px-2 pt-2 pb-3', className)}>
-        {metrics.map((m) => (
-          <BarRow key={m.label} {...m} />
-        ))}
+      <div className={cn('group/meters shrink-0 px-2 pt-1 pb-2', className)}>
+        <div className="flex justify-end px-1">
+          <MetersToggle alert={alert} side="left" />
+        </div>
+        <Reveal open={shown}>
+          <div className="pb-1">
+            {visible.map((m) => (
+              <BarRow key={m.id} {...m} />
+            ))}
+          </div>
+        </Reveal>
       </div>
     </TooltipProvider>
   )
