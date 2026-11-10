@@ -369,6 +369,24 @@ export function onLiveEvent(listener: LiveListener): () => void {
   }
 }
 
+// A conversa que ganha id novo (o /clear, uma sessão retomada) segue a mesma na tela: a chave do React
+// continua a do id de onde ela veio, e o painel, a aba e a linha da lista não remontam (nem piscam).
+const roots = new Map<string, string>()
+
+/** A chave de tela da conversa `id`: a mesma antes e depois de o id dela mudar. */
+export const chatKey = (id: string) => roots.get(id) ?? id
+
+type RekeyListener = (from: string, to: string) => void
+const rekeyListeners = new Set<RekeyListener>()
+
+/** Avisa quando uma conversa ganha id novo, para o que se guarda por conversa ir junto com ela. */
+export function onRekey(listener: RekeyListener): () => void {
+  rekeyListeners.add(listener)
+  return () => {
+    rekeyListeners.delete(listener)
+  }
+}
+
 function handle(machine: string, m: ServerMsg): void {
   // O que chega de uma sessão vem depois dos pedaços já recebidos dela: grava-os antes, na ordem.
   if (m.type === 'snapshot' || m.type === 'not_open' || m.type === 'event' || m.type === 'rekey') flushDeltas()
@@ -432,6 +450,9 @@ function handle(machine: string, m: ServerMsg): void {
     case 'rekey':
       // A mesma conversa com id novo (um /clear): já com o claudinho de antes, antes do catálogo chegar.
       if (m.look) useLooks.setState({ [m.to]: m.look })
+      roots.set(m.to, chatKey(m.from))
+      rekeyCatalog(machine, m.from, m.to)
+      for (const listener of rekeyListeners) listener(m.from, m.to)
       useStore.setState((s) => {
         const { [m.from]: moved, ...rest } = s.live
         const { [m.from]: text, ...streams } = s.streams
@@ -471,6 +492,18 @@ function mergeCatalogs(): void {
   const current = useStore.getState().catalog
   if (catalog.length === current.length && catalog.every((s, i) => s === current[i])) return
   useStore.setState({ catalog })
+}
+
+/**
+ * O catálogo com o id novo de uma conversa só chega uns 300 ms depois do aviso; até lá, a entrada de
+ * antes responde por ele. Sem isso a conversa ficava sem título e sem pasta no meio do /clear, e a
+ * barra do projeto e a branch na barra de status sumiam e voltavam.
+ */
+function rekeyCatalog(machine: string, from: string, to: string): void {
+  const list = catalogs.get(machine)
+  if (!list?.some((c) => c.sessionId === from)) return
+  catalogs.set(machine, list.map((c) => (c.sessionId === from ? { ...c, sessionId: to } : c)))
+  mergeCatalogs()
 }
 
 function onCatalog(machine: string, sessions: CatalogEntry[]): void {

@@ -36,7 +36,7 @@ import {
 } from '@/lib/project-groups'
 import { focusChat, openBeside, useSplit } from '@/lib/split'
 import { keyOf, openProjectHub, pinTab, revealChat } from '@/lib/workbench'
-import { useStore } from '@/lib/store'
+import { chatKey, useStore } from '@/lib/store'
 import type { CatalogEntry, GitSummary } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -268,7 +268,7 @@ function ProjectSection({
       {shown.length > 0 && (
         <div className="mt-0.5 space-y-0.5">
           {shown.map((s, i) => (
-            <SessionRow key={s.sessionId} s={s} onMenu={onMenu} rail={rail[i]} />
+            <SessionRow key={chatKey(s.sessionId)} s={s} onMenu={onMenu} rail={rail[i]} />
           ))}
         </div>
       )}
@@ -490,7 +490,7 @@ function AllPage({ sessions, query, onMenu }: { sessions: CatalogEntry[]; query:
   return (
     <div className="space-y-0.5">
       {sessions.map((s) => (
-        <SessionRow key={s.sessionId} s={s} onMenu={onMenu} grouped={false} roomy />
+        <SessionRow key={chatKey(s.sessionId)} s={s} onMenu={onMenu} grouped={false} roomy />
       ))}
     </div>
   )
@@ -515,7 +515,7 @@ function ProjectPage({ group, git, onMenu }: { group: ProjectGroup; git?: GitSum
       )}
       <div className="space-y-0.5">
         {group.sessions.map((s) => (
-          <SessionRow key={s.sessionId} s={s} onMenu={onMenu} roomy />
+          <SessionRow key={chatKey(s.sessionId)} s={s} onMenu={onMenu} roomy />
         ))}
       </div>
     </>

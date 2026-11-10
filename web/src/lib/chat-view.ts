@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { onRekey } from './store'
 
 /** Como se acompanha a conversa: `vibing` é o chat de sempre; `coding` soma o que ajuda a ver como a IA decide. */
 export type ChatView = 'vibing' | 'coding'
@@ -34,6 +35,13 @@ export function setChatView(sessionId: string, view: ChatView): void {
   save(KEY, JSON.stringify(ids))
   useCoding.setState({ ids })
 }
+
+// O /clear dá id novo à conversa: ela segue no modo em que estava, em vez de voltar ao vibing.
+onRekey((from, to) => {
+  if (!useCoding.getState().ids.includes(from)) return
+  setChatView(from, 'vibing')
+  setChatView(to, 'coding')
+})
 
 /** Largura do painel de passos, em px; uma preferência do aparelho, como a do mapa. */
 export const TRAIL_WIDTH = 460

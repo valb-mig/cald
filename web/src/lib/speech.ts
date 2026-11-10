@@ -1,6 +1,7 @@
 import { toast } from 'sonner'
 import { create } from 'zustand'
 import { ApiError, api, errorMessage } from './api'
+import { onRekey } from './store'
 
 /**
  * Ler as respostas do Claude em voz alta com a voz do próprio aparelho: no Android, o motor de texto
@@ -415,6 +416,11 @@ export function setAutoSpeech(sessionId: string, on: boolean): void {
   useSpeech.setState({ auto })
   if (!on) stopSpeakingIn(sessionId)
 }
+
+// O /clear dá id novo à conversa: a leitura automática dela continua ligada.
+onRekey((from, to) => {
+  if (useSpeech.getState().auto.includes(from)) setAutoSpeech(to, true)
+})
 
 /**
  * Troca a velocidade da voz. A do PC muda na hora; a do aparelho não muda de ritmo no meio de uma

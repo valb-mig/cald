@@ -30,7 +30,7 @@ import { MachineContext } from '@/lib/machines'
 import { useProjectPanel, useShowProject } from '@/lib/project-panel'
 import { repaintShell } from '@/lib/shell'
 import { PaneContext, parseChats, saveSplitSizes, setSplitWeights, useMaxChats, useSplitSizes } from '@/lib/split'
-import { useStore } from '@/lib/store'
+import { chatKey, useStore } from '@/lib/store'
 import { useUnsaved } from '@/lib/unsaved'
 import { cn } from '@/lib/utils'
 import { useGlass } from '@/lib/wallpaper'
@@ -41,6 +41,7 @@ import {
   closeTabs,
   focusedChat,
   focusGroup,
+  keyOf,
   moveTab,
   openTab,
   pinTab,
@@ -116,6 +117,20 @@ function useViewingSync() {
 }
 
 // ---- abas ----
+
+/**
+ * A chave do React de cada aba do grupo. A da conversa que ganhou id novo (o /clear) fica a de antes
+ * (ver `chatKey`): a aba e o que ela mostra não remontam, e o /clear não pisca a tela inteira.
+ */
+function tabKeys(tabs: Tab[]): string[] {
+  const keys = new Set(tabs.map((t) => t.key))
+  return tabs.map((t) => {
+    if (t.kind !== 'chat') return t.key
+    const key = keyOf({ kind: 'chat', id: chatKey(t.id) })
+    // A conversa de antes aberta de novo no mesmo grupo: cada uma fica com a sua.
+    return key !== t.key && keys.has(key) ? t.key : key
+  })
+}
 
 /** O claudinho da conversa, com o estado nele: "…" executando, pensando, "!" esperando você, o joinha ao terminar. */
 function ChatTabLabel({ id }: { id: string }) {
@@ -371,6 +386,7 @@ function TabBar({ group, onMenu }: { group: Group; onMenu: (at: TabMenuAt) => vo
   // Onde a aba arrastada entraria nesta barra, se soltar agora.
   const [dropAt, setDropAt] = useState<number | null>(null)
   const isFresh = useArrivals(group.id, group.tabs.map((t) => t.key))
+  const keys = tabKeys(group.tabs)
   const drop = (e: React.DragEvent) => {
     const raw = e.dataTransfer.getData(TAB_DRAG)
     setDropAt(null)
@@ -401,7 +417,7 @@ function TabBar({ group, onMenu }: { group: Group; onMenu: (at: TabMenuAt) => vo
     >
       {group.tabs.map((tab, i) => (
         <TabItem
-          key={tab.key}
+          key={keys[i]}
           group={group}
           tab={tab}
           index={i}
@@ -578,6 +594,7 @@ function GroupView({
   // senão cada conversa restaurada pediria histórico, eventos e git ao mesmo tempo ao abrir o app.
   const [seen, setSeen] = useState(() => new Set(group.active ? [group.active] : []))
   if (group.active && !seen.has(group.active)) setSeen(new Set(seen).add(group.active))
+  const keys = tabKeys(group.tabs)
   const zoneOf = (e: React.DragEvent<HTMLElement>): Zone => {
     const r = e.currentTarget.getBoundingClientRect()
     const x = (e.clientX - r.left) / r.width
@@ -632,11 +649,11 @@ function GroupView({
           else splitTab(from.group, from.key, group.id, z)
         }}
       >
-        {group.tabs.map((tab) => {
+        {group.tabs.map((tab, i) => {
           const active = tab.key === group.active
           return (
             <div
-              key={tab.key}
+              key={keys[i]}
               role="tabpanel"
               inert={!active}
               // Depois de vista, fica fora da pintura mas montada: rolagem, rascunho e o que a conversa está mostrando ficam.

@@ -79,10 +79,9 @@ export const liveKey = (runId: string | undefined, seq: number) => `l${runId}-${
  */
 export function useConversation(id: string, machine: string) {
   const view = useStore(selectView(id))
+  // Logo depois de um /clear, a entrada já vem com o id novo (ver `rekeyCatalog` no store).
   const entry = useStore((s) => s.catalog.find((c) => c.sessionId === id))
-  // Logo depois de um /clear, o catálogo ainda não tem o id novo (chega uns 300 ms depois): até lá, a
-  // pasta é a da conversa de antes, que é a mesma. Sem ela, a barra do projeto sumia e voltava na queda.
-  const cwd = useStore((s) => entry?.cwd ?? s.catalog.find((c) => s.rekeys[c.sessionId] === id)?.cwd)
+  const cwd = entry?.cwd
 
   // O WebSocket sabe primeiro quando o processo do painel abre ou fecha; o catálogo cobre o resto.
   const panelOpen = view.open === true || (view.open === null && entry?.owner === 'panel')

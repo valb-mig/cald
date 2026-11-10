@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useWide, useWindowWidth, WIDE_QUERY } from './hooks'
 import { PANEL_RAIL, useProjectPanel } from './project-panel'
 import { useSidebar } from './sidebar'
+import { onRekey } from './store'
 import { closeChatTabs, focusedChat, keyOf, onWorkbench, openTab, revealChat, swapChatTab, useWorkbench, visibleChats } from './workbench'
 
 /**
@@ -150,6 +151,14 @@ export function saveSplitSizes(keep: string[] = current()): void {
     // localStorage indisponível (modo privado): vale só até fechar o app.
   }
 }
+
+// O /clear dá id novo à conversa: o tamanho dela lado a lado vai junto.
+onRekey((from, to) => {
+  const { [from]: weight, ...rest } = useSplitSizes.getState().weights
+  if (weight === undefined) return
+  useSplitSizes.setState({ weights: { ...rest, [to]: weight } })
+  saveSplitSizes(current().map((id) => (id === from ? to : id)))
+})
 
 // ---- leitura para a tela ----
 
