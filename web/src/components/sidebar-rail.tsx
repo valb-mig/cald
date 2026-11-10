@@ -1,7 +1,7 @@
 import { FolderGit2, House, Inbox, MessagesSquare, OctagonAlert, PanelLeftClose, PanelLeftOpen, TriangleAlert } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 import { useShallow } from 'zustand/react/shallow'
-import { EditrMark, Claudinho } from '@/components/claudinho'
+import { EditrMark, Claudinho, DevTag } from '@/components/claudinho'
 import { severityOf } from '@/components/pc-status'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { openComputerAgent, setComputerOpen, useComputer } from '@/lib/computer'
@@ -337,6 +337,7 @@ export function SidebarRail() {
               sem tirar você da conversa (ver lib/computer.ts). */}
           <RailItem label="Computador: o PC, os limites e os ajustes" onClick={() => setComputerOpen(true)} active={computer}>
             <EditrMark className="text-foreground dark:text-white" />
+            <DevTag className="right-0 bottom-0.5" />
           </RailItem>
         </div>
       </aside>
