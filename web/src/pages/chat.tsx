@@ -453,8 +453,16 @@ export function ChatPage({ id }: { id: string }) {
           steps={windows ? <StepsScreen sessionId={id} items={items} cwd={cwd ?? ''} agent={name} live={state === 'running' || state === 'waiting'} /> : null}
           chat={
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. */}
-              <div className={cn('shrink-0', glass ? 'relative z-10 bg-background/70 backdrop-blur-md' : 'bg-background', zen && 'hidden')}>
+              {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. No PC, o vidro leva o
+                  canto da janela: o `backdrop-filter` não é recortado pelo canto arredondado de quem está por
+                  fora, e o desfoque vazava quadrado nos dois cantos de cima. */}
+              <div
+                className={cn(
+                  'shrink-0',
+                  glass ? 'relative z-10 bg-background/70 backdrop-blur-md wide:rounded-t-pane wide:in-data-[hole=flush]:rounded-tl-none' : 'bg-background',
+                  zen && 'hidden',
+                )}
+              >
                 <header
                   // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
                   draggable={handle}
