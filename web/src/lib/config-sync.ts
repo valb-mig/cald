@@ -79,7 +79,6 @@ const APPEARANCE_KEYS = [
   'cr:sounds',
   'cr:code-font',
   'cr:minimap',
-  'cr:chat-display',
   'cr:chat-follow',
   'cr:speech-rate',
   'cald:autolock',

@@ -2,7 +2,7 @@ import type { PanelEvent, Question } from '@/lib/types'
 
 /*
  * A AskUserQuestion vista de fora do pedido ao vivo: as perguntas vêm do input da ferramenta e as
- * respostas, do texto do resultado. Serve ao chat (a linha da ferramenta) e ao mapa mental.
+ * respostas, do texto do resultado. Serve ao chat (a linha da ferramenta).
  */
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')

@@ -75,6 +75,12 @@ export function toolIcon(name: string): LucideIcon {
   return ICONS[name] ?? (name.startsWith('mcp__') ? Plug : Wrench)
 }
 
+// A seta das linhas que abrem: na ponta direita, só com o mouse em cima (ou o foco, ou aberta, para fechar).
+const CHEVRON = 'size-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[state=open]:rotate-90 group-data-[state=open]:opacity-100'
+
+/** O ícone já diz qual é a ferramenta (o terminal é o Bash, o lápis é a edição): o nome dela pode sair da linha. */
+const iconSays = (name: string) => ![Plug, Wrench].includes(toolIcon(name))
+
 const PRE = 'max-h-72 overflow-auto rounded border bg-background/60 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all'
 
 function Pre({ children, tone }: { children: string; tone?: 'add' | 'del' | 'error' }) {
@@ -249,7 +255,11 @@ function ToolRow({
         {createElement(suggested ? Lightbulb : toolIcon(use.name), {
           className: cn('size-4 shrink-0 text-muted-foreground', failed && 'text-red-600 dark:text-red-400'),
         })}
-        <span className="shrink-0 font-medium">{suggested ? 'Sugeriu uma memória' : name}</span>
+        {suggested || !iconSays(use.name) ? (
+          <span className="shrink-0 font-medium">{suggested ? 'Sugeriu uma memória' : name}</span>
+        ) : (
+          <span className="sr-only">{name}</span>
+        )}
         {/* Pergunta respondida (ou recusada): no lugar das perguntas, o que houve com elas. */}
         {suggested ? (
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{memoryName(use.input)}</span>
@@ -262,7 +272,7 @@ function ToolRow({
         {time && <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{time}</span>}
         {pending && <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />}
         {failed && <XCircle className="size-3.5 shrink-0 text-red-600 dark:text-red-400" />}
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+        <ChevronRight className={cn(CHEVRON, 'text-muted-foreground')} />
       </CollapsibleTrigger>
       {/* Imagens devolvidas (prints, arquivos lidos) ficam à vista, sem precisar expandir. */}
       {result?.images && result.images.length > 0 && (
@@ -312,7 +322,7 @@ function ThinkingRow({ text }: { text: string }) {
       <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted/60">
         <Brain className="size-4 shrink-0" />
         <span className="flex-1">Raciocínio</span>
-        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        <ChevronRight className={CHEVRON} />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-2 pt-1 pb-2">
         <p className="text-xs whitespace-pre-wrap text-muted-foreground">{text}</p>
@@ -427,8 +437,8 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
   const name = shown && (shown.use.name.startsWith('mcp__') ? shown.use.name.split('__').slice(1).join(' · ') : shown.use.name)
   return (
     <>
-      <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted/60">
-        <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+      {/* Um tom abaixo do resto, para os passos não disputarem com a resposta; o mouse em cima traz o tom de volta. */}
+      <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground/70 transition-colors hover:bg-muted/60 hover:text-muted-foreground">
         {running ? (
           <Loader2 className="size-4 shrink-0 animate-spin" />
         ) : (
@@ -450,10 +460,11 @@ function StepsSummary({ sessionId, steps, pages }: { sessionId: string; steps: A
         {shown && (
           // O que está rodando (ou foi o último): some quando o bloco abre, porque a lista já mostra.
           <span className="min-w-0 flex-1 truncate text-xs group-data-[state=open]:invisible">
-            <span className="font-medium text-foreground/80">{suggested ? 'Sugeriu uma memória' : name}</span>{' '}
+            {suggested || !iconSays(shown.use.name) ? <span className="font-medium">{suggested ? 'Sugeriu uma memória' : name}</span> : <span className="sr-only">{name}</span>}{' '}
             <span className="font-mono">{suggested ? memoryName(shown.use.input) : toolSummary(shown.use.name, shown.use.input)}</span>
           </span>
         )}
+        <ChevronRight className={cn(CHEVRON, 'ml-auto')} />
       </CollapsibleTrigger>
       {images.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-2 pb-1.5">

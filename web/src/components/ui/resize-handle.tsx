@@ -1,8 +1,7 @@
 import { cn } from '@/lib/utils'
 
 /**
- * A borda que se arrasta para repartir o espaço entre dois lados: conversas lado a lado, o chat e o
- * mapa mental, as conversas e a barra do projeto. Arrastar muda o tamanho, as setas do teclado com
+ * A borda que se arrasta para repartir o espaço entre dois lados: conversas lado a lado, as conversas e a barra do projeto. Arrastar muda o tamanho, as setas do teclado com
  * foco também, e dois cliques voltam ao padrão. Quem usa decide o que o deslocamento significa.
  */
 export function ResizeHandle({
