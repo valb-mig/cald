@@ -42,7 +42,6 @@ import { PeerChip } from '@/components/chat/peer-chip'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
 import { SummaryDialog } from '@/components/chat/summary-dialog'
-import { toolsIn } from '@/components/chat/turn'
 import { WorktreeMenu } from '@/components/chat/worktree-menu'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
@@ -62,7 +61,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Veil } from '@/components/wallpaper/veil'
 import { api, errorMessage } from '@/lib/api'
-import { dropTools, publishTools } from '@/lib/chat-tools'
 import { claudinhoName } from '@/lib/claudinho'
 import { workspaceColor } from '@/lib/workspaces'
 import { projectOf } from '@/lib/worktree'
@@ -225,10 +223,6 @@ export function ChatPage({ id }: { id: string }) {
   )
 
   const wipe = useWipe(events, cut)
-  // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
-  const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
-  useEffect(() => publishTools(id, tools), [id, tools])
-  useEffect(() => () => dropTools(id), [id])
   // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
   const agentsWorking = agents.count.running + agents.count.waiting
