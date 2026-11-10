@@ -26,6 +26,8 @@ export type LiveView = {
 type Store = {
   /** Conexão com a máquina desta página (a faixa "Sem conexão" no topo). */
   connection: Connection
+  /** Canal desta máquina (a da origem): `dev` segue a main; servidor antigo não diz, vira `release`. */
+  channel: 'release' | 'dev'
   /** Conexão com cada máquina (ver machines.ts). */
   connections: Record<string, Connection>
   /** Conversas de todas as máquinas, cada uma com `machine`. */
@@ -47,6 +49,7 @@ type Store = {
 
 export const useStore = create<Store>(() => ({
   connection: 'connecting',
+  channel: 'release',
   connections: {},
   catalog: [],
   catalogLoaded: false,
@@ -122,6 +125,7 @@ function checkHomeRestart(): void {
         void navigator.serviceWorker?.getRegistration().then((reg) => reg?.update())
       }
       homeStartedAt = h.startedAt
+      if ((h.channel ?? 'release') !== useStore.getState().channel) useStore.setState({ channel: h.channel ?? 'release' })
     },
     () => {},
   )

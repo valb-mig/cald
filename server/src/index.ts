@@ -12,7 +12,7 @@ import { AccessMonitor, keyOf, LOCAL } from './access.ts';
 import { activity } from './providers/claude/activity.ts';
 import type { Attachment } from './attachments.ts';
 import { suggestCommit } from './commit-message.ts';
-import { HOST, MACHINE_NAME, PACKAGED, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
+import { CHANNEL, HOST, MACHINE_NAME, PACKAGED, PORT, UPLOADS_DIR, WEB_DIST } from './config.ts';
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
@@ -202,6 +202,8 @@ app.get('/api/health', async () => ({
   tailnetHost: policy.tailnetHost ?? null,
   startedAt,
   home: homedir(),
+  // O app marca a versão dev (a main, ver updater.ts) na logo, para não confundir com a publicada.
+  channel: CHANNEL,
 }));
 
 /** As outras máquinas suas com o edit.r, para o app conectar em todas. */

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { lookOf, phaseOf, useLooks, type Eyes, type Look } from '@/lib/claudinho'
+import { useStore } from '@/lib/store'
 import type { CatalogState, SessionState } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -248,6 +249,22 @@ export function Claudinho({
       {shown === 'done' && <ThumbsUp color={look.color} />}
       {bubble && <Bubble kind={bubble} />}
     </svg>
+  )
+}
+
+/** Selo "dev" no canto da marca (o pai é `relative`): só aparece no canal dev, onde a cor tem significado. */
+export function DevTag({ className }: { className?: string }) {
+  const dev = useStore((s) => s.channel === 'dev')
+  if (!dev) return null
+  return (
+    <span
+      className={cn(
+        'pointer-events-none absolute rounded-[4px] bg-amber-500 px-[3px] text-[8px] leading-[11px] font-bold tracking-wide text-black uppercase',
+        className,
+      )}
+    >
+      dev
+    </span>
   )
 }
 

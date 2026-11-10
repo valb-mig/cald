@@ -12,13 +12,15 @@ export function startTitle(): void {
   started = true
   // O nome do site, como está no index.html.
   const base = document.title
+  // No canal dev o nome ganha " dev": a janela e a aba se distinguem da versão pública.
+  const name = () => (useStore.getState().channel === 'dev' ? `${base} dev` : base)
   const show = (n: number) => {
-    const title = n ? `(${n}) Esperando resposta · ${base}` : base
+    const title = n ? `(${n}) Esperando resposta · ${name()}` : name()
     if (document.title !== title) document.title = title
   }
   const asking = () => useStore.getState().catalog.filter((c) => c.state === 'waiting').length
   show(asking())
   useStore.subscribe((s, prev) => {
-    if (s.catalog !== prev.catalog) show(asking())
+    if (s.catalog !== prev.catalog || s.channel !== prev.channel) show(asking())
   })
 }
