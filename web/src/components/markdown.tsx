@@ -8,6 +8,7 @@ import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { findColors } from '@/lib/colors'
 import { commandOf } from '@/lib/commands'
+import { rehypeOutline } from '@/lib/outline'
 import { cn } from '@/lib/utils'
 
 const COLLAPSE_AFTER_LINES = 14
@@ -200,6 +201,28 @@ function Pre({ node, children }: ComponentProps<'pre'> & ExtraProps) {
   )
 }
 
+/**
+ * Lista de "tópicos e pontos" (ver lib/outline.ts): cada tópico é um título com o número num selo (um
+ * ponto, na lista sem número), o resto da linha em cinza, e os pontos embaixo, recuados até o título
+ * e presos a ele por um fio.
+ */
+function OutlineTitle({ mark, children }: { mark: string; children?: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 font-semibold">
+      <span
+        aria-hidden={!mark}
+        className={cn(
+          'flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-[11px] font-medium text-muted-foreground tabular-nums',
+          mark && 'bg-foreground/[0.06]',
+        )}
+      >
+        {mark || <span className="size-1.5 rounded-full bg-muted-foreground/50" />}
+      </span>
+      <span className="min-w-0">{children}</span>
+    </div>
+  )
+}
+
 function Table({ node, children }: ComponentProps<'table'> & ExtraProps) {
   const [ref, r] = useReading<HTMLDivElement>(node)
   return (
@@ -279,6 +302,7 @@ const components: Components = {
   pre: Pre,
   code: code(false),
   span: ({ node, children }) => {
+    if (node?.properties.dataOutlineNote !== undefined) return <span className="ml-1.5 font-normal text-muted-foreground">{children}</span>
     const color = node?.properties.dataColor
     if (typeof color !== 'string') return <span>{children}</span>
     return (
@@ -290,8 +314,30 @@ const components: Components = {
   },
   p: Paragraph,
   li: ListItem,
-  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+  // O número e o ponto em cinza, para o texto ficar na frente; a sublista cola no item de cima.
+  ul: ({ node, children }) =>
+    node?.properties.dataOutline !== undefined ? (
+      <ul className="my-3 list-none space-y-3">{children}</ul>
+    ) : (
+      <ul className="my-2 list-disc space-y-1 pl-5 marker:text-muted-foreground/70 [li>&]:my-1">{children}</ul>
+    ),
+  ol: ({ node, children, start }) =>
+    node?.properties.dataOutline !== undefined ? (
+      <ol start={start} className="my-3 list-none space-y-3">
+        {children}
+      </ol>
+    ) : (
+      <ol start={start} className="my-2 list-decimal space-y-1 pl-5 marker:text-muted-foreground [li>&]:my-1">
+        {children}
+      </ol>
+    ),
+  div: ({ node, children }) => {
+    const mark = node?.properties.dataOutlineTitle
+    if (typeof mark === 'string') return <OutlineTitle mark={mark}>{children}</OutlineTitle>
+    if (node?.properties.dataOutlineBody === undefined) return <div>{children}</div>
+    // O fio sai do meio do selo; os pontos começam onde começa o título.
+    return <div className="mt-1 ml-2.5 border-l border-foreground/10 pl-[17px] [&>ol]:my-0 [&>ul]:my-0">{children}</div>
+  },
   h1: Heading,
   h2: Heading,
   h3: Subheading,
@@ -318,7 +364,7 @@ const components: Components = {
 const chatComponents: Components = { ...components, code: code(true), a: link(true) }
 
 const remarkPlugins = [remarkGfm]
-const rehypePlugins = [rehypeColors]
+const rehypePlugins = [rehypeColors, rehypeOutline]
 
 /** `chat`: uma resposta do Claude, com o copiar ao lado dos links e dos comandos. */
 export const Markdown = memo(function Markdown({ text, className, chat = false }: { text: string; chat?: boolean } & ComponentProps<'div'>) {
