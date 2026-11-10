@@ -429,11 +429,27 @@ export function ChatPage({ id }: { id: string }) {
                   fora, e o desfoque vazava quadrado nos dois cantos de cima. */}
               <div
                 className={cn(
-                  'shrink-0',
-                  glass ? 'relative z-10 bg-background/70 backdrop-blur-md wide:rounded-t-pane wide:in-data-[hole=flush]:rounded-tl-none' : 'bg-background',
+                  'relative z-10 shrink-0',
+                  // No celular o cabeçalho fica na casca (o preto do layout) e a janela da conversa curva por baixo dele.
+                  glass ? 'bg-shell wide:bg-background/70 wide:backdrop-blur-md wide:rounded-t-pane wide:in-data-[hole=flush]:rounded-tl-none' : 'bg-shell wide:bg-background',
                   zen && 'hidden',
                 )}
               >
+                {/* Os cantos de cima da janela, só no celular: a cor da casca com um recorte redondo, por cima da
+                    conversa (que segue de ponta a ponta por baixo, com ou sem a cena animada). */}
+                {[0, 1].map((i) => (
+                  <span
+                    key={i}
+                    aria-hidden
+                    className="pointer-events-none absolute top-full wide:hidden"
+                    style={{
+                      [i ? 'right' : 'left']: 0,
+                      width: 'var(--radius-pane)',
+                      height: 'var(--radius-pane)',
+                      background: `radial-gradient(circle at ${i ? '0%' : '100%'} 100%, transparent calc(var(--radius-pane) - 0.5px), var(--shell) var(--radius-pane))`,
+                    }}
+                  />
+                ))}
                 <header
                   // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
                   draggable={handle}
