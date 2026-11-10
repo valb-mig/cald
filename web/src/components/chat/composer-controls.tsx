@@ -1,5 +1,4 @@
 import {
-  AtSign,
   Ban,
   Check,
   ChevronDown,
@@ -8,7 +7,6 @@ import {
   Hand,
   Minimize2,
   Paperclip,
-  Plus,
   Shield,
   ShieldCheck,
   ShieldOff,
@@ -163,34 +161,15 @@ function Ring({ percent }: { percent: number }) {
 
 // ---- componentes ----
 
-export function AddMenu({ onAttach, onMention }: { onAttach: () => void; onMention?: () => void }) {
+/**
+ * Anexar: abre direto o seletor de arquivos do sistema (no celular, câmera, galeria ou arquivos). Um
+ * arquivo ou pasta do projeto entra digitando "@" no texto.
+ */
+export function AttachButton({ onAttach }: { onAttach: () => void }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(footerButton, 'px-0')} aria-label="Adicionar">
-          <Plus className="size-5" />
-        </button>
-      </DropdownMenuTrigger>
-      {/* Sem devolver o foco ao botão: o campo de mensagem precisa ficar com ele. */}
-      <DropdownMenuContent side="top" align="start" className="w-64" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <DropdownMenuItem onSelect={onAttach}>
-          <Paperclip />
-          <div>
-            <div>Enviar do celular</div>
-            <div className="text-xs text-muted-foreground">Câmera, galeria ou arquivos</div>
-          </div>
-        </DropdownMenuItem>
-        {onMention && (
-          <DropdownMenuItem onSelect={() => setTimeout(onMention, 50)}>
-            <AtSign />
-            <div>
-              <div>Adicionar contexto</div>
-              <div className="text-xs text-muted-foreground">Arquivo ou pasta do projeto</div>
-            </div>
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <button type="button" className={cn(footerButton, 'px-0')} onClick={onAttach} aria-label="Anexar arquivos" title="Anexar arquivos">
+      <Paperclip className="size-4" />
+    </button>
   )
 }
 
