@@ -1,7 +1,6 @@
 import { Check, CircleAlert, Clock, Code, Copy, FilePen, FileText, Folder, GitFork, Info, Link2, ListTodo, Monitor, Pause, Play, RotateCw, Smartphone, SquareTerminal, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { toolLine } from '@/components/agents/model'
 import { useNow } from '@/components/agents/status'
 import { ClaudeMark } from '@/components/claude-mark'
 import { ImageThumb } from '@/components/image-viewer'
@@ -10,7 +9,7 @@ import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { claudinhoName } from '@/lib/claudinho'
-import { duration, messageTime } from '@/lib/format'
+import { duration, messageTime, toolDoing } from '@/lib/format'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { machineOf } from '@/lib/machines'
 import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
@@ -515,28 +514,38 @@ function ItemView({
   }
 }
 
+/** A tarefa em andamento no último TodoWrite do turno, na frase que o Claude deu a ela ("Corrigindo o arrasto"). */
+function currentTask(items: Item[]): string | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!
+    if (item.type === 'user') return undefined
+    if (item.type !== 'activity') continue
+    const todo = item.entries.findLast((e): e is ToolEntry => e.kind === 'tool' && e.use.name === 'TodoWrite')
+    if (!todo) continue
+    const todos = todo.use.input.todos
+    const doing = Array.isArray(todos) ? todos.find((t) => t?.status === 'in_progress') : undefined
+    return typeof doing?.activeForm === 'string' ? doing.activeForm : undefined
+  }
+}
+
 /**
- * "Trabalhando…" com o que está rodando agora: a ferramenta em uso no turno (um comando longo, um
- * subagente) e há quanto tempo, para não parecer travado.
+ * O que o Claude está fazendo agora, numa frase com uma onda clara passando: a ferramenta em uso
+ * ("Lendo markdown.tsx", a descrição do comando) e há quanto tempo, para um comando longo não parecer
+ * travado; sem nenhuma, a tarefa em andamento ou "Pensando…".
  */
 function WorkingLine({ sessionId, items }: { sessionId: string; items: Item[] }) {
   const last = items.at(-1)
   const running = last?.type === 'activity' ? last.entries.findLast((e): e is ToolEntry => e.kind === 'tool' && !e.result) : undefined
+  const task = useMemo(() => currentTask(items), [items])
   const now = useNow(Boolean(running?.at))
+  const doing = running ? toolDoing(running.use.name, running.use.input) : (task ?? 'Pensando…')
   return (
     <div className="chat-enter flex min-w-0 items-center gap-2 text-xs text-muted-foreground" role="status">
       {/* O claudinho da conversa no lugar da estrelinha do Claude Code: rodando uma ferramenta, pula com o
           balão de "…"; sem nenhuma, fica com a mão no queixo, pensando. */}
       <Claudinho seed={sessionId} size={18} state="running" status thinking={!running} className={running ? 'claudinho-hop' : undefined} />
-      {running ? (
-        <>
-          <span className="shrink-0">Rodando</span>
-          <span className="min-w-0 truncate font-mono text-[11px]">{toolLine(running)}</span>
-          {running.at && <span className="shrink-0 tabular-nums">{duration(Math.max(0, now - running.at))}</span>}
-        </>
-      ) : (
-        'Trabalhando…'
-      )}
+      <span className="doing-shimmer min-w-0 truncate">{doing}</span>
+      {running?.at && <span className="shrink-0 tabular-nums">{duration(Math.max(0, now - running.at))}</span>}
     </div>
   )
 }

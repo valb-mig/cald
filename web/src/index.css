@@ -736,7 +736,28 @@
   background-size: 250% 100%;
   animation: effort-shimmer 2.8s ease-in-out infinite;
 }
+/* A frase do que o Claude está fazendo (WorkingLine, em components/chat/message-list.tsx): uma onda
+   atravessa o texto de ponta a ponta, na cor do texto forte (clara no escuro, escura no claro). */
+@keyframes doing-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.doing-shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 40%, var(--foreground) 50%, var(--muted-foreground) 60%) 0 0 / 250% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: doing-shimmer 2.4s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
+  .doing-shimmer {
+    animation: none;
+    background: none;
+    color: inherit;
+  }
   .effort-spark {
     animation: none;
     opacity: 0.5;
