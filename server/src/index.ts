@@ -16,7 +16,17 @@ import { CHANNEL, HOST, MACHINE_NAME, PACKAGED, PORT, TEST_BUILD, UPLOADS_DIR, W
 import { HttpError } from './errors.ts';
 import { searchProject } from './search.ts';
 import { clearPlugins, HabilidadeStore, MAX_BODY as MAX_HABILIDADE_BODY, MAX_DESCRIPTION as MAX_HABILIDADE_DESCRIPTION, type HabilidadeInput } from './habilidades.ts';
-import { listDir, rawProjectFile, readProjectFile, saveProjectFile, watchProjectFile } from './explorer.ts';
+import {
+  createProjectEntry,
+  listDir,
+  projectEntryInfo,
+  rawProjectFile,
+  readProjectFile,
+  restoreProjectEntry,
+  saveProjectFile,
+  trashProjectEntry,
+  watchProjectFile,
+} from './explorer.ts';
 import {
   gitBase,
   gitBranchChanges,
@@ -803,7 +813,7 @@ app.post<{ Params: IdParams }>('/api/sessions/:id/delete', async (req) => {
   return { ok: true };
 });
 
-// ---- explorador (só leitura) e git do projeto ----
+// ---- explorador e git do projeto ----
 
 type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide } };
 const projectQuery = {
@@ -883,6 +893,47 @@ app.post<{ Body: { cwd: string; path: string; content: string; base: string; for
     void wakatime({ cwd: dir, file: join(dir, req.body.path), category: 'coding', write: true });
     return saved;
   },
+);
+
+// Novo arquivo (vazio) ou pasta pelo explorador; com subpastas no caminho, cria as que faltam. Nunca por cima.
+app.post<{ Body: { cwd: string; path: string; type: 'dir' | 'file' } }>(
+  '/api/file/create',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'path', 'type'],
+        properties: { cwd: { type: 'string' }, path: { type: 'string', minLength: 1, maxLength: 4096 }, type: { type: 'string', enum: ['dir', 'file'] } },
+      },
+    },
+  },
+  async (req) => createProjectEntry(await manager.knownCwd(req.body.cwd), req.body.path, req.body.type),
+);
+
+// O que apagar levaria, para a confirmação: arquivo ou pasta, e quantos itens ela tem.
+app.get<ProjectQuery>('/api/file/info', projectQuery, async (req) =>
+  projectEntryInfo(await manager.knownCwd(req.query.cwd), req.query.path ?? ''),
+);
+
+// Apagar manda para a lixeira do edit.r (ver trashProjectEntry): o `id` devolvido desfaz, pelo /restore.
+app.post<{ Body: { cwd: string; path: string } }>(
+  '/api/file/trash',
+  {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'path'],
+        properties: { cwd: { type: 'string' }, path: { type: 'string', minLength: 1, maxLength: 4096 } },
+      },
+    },
+  },
+  async (req) => trashProjectEntry(await manager.knownCwd(req.body.cwd), req.body.path),
+);
+
+app.post<{ Body: { cwd: string; id: string } }>(
+  '/api/file/restore',
+  { schema: { body: { type: 'object', required: ['cwd', 'id'], properties: { cwd: { type: 'string' }, id: { type: 'string', maxLength: 64 } } } } },
+  async (req) => restoreProjectEntry(await manager.knownCwd(req.body.cwd), req.body.id),
 );
 
 app.get<ProjectQuery>('/api/file/raw', projectQuery, async (req, reply) => {
