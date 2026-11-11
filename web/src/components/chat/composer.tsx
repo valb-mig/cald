@@ -364,6 +364,8 @@ export function Composer({
       )}
       <div
         ref={root}
+        // O Tab de fora de um campo acha a caixa por aqui (ver `startComposeShortcut`).
+        data-composer
         data-big={big || undefined}
         className={cn(
           // No PC, a caixa flutua solta no pé da janela, com folga em volta; presa (`docked`), desce até o pé.

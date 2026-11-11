@@ -617,6 +617,8 @@ function GroupView({
     <div
       style={grow === null ? undefined : { flex: `${grow} 1 0%` }}
       className={cn('group/pane relative flex min-h-0 min-w-0 flex-col', grow === null && 'flex-1')}
+      // O Tab de fora de um campo escreve na conversa deste grupo (ver `startComposeShortcut`).
+      data-focused={focused || undefined}
       onPointerDownCapture={() => focusGroup(group.id)}
       onFocus={(e) => isTextField(e.target) && focusGroup(group.id)}
     >

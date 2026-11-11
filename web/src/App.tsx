@@ -18,6 +18,7 @@ import { SlidePanel } from '@/components/ui/slide-panel'
 import { BottomPanel, StatusBar } from '@/components/status-bar'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { Wallpaper } from '@/components/wallpaper/wallpaper'
+import { startComposeShortcut } from '@/lib/compose'
 import { openComputerLink, setComputerOpen } from '@/lib/computer'
 import { useGlass } from '@/lib/wallpaper'
 import { useWide } from '@/lib/hooks'
@@ -98,6 +99,7 @@ function Panel() {
     startOutbox()
     startSounds()
     startTitle()
+    startComposeShortcut()
     watchUpdates()
     // No app do PC os avisos são do sistema, sem Web Push (ver lib/desktop.ts).
     if (!desktop) void syncPush().catch(() => {})
