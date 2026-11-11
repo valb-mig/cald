@@ -9,6 +9,7 @@ import type {
   ArtefatoList,
   AttachmentPayload,
   CommandInfo,
+  ConflictResolution,
   ConfigSyncKind,
   ConfigSyncReport,
   ConfigSyncStatus,
@@ -29,6 +30,7 @@ import type {
   GithubItem,
   GitStatus,
   GithubPatch,
+  PrConflicts,
   PullDraft,
   PullDraftInfo,
   PullPlan,
@@ -446,6 +448,12 @@ export const api = {
   /** Os arquivos de um PR ou de um commit, com o diff de cada um. */
   githubPatches: (m: string, cwd: string, target: { pr: number } | { sha: string }) =>
     request<{ files: GithubPatch[] }>('GET', `${at(m)}/github/patches?${project(cwd)}&${'pr' in target ? `pr=${target.pr}` : `sha=${target.sha}`}`),
+  /** Os conflitos do merge de `base` na `branch` de um PR, as duas como estão no GitHub agora. */
+  prConflicts: (m: string, cwd: string, branch: string, base: string) =>
+    request<PrConflicts>('GET', `${at(m)}/github/conflicts?${project(cwd)}&branch=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}`),
+  /** Fecha o merge com o que ficou de cada arquivo e sobe na branch do PR. */
+  resolvePrConflicts: (m: string, cwd: string, c: Omit<PrConflicts, 'files'> & { files: ConflictResolution[] }) =>
+    post<{ sha: string }>(`${at(m)}/github/conflicts`, { cwd, ...c }),
   /** O que a aba de abrir PR precisa: etiquetas, a principal e o que a branch tem de novo. */
   githubDraft: (m: string, cwd: string) => request<PullDraftInfo>('GET', `${at(m)}/github/draft?${project(cwd)}`),
   /** Pede a um agente o PR organizado (título, descrição, branch e commits), no jeito das suas skills. */
@@ -700,6 +708,12 @@ export function errorMessage(err: unknown): string {
       return `O worktree tem ${String(err.details.changed)} ${err.details.changed === 1 ? 'arquivo' : 'arquivos'} sem commit. O "Trazer" leva só commits: faça o commit antes.`
     case 'nothing_to_merge':
       return 'Nada para trazer: a branch de origem já tem todos os commits do worktree.'
+    case 'branch_moved':
+      return `A ${String(err.details.branch)} mudou no GitHub enquanto você resolvia, e nada subiu. Abra de novo para ver o conflito de agora.`
+    case 'no_conflict':
+      return 'Não há mais conflito: dá para dar merge.'
+    case 'conflict_unresolved':
+      return `Faltou escolher em ${((err.details.files as string[] | undefined) ?? []).join(', ') || 'alguns arquivos'}.`
     case 'base_not_checked_out':
       return `O projeto está em ${String(err.details.current ?? 'nenhuma branch')}, não em ${String(err.details.base)}. Volte para ${String(err.details.base)} para trazer.`
     case 'merge_conflict':

@@ -102,7 +102,8 @@ const modelName = (m: ModelOption) => (m.value === 'default' ? 'Padrão' : m.dis
  * O "Chamar agente": cada agente com a marca dele, que já faz o trabalho ao tocar; passar o mouse abre ao
  * lado o mesmo seletor da barra do chat (o esforço em cima, os modelos embaixo). O que você escolhe fica
  * para a próxima. Por padrão, é o de organizar o PR; a revisão (ver pull-review.tsx) troca os textos, a
- * chave do que se lembra e o modelo de partida.
+ * chave do que se lembra e o modelo de partida. `anyAgent`: o trabalho vai numa conversa (o conflito
+ * de um PR, ver conflict-dialog.tsx), e vale qualquer agente ligado, não só os que fazem tarefas soltas.
  */
 export function AgentMenu({
   machine,
@@ -114,6 +115,8 @@ export function AgentMenu({
   verb = 'Organizar o PR com',
   storageKey = PICKS_KEY,
   prefer,
+  anyAgent = false,
+  className,
 }: {
   machine: string
   disabled: boolean
@@ -125,6 +128,9 @@ export function AgentMenu({
   verb?: string
   storageKey?: string
   prefer?: Pick
+  anyAgent?: boolean
+  /** Do botão (largura toda, no pé de uma lista). */
+  className?: string
 }) {
   const [organizers, setOrganizers] = useState<Organizer[] | null>(null)
   const [picks, setPicks] = useState(() => savedPicks(storageKey))
@@ -135,7 +141,7 @@ export function AgentMenu({
       .then((list) =>
         Promise.all(
           list
-            .filter((a) => a.enabled && a.available && a.features.assist)
+            .filter((a) => a.enabled && a.available && (anyAgent || a.features.assist))
             .map(async (agent) => ({ agent, models: current(await api.models(machine, agent.id).catch(() => [])) })),
         ),
       )
@@ -158,7 +164,7 @@ export function AgentMenu({
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={disabled} title={title}>
+        <Button variant="ghost" size="sm" disabled={disabled} title={title} className={className}>
           <Sparkles /> {label}
         </Button>
       </DropdownMenuTrigger>
