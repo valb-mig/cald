@@ -21,11 +21,12 @@ import { FileIcon } from '@/components/project/file-icons'
 import { DIFF_LABEL, splitPath } from '@/components/project/status'
 import { UnsavedDialog } from '@/components/project/unsaved-dialog'
 import { ViewerBody } from '@/components/project/viewer'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName, shortPath } from '@/lib/format'
+import { useLock } from '@/lib/lock'
 import { MachineContext } from '@/lib/machines'
 import { useProjectPanel, useShowProject } from '@/lib/project-panel'
 import { repaintShell } from '@/lib/shell'
@@ -114,6 +115,34 @@ function useViewingSync() {
   useEffect(() => {
     useProjectPanel.setState({ viewing: file && { machine: file.machine, cwd: file.cwd, path: file.path, diff: file.diff } })
   }, [file])
+}
+
+/**
+ * Alt+1…8 vai para a aba de mesmo número do grupo em foco (Alt+9, para a última) e Alt+W fecha a ativa:
+ * o Ctrl+número e o Ctrl+W do navegador, que no app do PC fecharia a janela. Valem também de dentro do
+ * terminal e do editor, onde o Alt+número e o Alt+W quase nunca são usados.
+ */
+function useTabShortcuts(focused: string | undefined) {
+  useEffect(() => {
+    if (!focused) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      if (useLock.getState().status === 'locked') return
+      const group = useWorkbench.getState().groups.find((g) => g.id === focused)
+      if (!group) return
+      // Pela tecla, e não pelo caractere: com o Alt, no Mac, o 1 vira "¡".
+      const n = /^Digit([1-9])$/.exec(e.code)?.[1]
+      const tab = n === '9' ? group.tabs.at(-1) : n ? group.tabs[Number(n) - 1] : undefined
+      const closing = e.code === 'KeyW' ? group.active : null
+      if (!tab && !closing) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (tab) activateTab(group.id, tab.key)
+      else if (closing) closeTab(group.id, closing)
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [focused])
 }
 
 // ---- abas ----
@@ -354,6 +383,7 @@ function TabMenu({
           <>
             <DropdownMenuItem onSelect={() => closeTab(at.group, at.tab.key)}>
               <X /> Fechar
+              <DropdownMenuShortcut>Alt+W</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => closeTabs(at.group, at.tab.key, 'others')}>Fechar as outras</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => closeTabs(at.group, at.tab.key, 'right')}>Fechar as da direita</DropdownMenuItem>
@@ -617,6 +647,8 @@ function GroupView({
     <div
       style={grow === null ? undefined : { flex: `${grow} 1 0%` }}
       className={cn('group/pane relative flex min-h-0 min-w-0 flex-col', grow === null && 'flex-1')}
+      // O Tab de fora de um campo escreve na conversa deste grupo (ver `startComposeShortcut`).
+      data-focused={focused || undefined}
       onPointerDownCapture={() => focusGroup(group.id)}
       onFocus={(e) => isTextField(e.target) && focusGroup(group.id)}
     >
@@ -798,6 +830,7 @@ export function Workbench() {
   const raw = visible.map((g) => weights[g.id] ?? 1)
   const total = raw.reduce((sum, w) => sum + w, 0)
   const focused = visible.some((g) => g.id === focusedId) ? focusedId : visible[0]?.id
+  useTabShortcuts(focused ?? undefined)
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-row">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useLock } from './lock'
 import type { AttachmentPayload } from './types'
 
 /**
@@ -96,6 +97,39 @@ export function contentOf(id: string): ContentHandle | undefined {
   let found: ContentHandle | undefined
   deliver(contents, id, (handle) => (found = handle))
   return found
+}
+
+/** Onde o Tab segue o de sempre: um campo (o terminal e o editor de código também são) e o que abre por cima. */
+const FIELDS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-composer]'
+const OVERLAYS = '[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="dropdown-menu-content"]'
+
+/** O texto de uma caixa de mensagem à vista em `scope`; as das abas guardadas ficam de fora (`inert`, invisíveis). */
+function composerIn(scope: ParentNode): HTMLTextAreaElement | undefined {
+  return [...scope.querySelectorAll<HTMLTextAreaElement>('[data-composer] textarea')].find(
+    (el) => !el.disabled && !el.closest('[inert]') && el.checkVisibility({ visibilityProperty: true }),
+  )
+}
+
+let shortcut = false
+
+/**
+ * Tab, fora de um campo, abre a caixa de mensagem para escrever: a do grupo de abas em foco no PC (com
+ * um arquivo nele, a da conversa ao lado) ou a da tela, no celular com teclado. Sem caixa à vista, ou
+ * com um diálogo ou menu aberto, o Tab segue o de sempre.
+ */
+export function startComposeShortcut(): void {
+  if (shortcut) return
+  shortcut = true
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return
+    if (useLock.getState().status === 'locked' || document.querySelector(OVERLAYS)) return
+    if (e.target instanceof Element && e.target.closest(FIELDS)) return
+    const group = document.querySelector('[data-focused]')
+    const box = (group && composerIn(group)) || composerIn(document)
+    if (!box) return
+    e.preventDefault()
+    box.focus()
+  })
 }
 
 /**
