@@ -10,6 +10,25 @@ const PROGRAMS = new Set(
   ).split(' '),
 )
 
+// Os blocos de código de terminal pelo nome da linguagem (```bash, ```console…).
+const SHELLS = new Set(['bash', 'sh', 'shell', 'zsh', 'fish', 'console', 'shellsession', 'terminal'])
+
+/**
+ * O comando de um bloco de código, se ele for de terminal: de shell (```bash, ```sh…), ou sem linguagem
+ * com toda linha com cara de comando (ver `commandOf`; comentários com `#` passam). Com o `$ ` do prompt
+ * (um ```console, com a saída junto), só as linhas dele, sem o `$ `. `null` se não é comando.
+ */
+export function blockCommandOf(code: string, lang?: string): string | null {
+  const shell = lang !== undefined && SHELLS.has(lang.toLowerCase())
+  if (lang && !shell) return null
+  const lines = code.replace(/\s+$/, '').split('\n')
+  const prompted = lines.filter((l) => /^\s*\$\s/.test(l)).map((l) => l.replace(/^\s*\$\s+/, ''))
+  if (prompted.length) return prompted.join('\n')
+  if (shell) return lines.join('\n').trim() ? lines.join('\n') : null
+  const real = lines.filter((l) => l.trim() && !l.trim().startsWith('#'))
+  return real.length && real.every((l) => commandOf(l)) ? lines.join('\n') : null
+}
+
 /**
  * O comando de um código inline, se ele for um (`npm i x`, `git push`, `$ ls -la`, `./deploy.sh --prod`),
  * sem o `$ ` do prompt; `null` para nomes soltos (`main`, `editr`, `pnpm`) e o que não é comando.

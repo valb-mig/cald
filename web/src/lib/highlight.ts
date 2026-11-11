@@ -106,6 +106,29 @@ const BY_EXTENSION: Record<string, string> = {
   service: 'ini',
 }
 
+// Os nomes de linguagem dos blocos de código do Markdown (```shell, ```py…) que não são o da gramática nem uma extensão.
+const TAG_ALIASES: Record<string, string> = {
+  shell: 'shellscript',
+  console: 'shellscript',
+  shellsession: 'shellscript',
+  terminal: 'shellscript',
+  fish: 'shellscript',
+  node: 'javascript',
+  golang: 'go',
+  'c++': 'cpp',
+  'c#': 'csharp',
+  docker: 'dockerfile',
+  makefile: 'make',
+  env: 'dotenv',
+}
+
+/** A linguagem de um bloco de código pelo nome dado a ele (```ts, ```bash); `null` se não é uma que o app colore. */
+export function languageOfTag(tag: string | undefined): string | null {
+  const name = tag?.toLowerCase()
+  if (!name) return null
+  return name in LANGS ? name : (BY_EXTENSION[name] ?? TAG_ALIASES[name] ?? null)
+}
+
 /** A linguagem do arquivo pelo nome; `null` se não é uma que o app colore. */
 export function languageOf(path: string): string | null {
   const name = path.slice(path.lastIndexOf('/') + 1)
@@ -152,10 +175,14 @@ const MAX_LINES = 5_000
  * linguagem desconhecida, texto grande demais ou sem rede: quem usa mostra o texto puro.
  */
 export function useTokens(code: string | null, path: string, forceDark?: boolean): ThemedToken[][] | null {
+  return useLangTokens(code, languageOf(path), forceDark)
+}
+
+/** O mesmo, pela linguagem (ver `languageOfTag`): os blocos de código do Markdown, que não têm arquivo. */
+export function useLangTokens(code: string | null, lang: string | null, forceDark?: boolean): ThemedToken[][] | null {
   const app = useDarkMode()
   // `forceDark`: para o que fica sobre fundo preto nos dois temas (o painel de passos).
   const dark = forceDark ?? app
-  const lang = languageOf(path)
   const [done, setDone] = useState<{ code: string; lang: string; dark: boolean; lines: ThemedToken[][] } | null>(null)
 
   useEffect(() => {

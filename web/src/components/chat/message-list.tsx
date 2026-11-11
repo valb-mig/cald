@@ -4,16 +4,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNow } from '@/components/agents/status'
 import { ClaudeMark } from '@/components/claude-mark'
 import { ImageThumb } from '@/components/image-viewer'
+import { CommandRun } from '@/components/command-run'
 import { Markdown, StreamingMarkdown } from '@/components/markdown'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { claudinhoName } from '@/lib/claudinho'
 import { duration, messageTime, toolDoing } from '@/lib/format'
+import { useWide } from '@/lib/hooks'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
 import { machineOf } from '@/lib/machines'
 import { speechSupported, stopSpeakingIn, toggleSpeech, useSpeech } from '@/lib/speech'
 import { useStore } from '@/lib/store'
+import { runInFolder } from '@/lib/terminals'
 import type { BackgroundTask, PanelEvent, Sent } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { Activity, LineCounts } from './activity'
@@ -301,6 +304,15 @@ function CopyMarkdown({ text, compact = false }: { text: string; compact?: boole
   )
 }
 
+/** O ▷ dos comandos da resposta: roda no terminal do painel de baixo, na pasta da conversa; o painel só existe no PC. */
+function useCommandRun(sessionId: string, cwd?: string): CommandRun | null {
+  const wide = useWide()
+  return useMemo(
+    () => (wide && cwd ? (command: string, opts: { enter: boolean; newTab?: boolean }) => runInFolder({ machine: machineOf(sessionId), cwd }, command, opts) : null),
+    [wide, cwd, sessionId],
+  )
+}
+
 /**
  * Resposta do Claude (quem escreveu fica no alto da resposta, ver ReplyHeader). Na última de cada turno,
  * os atalhos do que o turno fez embaixo. Os atalhos, **Ouvir** e **Copiar** (em Markdown) só aparecem
@@ -324,6 +336,7 @@ function AssistantMessage({
   cwd?: string
   fresh: boolean
 }) {
+  const run = useCommandRun(sessionId, cwd)
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
   const links = useMemo(() => (turn ? linksOf(turn).length : 0), [turn])
@@ -344,7 +357,9 @@ function AssistantMessage({
   return (
     <div className="group/answer relative">
       <ReadingLine value={line}>
-        <Markdown text={text} chat />
+        <CommandRun value={run}>
+          <Markdown text={text} chat />
+        </CommandRun>
       </ReadingLine>
       {row ? (
         <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">

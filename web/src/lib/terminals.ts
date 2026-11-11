@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { openBottomPanel } from './bottom-panel'
 
 /**
  * As abas do terminal, no painel de baixo (ver components/terminal.tsx). Cada uma é um shell no PC que
@@ -144,6 +145,25 @@ export function runCommand(id: string, command: string, { enter }: { enter: bool
   const bridge = bridges.get(id)
   if (bridge) return run(bridge)
   waiting.set(id, [...(waiting.get(id) ?? []), { at: Date.now(), run }])
+}
+
+/**
+ * Roda (ou só cola) `command` num terminal na pasta `place`, com o painel de baixo aberto nele: na aba
+ * livre que já está ali (a à vista primeiro), ou numa nova. É o ▷ dos comandos do chat (ver
+ * components/markdown.tsx), que rodam onde a conversa está, e não onde o terminal à vista estiver.
+ */
+export function runInFolder(place: { machine: string; cwd: string }, command: string, { enter, newTab = false }: { enter: boolean; newTab?: boolean }): void {
+  const { tabs, active } = useTerminals.getState()
+  const busy = useTermActivity.getState()
+  const here = newTab
+    ? undefined
+    : [...tabs]
+        .sort((a, b) => Number(b.id === active) - Number(a.id === active))
+        .find((t) => t.machine === place.machine && (t.here ?? t.cwd) === place.cwd && busy[t.id] !== 'running')
+  if (here) selectTerminal(here.id)
+  const id = here?.id ?? newTerminal(place)
+  openBottomPanel()
+  runCommand(id, command, { enter })
 }
 
 /**
