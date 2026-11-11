@@ -1,13 +1,17 @@
-import { Check, Copy, ImageIcon } from 'lucide-react'
-import { memo, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
+import { Check, ChevronDown, ClipboardPaste, Copy, ImageIcon, Play, SquarePlus, SquareTerminal, WrapText } from 'lucide-react'
+import { Fragment, memo, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { ThemedToken } from 'shiki/core'
 import { toast } from 'sonner'
+import { CommandRun } from '@/components/command-run'
 import { ImageThumb } from '@/components/image-viewer'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { findColors } from '@/lib/colors'
-import { commandOf } from '@/lib/commands'
+import { blockCommandOf, commandOf } from '@/lib/commands'
+import { languageOfTag, tokenStyle, useLangTokens } from '@/lib/highlight'
 import { rehypeOutline } from '@/lib/outline'
 import { cn } from '@/lib/utils'
 
@@ -99,29 +103,117 @@ function withSwatches(text: string): ReactNode {
   return out
 }
 
-export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
-  const lines = code.split('\n').length
-  const long = lines > COLLAPSE_AFTER_LINES
-  const [expanded, setExpanded] = useState(!long)
-  return (
-    <div className="my-2 overflow-hidden rounded-md border bg-muted/40">
-      <div className="flex items-center justify-between border-b px-2 py-1 text-xs text-muted-foreground">
-        <span className="font-mono">
-          {lang || 'código'} · {lines} {lines === 1 ? 'linha' : 'linhas'}
+/** O código com as cores de sintaxe, quando chegaram (e os quadradinhos das cores escritas nele); senão, o texto puro. */
+function Highlighted({ code, tokens }: { code: string; tokens: ThemedToken[][] | null }) {
+  if (!tokens) return withSwatches(code)
+  return tokens.map((line, i) => (
+    <Fragment key={i}>
+      {i > 0 && '\n'}
+      {line.map((t, j) => (
+        <span key={j} style={tokenStyle(t)}>
+          {withSwatches(t.content)}
         </span>
-        <div className="flex items-center gap-1">
-          {long && (
-            <Button variant="ghost" size="xs" onClick={() => setExpanded((e) => !e)}>
-              {expanded ? 'Recolher' : 'Expandir'}
-            </Button>
-          )}
-          <CopyButton text={code} />
-        </div>
+      ))}
+    </Fragment>
+  ))
+}
+
+/** O ▷ de um comando: roda no terminal da conversa; ao lado, o menu com rodar numa aba nova e colar sem rodar. */
+function RunCommand({ command, run }: { command: string; run: CommandRun }) {
+  return (
+    <span className="flex items-center">
+      <Button variant="ghost" size="icon-xs" title="Rodar no terminal, na pasta da conversa" aria-label="Rodar no terminal" onClick={() => run(command, { enter: true })}>
+        <Play />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-xs" className="-ml-1 w-4" title="Outros jeitos de rodar" aria-label="Outros jeitos de rodar">
+            <ChevronDown />
+          </Button>
+        </DropdownMenuTrigger>
+        {/* Sem devolver o foco ao botão: rodar e colar dão o foco ao terminal. */}
+        <DropdownMenuContent align="end" className="w-auto" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuItem onSelect={() => run(command, { enter: true, newTab: true })}>
+            <SquarePlus /> Rodar numa aba nova
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => run(command, { enter: false })}>
+            <ClipboardPaste /> Colar sem rodar
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
+  )
+}
+
+/**
+ * Um bloco de código ou de texto (SQL, um log, ```text), com as cores de sintaxe do app: no canto, o
+ * nome da linguagem ("text" sem uma); à direita, quebrar as linhas longas e copiar. O de terminal (ver
+ * `blockCommandOf`) leva o ícone de terminal no lugar do nome e, no chat do PC, o ▷ que roda na pasta da
+ * conversa; o copiar dele leva só o comando (num ```console, sem a saída).
+ */
+export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+  const command = blockCommandOf(code, lang)
+  const run = useContext(CommandRun)
+  const tokens = useLangTokens(code, languageOfTag(lang) ?? (command ? 'shellscript' : null))
+  const long = code.split('\n').length > COLLAPSE_AFTER_LINES
+  const [expanded, setExpanded] = useState(!long)
+  const [wrap, setWrap] = useState(false)
+  return (
+    <div className="my-2 overflow-hidden rounded-xl bg-foreground/[0.04]">
+      <div className="flex h-8 items-center gap-1 pr-1 pl-3 text-xs text-muted-foreground">
+        {command ? <SquareTerminal className="size-3.5 shrink-0" aria-label="Comando" /> : <span className="truncate font-mono">{lang || 'text'}</span>}
+        <span className="flex-1" />
+        {long && (
+          <Button variant="ghost" size="xs" onClick={() => setExpanded((e) => !e)}>
+            {expanded ? 'Recolher' : 'Expandir'}
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-pressed={wrap}
+          className={cn(wrap && 'bg-foreground/[0.08] text-foreground')}
+          title={wrap ? 'Não quebrar as linhas' : 'Quebrar as linhas longas'}
+          aria-label="Quebrar as linhas longas"
+          onClick={() => setWrap((w) => !w)}
+        >
+          <WrapText />
+        </Button>
+        {command && run && <RunCommand command={command} run={run} />}
+        <CopyButton text={command ?? code} label={command ? 'Copiar o comando' : 'Copiar'} />
       </div>
-      <pre className={cn('overflow-x-auto p-3 font-mono text-xs leading-relaxed', !expanded && 'max-h-48 overflow-y-hidden')}>
-        <code>{withSwatches(code)}</code>
+      <pre
+        className={cn(
+          'px-3 pt-0.5 pb-3 font-mono text-xs leading-relaxed',
+          wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'overflow-x-auto',
+          !expanded && 'max-h-48 overflow-y-hidden',
+        )}
+      >
+        <code>
+          <Highlighted code={code} tokens={tokens} />
+        </code>
       </pre>
     </div>
+  )
+}
+
+/** O ▷ ao lado do copiar de um comando no meio do texto, no chat do PC: roda na pasta da conversa. */
+function InlineRun({ command }: { command: string }) {
+  const run = useContext(CommandRun)
+  if (!run) return null
+  return (
+    <span className="relative ml-1 pl-[1em] select-none">
+      {'⁠'}
+      <button
+        type="button"
+        title="Rodar no terminal, na pasta da conversa"
+        aria-label="Rodar no terminal"
+        onClick={() => run(command, { enter: true })}
+        className="absolute inset-0 flex items-center justify-center rounded-sm text-muted-foreground/60 transition-colors after:absolute after:-inset-1.5 hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <Play className="size-[1em] shrink-0" />
+      </button>
+    </span>
   )
 }
 
@@ -264,14 +356,18 @@ function rehypeColors() {
 const code =
   (chat: boolean): Components['code'] =>
   ({ className, children }) => {
-    const text = String(children).replace(/\n$/, '')
+    const raw = String(children)
+    const text = raw.replace(/\n$/, '')
     const lang = /language-([\w+-]+)/.exec(className ?? '')?.[1]
-    if (lang || text.includes('\n')) return <CodeBlock code={text} lang={lang} />
+    // O bloco cercado (```) termina sempre com a quebra de linha; o inline, nunca. Sem olhar isso, o
+    // bloco de uma linha só e sem linguagem (um comando) virava código inline.
+    if (lang || raw.endsWith('\n') || text.includes('\n')) return <CodeBlock code={text} lang={lang} />
     const command = chat && commandOf(text)
     return (
       <>
         <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-words">{withSwatches(text)}</code>
         {command && <InlineCopy text={command} label="Copiar o comando" />}
+        {command && <InlineRun command={command} />}
       </>
     )
   }
