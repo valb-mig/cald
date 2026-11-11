@@ -155,7 +155,7 @@ function WorktreeRow({
   function terminal() {
     onLeave()
     newTerminal({ machine, cwd: w.path })
-    useBottomPanel.setState({ open: true, tab: 'terminal' })
+    useBottomPanel.setState({ open: true })
     saveBottomPanel()
   }
 

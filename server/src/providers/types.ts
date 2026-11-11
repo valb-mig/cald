@@ -1,7 +1,6 @@
 import type { ImageSink } from '../images.ts';
 import type { LoggedEvent, PanelEvent, Question, Sent } from '../events.ts';
 import type { McpServerSpec } from '../editr-mcp.ts';
-import type { OfficeSnapshot } from '../office.ts';
 import type { PlanUsage } from '../system.ts';
 import type { TeamSnapshot } from '../teams.ts';
 
@@ -15,7 +14,7 @@ import type { TeamSnapshot } from '../teams.ts';
  * vocabulário. Um agente novo é só mais uma implementação de `AgentProvider`, registrada em index.ts.
  *
  * As ferramentas seguem os nomes do Claude Code (Bash, Read, Edit, Write, Agent, AskUserQuestion,
- * TodoWrite…), que o app e a salinha já sabem desenhar: o agente que chama as dele de outro jeito
+ * TodoWrite…), que o app já sabe desenhar: o agente que chama as dele de outro jeito
  * traduz para esses quando houver equivalente; as que não têm aparecem como ferramenta genérica.
  */
 
@@ -245,8 +244,6 @@ export interface ExternalSessions {
   all(): ExternalSession[];
   /** Encerra no PC uma conversa ociosa no terminal, para o painel assumir. */
   close(session: ExternalSession): Promise<void>;
-  /** Quem trabalha nela agora, para a salinha. */
-  office(session: ExternalSession): Promise<OfficeSnapshot>;
 }
 
 // ---------------------------------------------------------------------------

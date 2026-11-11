@@ -9,6 +9,7 @@ import type {
   ArtefatoList,
   AttachmentPayload,
   CommandInfo,
+  ConflictResolution,
   ConfigSyncKind,
   ConfigSyncReport,
   ConfigSyncStatus,
@@ -29,6 +30,7 @@ import type {
   GithubItem,
   GitStatus,
   GithubPatch,
+  PrConflicts,
   PullDraft,
   PullDraftInfo,
   PullPlan,
@@ -44,9 +46,9 @@ import type {
   MemoryRef,
   MemorySuggestion,
   ModelOption,
-  OfficeRoom,
   PrototypeOpen,
   PushPrefs,
+  QueuedMessage,
   RunOptions,
   SavedCommand,
   SavedCommandList,
@@ -193,8 +195,6 @@ export const api = {
   /** As subpastas de uma pasta do PC (sem `path`, a pasta pessoal). */
   folders: (m: string, path?: string) =>
     request<FolderListing>('GET', `${at(m)}/folders${path ? `?path=${encodeURIComponent(path)}` : ''}`),
-  /** A salinha: o que cada claudinho de cada conversa aberta faz agora. */
-  office: (m: string) => request<OfficeRoom[]>('GET', `${at(m)}/office`),
   /** Uso por dia para a home (grid do ano, gráficos, projetos). */
   /** Com `cwd`, só o uso daquele projeto (o hub do projeto). */
   activity: (m: string, cwd?: string) => request<Activity>('GET', `${at(m)}/activity${cwd ? `?${project(cwd)}` : ''}`),
@@ -344,9 +344,29 @@ export const api = {
   takeover: (id: string, body: RunOptions = {}) => post<{ sessionId: string }>(`${sid(id)}/takeover`, body),
   release: (id: string) => post<{ resumeCommand: string }>(`${sid(id)}/release`),
 
-  /** `clientId` identifica a mensagem da fila: reenviar a mesma não repete o turno. */
-  send: (id: string, body: { text: string; attachments?: AttachmentPayload[]; clientId?: string }, signal?: AbortSignal) =>
-    post(`${sid(id)}/messages`, body, signal),
+  /**
+   * `clientId` identifica a mensagem da fila do celular: reenviar a mesma não repete o turno. `next`: com
+   * o Claude trabalhando, ela entra na fila da conversa (`queued` é o id dela lá) e vai quando o turno
+   * acabar, com o `model` e o `effort` dados.
+   */
+  send: (
+    id: string,
+    body: { text: string; attachments?: AttachmentPayload[]; clientId?: string; next?: boolean; model?: string; effort?: string },
+    signal?: AbortSignal,
+  ) => post<{ ok: true; queued?: string }>(`${sid(id)}/messages`, body, signal),
+  /** A fila de mensagens da conversa: mandar uma agora, mesmo no meio do turno. */
+  sendQueued: (id: string, itemId: string) => post(`${sid(id)}/queue/${encodeURIComponent(itemId)}/send`),
+  /**
+   * Abre `open` da fila na caixa: ela fica segura (não sai no fim do turno) e volta inteira; `null` fecha.
+   * `save` grava antes a que estava aberta, com o que mudou nela.
+   */
+  editQueued: (id: string, open: string | null, save?: Omit<QueuedMessage, 'createdAt'>) =>
+    post<{ message: QueuedMessage | null }>(`${sid(id)}/queue/edit`, { open, save }),
+  /** Tira uma da fila e a devolve inteira, para o desfazer. */
+  takeQueued: (id: string, itemId: string) => post<QueuedMessage>(`${sid(id)}/queue/${encodeURIComponent(itemId)}/take`),
+  /** Põe de volta, no lugar `index`, uma mensagem tirada da fila. */
+  restoreQueued: (id: string, item: QueuedMessage, index: number) => post(`${sid(id)}/queue`, { item, index }),
+  orderQueue: (id: string, ids: string[]) => post(`${sid(id)}/queue/order`, { ids }),
   interrupt: (id: string) => post(`${sid(id)}/interrupt`),
   pin: (id: string, pinned: boolean) => post(`${sid(id)}/pin`, { pinned }),
   /** O nome do claudinho da conversa; `null` volta ao sorteado. */
@@ -388,10 +408,15 @@ export const api = {
   /** Avisa que você está mexendo no painel, para o tempo contar no WakaTime (ver lib/wakatime.ts). */
   wakatime: (m: string, body: { cwd: string; path?: string; category?: 'code reviewing' | 'planning' }) => post(`${at(m)}/wakatime`, body),
   // `head` é o mesmo que sem lado: assim o servidor ainda não reiniciado também responde.
-  gitDiff: (m: string, cwd: string, path: string, side?: DiffSide) =>
-    request<{ diff: string }>('GET', `${at(m)}/git/diff?${project(cwd, path)}${side && side !== 'head' ? `&side=${side}` : ''}`),
-  /** O que a branch mudou desde que saiu da principal, commits e não commitado juntos. */
-  gitChanges: (m: string, cwd: string) => request<BranchChanges>('GET', `${at(m)}/git/changes?${project(cwd)}`),
+  // `base`: a base do worktree (ex.: release), no lugar da principal, no lado `base`.
+  gitDiff: (m: string, cwd: string, path: string, side?: DiffSide, base?: string) =>
+    request<{ diff: string }>(
+      'GET',
+      `${at(m)}/git/diff?${project(cwd, path)}${side && side !== 'head' ? `&side=${side}` : ''}${base ? `&base=${encodeURIComponent(base)}` : ''}`,
+    ),
+  /** O que a branch mudou desde que saiu da principal (ou da `base` pedida), commits e não commitado juntos. */
+  gitChanges: (m: string, cwd: string, base?: string) =>
+    request<BranchChanges>('GET', `${at(m)}/git/changes?${project(cwd)}${base ? `&base=${encodeURIComponent(base)}` : ''}`),
   /** As branches para trocar; `fetch` consulta o remoto antes (no máximo a cada 10 min). */
   gitBranches: (m: string, cwd: string, fetch = false) =>
     request<GitBranches>('GET', `${at(m)}/git/branches?${project(cwd)}${fetch ? '&fetch=1' : ''}`),
@@ -423,6 +448,12 @@ export const api = {
   /** Os arquivos de um PR ou de um commit, com o diff de cada um. */
   githubPatches: (m: string, cwd: string, target: { pr: number } | { sha: string }) =>
     request<{ files: GithubPatch[] }>('GET', `${at(m)}/github/patches?${project(cwd)}&${'pr' in target ? `pr=${target.pr}` : `sha=${target.sha}`}`),
+  /** Os conflitos do merge de `base` na `branch` de um PR, as duas como estão no GitHub agora. */
+  prConflicts: (m: string, cwd: string, branch: string, base: string) =>
+    request<PrConflicts>('GET', `${at(m)}/github/conflicts?${project(cwd)}&branch=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}`),
+  /** Fecha o merge com o que ficou de cada arquivo e sobe na branch do PR. */
+  resolvePrConflicts: (m: string, cwd: string, c: Omit<PrConflicts, 'files'> & { files: ConflictResolution[] }) =>
+    post<{ sha: string }>(`${at(m)}/github/conflicts`, { cwd, ...c }),
   /** O que a aba de abrir PR precisa: etiquetas, a principal e o que a branch tem de novo. */
   githubDraft: (m: string, cwd: string) => request<PullDraftInfo>('GET', `${at(m)}/github/draft?${project(cwd)}`),
   /** Pede a um agente o PR organizado (título, descrição, branch e commits), no jeito das suas skills. */
@@ -677,6 +708,12 @@ export function errorMessage(err: unknown): string {
       return `O worktree tem ${String(err.details.changed)} ${err.details.changed === 1 ? 'arquivo' : 'arquivos'} sem commit. O "Trazer" leva só commits: faça o commit antes.`
     case 'nothing_to_merge':
       return 'Nada para trazer: a branch de origem já tem todos os commits do worktree.'
+    case 'branch_moved':
+      return `A ${String(err.details.branch)} mudou no GitHub enquanto você resolvia, e nada subiu. Abra de novo para ver o conflito de agora.`
+    case 'no_conflict':
+      return 'Não há mais conflito: dá para dar merge.'
+    case 'conflict_unresolved':
+      return `Faltou escolher em ${((err.details.files as string[] | undefined) ?? []).join(', ') || 'alguns arquivos'}.`
     case 'base_not_checked_out':
       return `O projeto está em ${String(err.details.current ?? 'nenhuma branch')}, não em ${String(err.details.base)}. Volte para ${String(err.details.base)} para trazer.`
     case 'merge_conflict':

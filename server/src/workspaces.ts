@@ -24,7 +24,7 @@ export type WorkspaceCommand = { label: string; command: string; cwd?: string };
 export type Workspace = {
   id: string;
   name: string;
-  /** Índice da cor da paleta do app: o chip da conversa e a placa da salinha. */
+  /** Índice da cor da paleta do app: o chip da conversa. */
   color: number;
   projects: string[];
   instructions: string;
@@ -38,7 +38,7 @@ export type Workspace = {
 };
 
 export type WorkspaceInput = Omit<Workspace, 'id' | 'files' | 'defaultFor' | 'updatedAt'> & { id?: string };
-/** O que a lista de conversas e a salinha mostram do workspace de uma conversa. */
+/** O que a lista de conversas mostra do workspace de uma conversa. */
 export type WorkspaceTag = Pick<Workspace, 'id' | 'name' | 'color'>;
 
 export const MAX_INSTRUCTIONS = 20_000;

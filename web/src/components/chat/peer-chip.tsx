@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useLocation } from 'wouter'
 import { Claudinho } from '@/components/claudinho'
 import { PeerFaces } from '@/components/peer-faces'
@@ -10,7 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { api } from '@/lib/api'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName, stateInfo } from '@/lib/format'
 import { namesOf, usePeers } from '@/lib/peers'
@@ -18,40 +17,7 @@ import { openBeside, useSplit } from '@/lib/split'
 import type { CatalogEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-// Como a salinha: o que cada um faz muda a cada ferramenta.
-const POLL_MS = 2_500
-
-/** O que a própria conversa (não os subagentes) faz agora, por conversa, enquanto o menu está aberto. */
-function useDoing(machine: string, open: boolean): Record<string, string> {
-  const [doing, setDoing] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (!open) return
-    let alive = true
-    const load = () =>
-      api.office(machine).then(
-        (rooms) => {
-          if (!alive) return
-          const next: Record<string, string> = {}
-          for (const r of rooms) {
-            const detail = r.workers.find((w) => w.id === 'lead')?.detail
-            if (detail) next[r.sessionId] = detail
-          }
-          setDoing(next)
-        },
-        // Servidor antigo ou fora do ar: o menu fica só com o estado de cada uma.
-        () => {},
-      )
-    void load()
-    const timer = setInterval(load, POLL_MS)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [machine, open])
-  return doing
-}
-
-function PeerItem({ s, doing, onOpen }: { s: CatalogEntry; doing?: string; onOpen: (id: string) => void }) {
+function PeerItem({ s, onOpen }: { s: CatalogEntry; onOpen: (id: string) => void }) {
   const background = s.state === 'idle' && Boolean(s.tasks?.length)
   const state = background ? 'running' : s.state
   const { label, tone } = stateInfo(state, background ? 'background' : s.waitingFor)
@@ -70,8 +36,7 @@ function PeerItem({ s, doing, onOpen }: { s: CatalogEntry; doing?: string; onOpe
             tone === 'running' ? 'text-sky-700 dark:text-sky-300' : tone === 'attention' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
           )}
         >
-          {/* Esperando você, o estado diz mais do que a última ferramenta. */}
-          {(tone === 'running' && doing) || label}
+          {label}
         </span>
       </span>
     </DropdownMenuItem>
@@ -80,13 +45,12 @@ function PeerItem({ s, doing, onOpen }: { s: CatalogEntry; doing?: string; onOpe
 
 /**
  * No cabeçalho do chat, quem mais trabalha agora no mesmo checkout: os claudinhos e o nome deles. O
- * menu mostra o que cada um faz e as abertas paradas; escolher uma a abre ao lado (ou vai até ela, se
+ * menu mostra o estado de cada um e as abertas paradas; escolher uma a abre ao lado (ou vai até ela, se
  * já está à vista). Sem ninguém trabalhando junto, não aparece. `compact`: só os claudinhos.
  */
 export function PeerChip({ id, machine, cwd, compact = false }: { id: string; machine: string; cwd?: string; compact?: boolean }) {
   const { working, idle } = usePeers(machine, cwd, id)
   const [open, setOpen] = useState(false)
-  const doing = useDoing(machine, open)
   const split = useSplit()
   const [, navigate] = useLocation()
   if (!working.length) return null
@@ -112,7 +76,7 @@ export function PeerChip({ id, machine, cwd, compact = false }: { id: string; ma
       <DropdownMenuContent align="start" className="w-80" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Mexendo em {project} agora</DropdownMenuLabel>
         {working.map((s) => (
-          <PeerItem key={s.sessionId} s={s} doing={doing[s.sessionId]} onOpen={go} />
+          <PeerItem key={s.sessionId} s={s} onOpen={go} />
         ))}
         {idle.length > 0 && (
           <>

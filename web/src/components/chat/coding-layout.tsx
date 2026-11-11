@@ -1,5 +1,5 @@
 import { CodeXml, Footprints } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 import { Claudinho } from '@/components/claudinho'
 import { ResizeHandle } from '@/components/ui/resize-handle'
 import {
@@ -8,7 +8,6 @@ import {
   setScreenCollapsed,
   setTrailSplit,
   setTrailWidth,
-  swapScreens,
   TRAIL_SPLIT,
   TRAIL_WIDTH,
   useCodingSlots,
@@ -33,26 +32,18 @@ const RAIL = '2.75rem'
 
 const SLOT_NAMES: Record<Slot, string> = { main: 'Principal', top: 'Em cima', bottom: 'Embaixo' }
 
-/** A camada que acende sobre uma janela enquanto uma tela é arrastada: soltar nela troca as duas de lugar. */
+/**
+ * A camada que acende sobre uma janela enquanto uma tela é arrastada: soltar nela troca as duas de lugar.
+ * Quem arrasta (ScreenBar) acha a tela embaixo do ponteiro pelo `data-drop-screen` dela.
+ */
 function DropZone({ screen, slot }: { screen: Screen; slot: Slot }) {
   const dragging = useDraggingScreen((s) => s.screen)
-  const [over, setOver] = useState(false)
+  const over = useDraggingScreen((s) => s.over === screen)
   if (!dragging) return null
   const own = dragging === screen
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = own ? 'none' : 'move'
-      }}
-      onDragEnter={() => setOver(true)}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault()
-        setOver(false)
-        if (!own) swapScreens(dragging, screen)
-        useDraggingScreen.setState({ screen: null })
-      }}
+      data-drop-screen={screen}
       className={cn(
         'absolute inset-0 z-30 grid place-items-center rounded-pane text-xs font-medium transition-colors',
         own ? 'bg-background/70' : over ? 'bg-primary/10 text-foreground ring-2 ring-primary' : 'bg-background/40 text-muted-foreground',

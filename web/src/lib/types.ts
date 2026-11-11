@@ -124,7 +124,27 @@ export type CatalogEntry = {
   worktree?: WorktreeTag;
   /** O agente que conduz a conversa (ver AgentProviderInfo); sem ele (servidor antigo), o Claude Code. */
   provider?: string;
+  /** As mensagens esperando a vez, na ordem (ver server/src/message-queue.ts). */
+  queue?: QueueItem[];
+  /** A fila não anda sozinha (turno interrompido, com erro ou serviço reiniciado): volta quando você manda uma. */
+  queuePaused?: boolean;
 };
+
+/**
+ * Uma mensagem na fila da conversa, como a lista mostra: o começo do texto (até 400 letras), os anexos
+ * sem o conteúdo e o modelo e o esforço com que ela vai.
+ */
+export type QueueItem = {
+  id: string;
+  text: string;
+  attachments: { name: string; mediaType: string; thumb?: string }[];
+  model?: string;
+  effort?: string;
+  createdAt: number;
+};
+
+/** Uma mensagem tirada da fila, inteira: o texto todo e os anexos com o conteúdo. */
+export type QueuedMessage = Omit<QueueItem, 'attachments'> & { attachments: AttachmentPayload[] };
 
 /**
  * Um agente que a máquina sabe conduzir (ver server/src/providers): o Claude Code hoje, outros depois.
@@ -668,6 +688,19 @@ export type GithubItem =
     }
   | Extract<GithubInfo, { ok: false }>
 
+/**
+ * Um arquivo em conflito no merge da base num PR (ver server/src/conflicts.ts). `text`: com as marcas de
+ * conflito, para escolher trecho a trecho; `null` (binário, grande, apagado de um lado), escolhe-se o
+ * arquivo inteiro de um lado. `branch` e `base`: se ele existe em cada lado.
+ */
+export type ConflictFile = { path: string; text: string | null; branch: boolean; base: boolean }
+
+/** Os conflitos de um PR, com as pontas em que foram vistos: concluir faz o merge dessas mesmas. */
+export type PrConflicts = { branch: string; base: string; head: string; baseSha: string; files: ConflictFile[] }
+
+/** O que fica de um arquivo em conflito: o texto resolvido, ou o arquivo inteiro de um lado. */
+export type ConflictResolution = { path: string; content: string } | { path: string; side: 'branch' | 'base' }
+
 /** Uma ação numa issue ou num PR, pelo `gh` do PC (ver server/src/github.ts). `review`, `merge` e `draft` são de PR. */
 export type GithubAction =
   | { type: 'comment'; body: string }
@@ -780,23 +813,6 @@ export type Activity = {
   projects: ActivityProject[]
 }
 
-/** Estação da salinha (ver server/src/office.ts). */
-export type OfficeActivity = 'web' | 'files' | 'edit' | 'command' | 'plan' | 'think' | 'ask' | 'compact' | 'background' | 'idle'
-export type OfficeWorker = { id: string; name: string; role: string; activity: OfficeActivity; detail?: string }
-/** O que acabou de acontecer na conversa, para a salinha animar uma vez (ver server/src/office.ts). */
-export type OfficeEventKind = 'edit' | 'error' | 'test-pass' | 'test-fail' | 'commit' | 'push' | 'skill'
-export type OfficeEvent = { id: string; at: number; kind: OfficeEventKind; worker: string; detail?: string }
-export type OfficeTodos = { done: number; total: number; current?: string }
-/** Um setor: uma conversa aberta e quem trabalha nela. `machine` é posto pelo app. */
-export type OfficeRoom = Pick<CatalogEntry, 'sessionId' | 'title' | 'cwd' | 'state' | 'waitingFor' | 'team' | 'workspace'> & {
-  owner: 'panel' | 'pc'
-  workers: OfficeWorker[]
-  /** Ausentes em servidores antigos. */
-  events?: OfficeEvent[]
-  todos?: OfficeTodos
-  model?: string
-  machine?: string
-}
 
 /** Por que um PR ou uma issue está na inbox (ver server/src/github.ts). */
 export type InboxReason = 'review' | 'checks' | 'changes' | 'conflict' | 'ready' | 'assigned' | 'mentioned'

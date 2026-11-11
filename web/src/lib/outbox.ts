@@ -17,6 +17,8 @@ export type OutboxItem = {
   attachments: AttachmentPayload[]
   /** Modelo, esforço e modo para retomar a conversa, se ela estiver parada na hora do envio. */
   options?: RunOptions
+  /** Com o Claude trabalhando, entra na fila da conversa, com o modelo e o esforço de `options` (ver api.send). */
+  next?: boolean
   createdAt: number
   status: 'queued' | 'sending' | 'failed'
   error?: string
@@ -47,8 +49,8 @@ function remove(id: string): void {
 // Ações da interface
 // ---------------------------------------------------------------------------
 
-export function enqueue(sessionId: string, text: string, attachments: AttachmentPayload[], options?: RunOptions): void {
-  const item: OutboxItem = { id: crypto.randomUUID(), sessionId, text, attachments, options, createdAt: Date.now(), status: 'queued' }
+export function enqueue(sessionId: string, text: string, attachments: AttachmentPayload[], options?: RunOptions, next?: boolean): void {
+  const item: OutboxItem = { id: crypto.randomUUID(), sessionId, text, attachments, options, next, createdAt: Date.now(), status: 'queued' }
   useOutbox.setState((s) => ({ items: [...s.items, item] }))
   save(item)
   void flush()
@@ -83,7 +85,8 @@ function transient(err: unknown): boolean {
 
 async function deliver(item: OutboxItem): Promise<void> {
   const bytes = item.attachments.reduce((n, a) => n + a.data.length, 0)
-  const body = { text: item.text, attachments: item.attachments, clientId: item.id }
+  const queue = item.next ? { next: true, model: item.options?.model, effort: item.options?.effort } : {}
+  const body = { text: item.text, attachments: item.attachments, clientId: item.id, ...queue }
   // Folga para anexos grandes em rede lenta (~50 KB/s); passou disso, a conexão travou.
   const send = () => api.send(item.sessionId, body, AbortSignal.timeout(30_000 + bytes / 50))
   try {

@@ -208,3 +208,31 @@ export function usePressMenu(open: (x: number, y: number) => void) {
     },
   }
 }
+
+/** Teclado virtual aberto (celular): um campo de texto em foco num aparelho de toque. A toolbar do pé some, para não comer a tela. */
+export function useKeyboardOpen(): boolean {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const check = () => {
+      const el = document.activeElement
+      // Caixa de marcar, botão e afins não abrem teclado.
+      const typing = el instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type)
+      const field = typing || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable)
+      setOpen(field && matchMedia('(pointer: coarse)').matches)
+    }
+    // Saindo de um campo para outro, o foco passa um instante pelo body: confere depois, para a toolbar não piscar.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const later = () => {
+      clearTimeout(timer)
+      timer = setTimeout(check, 0)
+    }
+    document.addEventListener('focusin', check)
+    document.addEventListener('focusout', later)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('focusin', check)
+      document.removeEventListener('focusout', later)
+    }
+  }, [])
+  return open
+}

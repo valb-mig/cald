@@ -49,6 +49,7 @@ import {
 import { planPull, type PartialPlan } from './pull-plan.ts';
 import { planReview, type PartialReview } from './pull-review-plan.ts';
 import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
+import { prConflicts, resolvePrConflicts, type ConflictResolution } from './conflicts.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, localOnly, pinToken, refreshTailnet } from './guard.ts';
@@ -56,6 +57,7 @@ import { RemoteLink } from './link.ts';
 import { MachineDirectory } from './machines.ts';
 import { Manager } from './manager.ts';
 import { MetaStore } from './meta.ts';
+import { MessageQueues } from './message-queue.ts';
 import { Notifier } from './notifier.ts';
 import { PinLock } from './pin.ts';
 import { clearProjectIcon, projectIcon, projectIconInfo, setProjectIcon } from './project-icon.ts';
@@ -126,7 +128,10 @@ await habilidades.load();
 const memorySuggestions = new MemorySuggestionStore();
 await memorySuggestions.load();
 await clearPlugins();
-const manager = new Manager(providers, meta, teams, workspaces, origins, habilidades);
+// O que você mandou enquanto o Claude trabalhava, esperando a vez (ver message-queue.ts).
+const queues = new MessageQueues();
+await queues.load();
+const manager = new Manager(providers, meta, teams, workspaces, origins, habilidades, queues);
 // `TODO:3` numa mensagem leva junto, para o Claude, o conteúdo do item (ver todos.ts).
 manager.todoContext = (cwd, text) => todos.context(cwd, text);
 manager.suggestMemory = (sessionId, tool, input) => memorySuggestions.propose(sessionId, tool, input);
@@ -306,9 +311,6 @@ app.get<{ Querystring: { cwd?: string } }>(
   { schema: { querystring: { type: 'object', properties: { cwd: { type: 'string' } } } } },
   async (req) => activity(req.query.cwd ? await manager.knownCwd(req.query.cwd) : undefined),
 );
-
-// A salinha: o que cada claudinho de cada conversa aberta está fazendo (ver office.ts).
-app.get('/api/office', async () => manager.office());
 
 app.get('/api/projects', async () => manager.projects());
 app.get('/api/projects/sources', async () => manager.projectSources());
@@ -639,7 +641,9 @@ app.post<{ Params: IdParams; Body: RunBody }>(
 
 app.post<{ Params: IdParams }>('/api/sessions/:id/release', async (req) => manager.release(req.params.id));
 
-app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[]; clientId?: string } }>(
+// `next`: com o Claude trabalhando, a mensagem entra na fila e vai quando o turno acabar, com o `model` e o
+// `effort` dados; a resposta traz o id dela na fila (`queued`). Sem `next`, vai na hora, como sempre.
+app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[]; clientId?: string; next?: boolean; model?: string; effort?: string } }>(
   '/api/sessions/:id/messages',
   {
     bodyLimit: ATTACHMENT_BODY_LIMIT,
@@ -647,13 +651,110 @@ app.post<{ Params: IdParams; Body: { text: string; attachments?: Attachment[]; c
       body: {
         type: 'object',
         required: ['text'],
-        properties: { text: { type: 'string' }, attachments: attachmentsSchema, clientId: { type: 'string', maxLength: 64 } },
+        properties: {
+          text: { type: 'string' },
+          attachments: attachmentsSchema,
+          clientId: { type: 'string', maxLength: 64 },
+          next: { type: 'boolean' },
+          model: runOptions.model,
+          effort: runOptions.effort,
+        },
       },
     },
   },
   async (req) => {
-    const { text, attachments, clientId } = req.body;
-    await manager.send(req.params.id, text, { attachments, clientId, from: await devices.of(req) });
+    const { text, attachments, clientId, next, model, effort } = req.body;
+    const { queued } = await manager.send(req.params.id, text, { attachments, clientId, next, model, effort, from: await devices.of(req) });
+    return { ok: true, ...(queued ? { queued } : {}) };
+  },
+);
+
+// A fila de mensagens de uma conversa (ver message-queue.ts). Mandar uma agora, mesmo no meio do turno:
+app.post<{ Params: IdParams & { itemId: string } }>('/api/sessions/:id/queue/:itemId/send', async (req) => {
+  await manager.sendQueued(req.params.id, req.params.itemId);
+  return { ok: true };
+});
+
+// Tirar uma da fila, devolvendo-a inteira (com os anexos): para editar na caixa ou para desfazer depois.
+app.post<{ Params: IdParams & { itemId: string } }>('/api/sessions/:id/queue/:itemId/take', async (req) =>
+  manager.takeQueued(req.params.id, req.params.itemId),
+);
+
+// O desfazer de quem tirou uma da fila: ela volta para o lugar `index`.
+app.post<{
+  Params: IdParams;
+  Body: { item: { id: string; text: string; attachments: Attachment[]; model?: string; effort?: string; createdAt: number }; index: number };
+}>(
+  '/api/sessions/:id/queue',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['item', 'index'],
+        properties: {
+          index: { type: 'integer', minimum: 0 },
+          item: {
+            type: 'object',
+            required: ['id', 'text', 'attachments', 'createdAt'],
+            properties: {
+              id: { type: 'string', maxLength: 64 },
+              text: { type: 'string' },
+              attachments: attachmentsSchema,
+              model: runOptions.model,
+              effort: runOptions.effort,
+              createdAt: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    manager.restoreQueued(req.params.id, req.body.item, req.body.index);
+    return { ok: true };
+  },
+);
+
+// Abrir uma mensagem da fila na caixa (ela fica segura e volta inteira), ou fechar (`open: null`);
+// `save` grava antes a que estava aberta.
+app.post<{
+  Params: IdParams;
+  Body: { open: string | null; save?: { id: string; text: string; attachments: Attachment[]; model?: string; effort?: string } };
+}>(
+  '/api/sessions/:id/queue/edit',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['open'],
+        properties: {
+          open: { type: ['string', 'null'], maxLength: 64 },
+          save: {
+            type: 'object',
+            required: ['id', 'text', 'attachments'],
+            properties: {
+              id: { type: 'string', maxLength: 64 },
+              text: { type: 'string' },
+              attachments: attachmentsSchema,
+              model: runOptions.model,
+              effort: runOptions.effort,
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => ({ message: manager.editQueued(req.params.id, req.body.open, req.body.save) ?? null }),
+);
+
+// A nova ordem da fila, pelos ids.
+app.post<{ Params: IdParams; Body: { ids: string[] } }>(
+  '/api/sessions/:id/queue/order',
+  { schema: { body: { type: 'object', required: ['ids'], properties: { ids: { type: 'array', maxItems: 200, items: { type: 'string', maxLength: 64 } } } } } },
+  async (req) => {
+    manager.orderQueue(req.params.id, req.body.ids);
     return { ok: true };
   },
 );
@@ -815,13 +916,13 @@ app.post<{ Params: IdParams }>('/api/sessions/:id/delete', async (req) => {
 
 // ---- explorador e git do projeto ----
 
-type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide } };
+type ProjectQuery = { Querystring: { cwd: string; path?: string; side?: DiffSide; base?: string } };
 const projectQuery = {
   schema: {
     querystring: {
       type: 'object',
       required: ['cwd'],
-      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged', 'head', 'base'] } },
+      properties: { cwd: { type: 'string' }, path: { type: 'string' }, side: { type: 'string', enum: ['staged', 'unstaged', 'head', 'base'] }, base: { type: 'string' } },
     },
   },
 };
@@ -1066,7 +1167,7 @@ app.get<ProjectQuery>('/api/git/base', projectQuery, async (req) => ({
 }));
 
 app.get<ProjectQuery>('/api/git/diff', projectQuery, async (req) => ({
-  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side),
+  diff: await gitDiff(await reviewing(req.query.cwd, req.query.path), req.query.path ?? '', req.query.side, req.query.base),
 }));
 
 // Controle de código-fonte pelo painel: preparar, tirar do stage, descartar (com volta), commit e sincronizar.
@@ -1151,7 +1252,7 @@ app.post<{ Body: { cwd: string; name: string } }>(
 );
 
 // O que a branch mudou desde que saiu da principal, para a lista "Desta branch" do painel.
-app.get<ProjectQuery>('/api/git/changes', projectQuery, async (req) => gitBranchChanges(await manager.knownCwd(req.query.cwd)));
+app.get<ProjectQuery>('/api/git/changes', projectQuery, async (req) => gitBranchChanges(await manager.knownCwd(req.query.cwd), req.query.base));
 
 // As branches para trocar, com quantos commits cada uma tem fora da principal; `fetch=1` consulta o remoto antes.
 app.get<{ Querystring: { cwd: string; fetch?: string } }>(
@@ -1283,6 +1384,50 @@ app.get<{ Querystring: { cwd: string; pr?: number; sha?: string } }>(
     if (req.query.pr) return githubPatches(cwd, { pr: req.query.pr });
     if (req.query.sha) return githubPatches(cwd, { sha: req.query.sha });
     throw new HttpError(400, 'invalid_target');
+  },
+);
+
+// O conflito de um PR com a base: ver o que conflita e fechar o merge com o que foi escolhido (ver conflicts.ts).
+const branchName = { type: 'string', minLength: 1, maxLength: 200 } as const;
+app.get<{ Querystring: { cwd: string; branch: string; base: string } }>(
+  '/api/github/conflicts',
+  {
+    schema: {
+      querystring: { type: 'object', required: ['cwd', 'branch', 'base'], properties: { cwd: { type: 'string' }, branch: branchName, base: branchName } },
+    },
+  },
+  async (req) => prConflicts(await manager.knownCwd(req.query.cwd), req.query.branch, req.query.base),
+);
+app.post<{ Body: { cwd: string; branch: string; base: string; head: string; baseSha: string; files: ConflictResolution[] } }>(
+  '/api/github/conflicts',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'branch', 'base', 'head', 'baseSha', 'files'],
+        properties: {
+          cwd: { type: 'string' },
+          branch: branchName,
+          base: branchName,
+          head: { type: 'string', maxLength: 64 },
+          baseSha: { type: 'string', maxLength: 64 },
+          files: {
+            type: 'array',
+            maxItems: 5000,
+            items: {
+              type: 'object',
+              required: ['path'],
+              properties: { path: { type: 'string', minLength: 1 }, content: { type: 'string' }, side: { type: 'string', enum: ['branch', 'base'] } },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { cwd, ...resolution } = req.body;
+    return resolvePrConflicts(await manager.knownCwd(cwd), resolution);
   },
 );
 
@@ -1961,8 +2106,9 @@ app.get<{ Querystring: { cwd: string; q?: string } }>(
   async (req) => manager.files(req.query.cwd, req.query.q ?? ''),
 );
 
+// Parar o turno também pausa a fila (ver Manager.interrupt).
 app.post<{ Params: IdParams }>('/api/sessions/:id/interrupt', async (req) => {
-  await manager.get(req.params.id).interrupt();
+  await manager.interrupt(req.params.id);
   return { ok: true };
 });
 

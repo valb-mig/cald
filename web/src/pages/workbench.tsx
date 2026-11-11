@@ -71,7 +71,7 @@ const isTextField = (target: EventTarget) =>
 // ---- a URL e as abas ----
 
 /**
- * A URL `/s/A` é o jeito de o resto do app (lista, home, salinha, notificações) pedir uma conversa:
+ * A URL `/s/A` é o jeito de o resto do app (lista, home, notificações) pedir uma conversa:
  * ela abre numa aba de prévia do grupo em foco, ou vai para a aba dela, se já está aberta. Na volta,
  * a URL passa a dizer a aba em foco: a conversa (`/s/A`) ou, com um arquivo, issue ou PR na frente,
  * a área das abas (`/abas`). Sem isso a URL ficava na conversa que a prévia acabou de trocar, e

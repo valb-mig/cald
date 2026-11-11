@@ -39,15 +39,15 @@ import { useChatView } from '@/lib/chat-view'
 import { DropOverlay, useFileDrop } from '@/components/chat/file-drop'
 import { attachInto } from '@/lib/compose'
 import { PeerChip } from '@/components/chat/peer-chip'
+import { QueueBar } from '@/components/chat/queue-bar'
 import { SpeechPlayer } from '@/components/chat/speech-player'
 import { MemorySuggestionsButton, MemorySuggestionsSheet } from '@/components/chat/memory-suggestions'
 import { SummaryDialog } from '@/components/chat/summary-dialog'
-import { toolsIn } from '@/components/chat/turn'
 import { WorktreeMenu } from '@/components/chat/worktree-menu'
 import { Claudinho } from '@/components/claudinho'
 import { ClaudinhoNameDialog } from '@/components/claudinho-name'
 import { DeleteSessionDialog } from '@/components/delete-session-dialog'
-import { ProjectPanelButton } from '@/components/project/panel'
+import { ProjectScreen, ProjectToolbar } from '@/components/project/panel'
 import { SessionPicker } from '@/components/session-picker'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -62,14 +62,14 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Veil } from '@/components/wallpaper/veil'
 import { api, errorMessage } from '@/lib/api'
-import { dropTools, publishTools } from '@/lib/chat-tools'
+import { setQueuedSettings, useQueueEdit } from '@/lib/queue-edit'
 import { claudinhoName } from '@/lib/claudinho'
 import { workspaceColor } from '@/lib/workspaces'
 import { projectOf } from '@/lib/worktree'
 import { projectName } from '@/lib/format'
-import { PHONE_QUERY, useGitStatus, useHome, useMediaQuery, usePressMenu, useWide, useWidth } from '@/lib/hooks'
+import { PHONE_QUERY, useGitStatus, useHome, useKeyboardOpen, useMediaQuery, usePressMenu, useWide, useWidth } from '@/lib/hooks'
 import { useBackToClose } from '@/lib/back-close'
-import { useShowProject } from '@/lib/project-panel'
+import { isPanelShown, setPanelShown, useProjectPanel, useShowProject, useShownProject } from '@/lib/project-panel'
 import { keyOf, pinTab } from '@/lib/workbench'
 import { useGlass, useScrim } from '@/lib/wallpaper'
 import { setZen, useZen } from '@/lib/zen'
@@ -225,10 +225,6 @@ export function ChatPage({ id }: { id: string }) {
   )
 
   const wipe = useWipe(events, cut)
-  // O painel de comandos (barra de status, no PC) lê daqui o que esta conversa rodou.
-  const tools = useMemo(() => toolsIn(items.flatMap((i) => (i.type === 'activity' ? i.entries : []))), [items])
-  useEffect(() => publishTools(id, tools), [id, tools])
-  useEffect(() => () => dropTools(id), [id])
   // Subagentes da conversa; sem processo cuidando dela (no painel ou no PC), quem não terminou parou.
   const agents = useMemo(() => agentTree(items, panelOpen || owner === 'pc'), [items, panelOpen, owner])
   const agentsWorking = agents.count.running + agents.count.waiting
@@ -266,13 +262,25 @@ export function ChatPage({ id }: { id: string }) {
   )
   // A barra do projeto, à direita, mostra o da conversa em foco (ver lib/project-panel.ts).
   useShowProject(machine, project, id, pane.focused)
+  // No celular, a barra do projeto é a toolbar do pé: com uma aba à vista, ela ocupa a janela e a conversa fica só escondida.
+  const shownProject = useShownProject()
+  const panelShown = useProjectPanel(isPanelShown)
+  const phoneProject = !tabs && shownProject?.chat === id ? shownProject : null
+  const phoneTab = phoneProject !== null && panelShown
+  const keyboard = useKeyboardOpen()
+  useBackToClose(phoneTab, () => setPanelShown(false))
   // Conversa parada: modelo/esforço/modo escolhidos agora valem quando ela for retomada.
   const [pending, setPending] = useState<RunOptions>({})
+  // Com o Claude trabalhando, o modelo e o esforço escolhidos valem para a próxima mensagem (que entra na
+  // fila com eles), sem mexer no turno em andamento. Viram os da conversa quando ela para e a fila esvazia.
+  const [nextSettings, setNextSettings] = useState<Pick<RunOptions, 'model' | 'effort'>>({})
   // Texto da mensagem bifurcada, esperando o ID que o rekey vai trazer.
   const branched = useRef<string | null>(null)
   const glass = useGlass()
   const scrim = useScrim()
   const zen = useZen((s) => s.id === id)
+  // A toolbar do pé é quem desvia do gesto de baixo: dentro da janela, a caixa não soma o `--safe-bottom`.
+  const phoneBar = phoneProject !== null && !zen && !keyboard
   // Esc no PC e o voltar do celular saem do agente em foco e do zen antes de sair da conversa (o Esc, do agente primeiro).
   useBackToClose(zen, () => setZen(null))
   useBackToClose(Boolean(focused), leaveAgent)
@@ -407,6 +415,21 @@ export function ChatPage({ id }: { id: string }) {
   // O painel do modo coding: só no PC, com espaço, sem o zen.
   const windows = coding && tabs && roomy && !zen
 
+  const inTurn = working || state === 'waiting'
+  // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
+  const liveSettings = Object.keys(view.settings).length ? view.settings : pending
+  // A caixa mostra com que modelo e esforço a próxima mensagem vai.
+  const nextOf = { ...liveSettings, ...nextSettings }
+  const queueLength = entry?.queue?.length ?? 0
+  // A mensagem da fila aberta na caixa para editar (ver lib/queue-edit.ts).
+  const editingQueued = useQueueEdit((s) => s[id])
+  // Parou e a fila esvaziou: o que foi escolhido para a próxima vira o da conversa.
+  useEffect(() => {
+    if (inTurn || queueLength || !Object.keys(nextSettings).length) return
+    setNextSettings({})
+    api.settings(id, nextSettings).catch((err: unknown) => toast.error('Não deu para trocar o modelo', { description: errorMessage(err) }))
+  }, [inTurn, queueLength, nextSettings, id])
+
   return (
     <AgentsContext value={agentsContext}>
       <div className="flex min-h-0 flex-1 flex-col">
@@ -420,20 +443,36 @@ export function ChatPage({ id }: { id: string }) {
           sessionId={id}
           items={items}
           live={state === 'running' || state === 'waiting'}
-          code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} /> : null}
+          code={windows ? <CodeScreen sessionId={id} machine={machine} items={items} cwd={cwd ?? ''} live={state === 'running' || state === 'waiting'} worktree={entry?.worktree} gitStatus={git.status} /> : null}
           steps={windows ? <StepsScreen sessionId={id} items={items} cwd={cwd ?? ''} agent={name} live={state === 'running' || state === 'waiting'} /> : null}
           chat={
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', phoneProject && !zen && '[--safe-bottom:0px]')}>
               {/* O vidro do cabeçalho, com o fundo animado; sem ele, a cor da aba aberta. No PC, o vidro leva o
                   canto da janela: o `backdrop-filter` não é recortado pelo canto arredondado de quem está por
                   fora, e o desfoque vazava quadrado nos dois cantos de cima. */}
               <div
                 className={cn(
-                  'shrink-0',
-                  glass ? 'relative z-10 bg-background/70 backdrop-blur-md wide:rounded-t-pane wide:in-data-[hole=flush]:rounded-tl-none' : 'bg-background',
+                  'relative z-10 shrink-0',
+                  // No celular o cabeçalho fica na casca (o preto do layout) e a janela da conversa curva por baixo dele.
+                  glass ? 'bg-shell wide:bg-background/70 wide:backdrop-blur-md wide:rounded-t-pane wide:in-data-[hole=flush]:rounded-tl-none' : 'bg-shell wide:bg-background',
                   zen && 'hidden',
                 )}
               >
+                {/* Os cantos de cima da janela, só no celular: a cor da casca com um recorte redondo, por cima da
+                    conversa (que segue de ponta a ponta por baixo, com ou sem a cena animada). */}
+                {[0, 1].map((i) => (
+                  <span
+                    key={i}
+                    aria-hidden
+                    className="pointer-events-none absolute top-full wide:hidden"
+                    style={{
+                      [i ? 'right' : 'left']: 0,
+                      width: 'var(--radius-pane)',
+                      height: 'var(--radius-pane)',
+                      background: `radial-gradient(circle at ${i ? '0%' : '100%'} 100%, transparent calc(var(--radius-pane) - 0.5px), var(--shell) var(--radius-pane))`,
+                    }}
+                  />
+                ))}
                 <header
                   // Lado a lado, o topo é a alça: arrastar por ele leva a conversa para outro lugar da tela.
                   draggable={handle}
@@ -522,8 +561,7 @@ export function ChatPage({ id }: { id: string }) {
                   )}
                   {/* Num worktree: o que falta trazer para a de origem, e o "Trazer" e o "Remover" no menu. */}
                   {entry?.worktree && cwd && <WorktreeMenu machine={machine} cwd={cwd} tag={entry.worktree} refresh={git.status} />}
-                  {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado. */}
-                  {project && !tabs && <ProjectPanelButton changes={git.status?.files.length ?? 0} />}
+                  {/* No PC, os arquivos e o git ficam na barra do projeto, sempre ao lado; no celular, na toolbar do pé. */}
                   {/* O menu é do PC. No celular, o que ele tinha fica de fora ou em outro lugar: apagar, no toque longo da lista. */}
                   {tabs && (
                     <DropdownMenu>
@@ -597,8 +635,15 @@ export function ChatPage({ id }: { id: string }) {
                 </header>
               </div>
 
+              {/* A aba escolhida na toolbar: a janela dela no lugar da conversa, que segue montada (rolagem e rascunho). */}
+              {phoneTab && (
+                <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+                  <ProjectScreen project={phoneProject} />
+                </div>
+              )}
+
               {/* A conversa: mensagens e caixa de texto. */}
-              <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', pane.collapsed && 'hidden')}>
+              <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', (pane.collapsed || phoneTab) && 'hidden')}>
                 <div
                   ref={areaRef}
                   {...drop.bind}
@@ -737,17 +782,39 @@ export function ChatPage({ id }: { id: string }) {
 
                     {owner === 'panel' ? (
                       <Composer
+                        // A fila de mensagens, no alto da casca da caixa.
+                        above={
+                          entry?.queue?.length ? (
+                            <QueueBar
+                              sessionId={id}
+                              provider={provider}
+                              queue={entry.queue}
+                              paused={entry.queuePaused}
+                            />
+                          ) : undefined
+                        }
                         docked={tabs}
                         sessionId={id}
                         cwd={cwd}
                         provider={provider}
                         branch={git.status?.branch}
-                        working={working || state === 'waiting'}
-                        // Logo após retomar, enquanto o primeiro evento de ajustes não chega, vale o que foi escolhido.
-                        settings={Object.keys(view.settings).length ? view.settings : pending}
+                        working={inTurn}
+                        settings={editingQueued ? { ...liveSettings, model: editingQueued.model ?? liveSettings.model, effort: editingQueued.effort ?? liveSettings.effort } : nextOf}
                         context={context}
-                        onChangeSettings={async (patch) => {
-                          await api.settings(id, patch)
+                        onChangeSettings={async ({ model, effort, ...rest }) => {
+                          // Com uma mensagem da fila aberta na caixa, modelo e esforço são dela.
+                          if (editingQueued && (model || effort)) {
+                            setQueuedSettings(id, { model, effort })
+                            if (Object.keys(rest).length) await api.settings(id, rest)
+                            return
+                          }
+                          // Trabalhando, modelo e esforço ficam para a próxima mensagem; o modo vale na hora.
+                          if (inTurn && (model || effort)) {
+                            setNextSettings((s) => ({ ...s, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }))
+                            if (Object.keys(rest).length) await api.settings(id, rest)
+                            return
+                          }
+                          await api.settings(id, { model, effort, ...rest })
                         }}
                         onCompact={() => api.send(id, { text: '/compact' }).then(() => undefined)}
                         // Escrever ou mandar mensagem numa aba de prévia a deixa aberta, como editar no VSCode.
@@ -783,7 +850,10 @@ export function ChatPage({ id }: { id: string }) {
                         }
                         onSend={(text, attachments) => {
                           pin()
-                          return enqueue(id, text, attachments)
+                          // Com o Claude trabalhando, a mensagem vai para a fila da conversa (ver QueueBar), com o
+                          // modelo e o esforço que a caixa mostra.
+                          const { model, effort } = nextOf
+                          return enqueue(id, text, attachments, { model, effort: (effort ?? undefined) as RunOptions['effort'] }, true)
                         }}
                         onInterrupt={() => api.interrupt(id).then(() => undefined)}
                       />
@@ -814,6 +884,27 @@ export function ChatPage({ id }: { id: string }) {
                   </div>
                 </div>
               </div>
+
+              {/* A toolbar do projeto, no pé (ao alcance do dedão), na casca como a barra de cima; os cantos de baixo
+                  da janela curvam para ela. Some com o teclado aberto e no zen, como o cabeçalho. */}
+              {phoneBar && (
+                <div className="relative z-10 shrink-0 bg-shell">
+                  {[0, 1].map((i) => (
+                    <span
+                      key={i}
+                      aria-hidden
+                      className="pointer-events-none absolute bottom-full"
+                      style={{
+                        [i ? 'right' : 'left']: 0,
+                        width: 'var(--radius-pane)',
+                        height: 'var(--radius-pane)',
+                        background: `radial-gradient(circle at ${i ? '0%' : '100%'} 0%, transparent calc(var(--radius-pane) - 0.5px), var(--shell) var(--radius-pane))`,
+                      }}
+                    />
+                  ))}
+                  <ProjectToolbar project={phoneProject} />
+                </div>
+              )}
             </div>
           }
         />

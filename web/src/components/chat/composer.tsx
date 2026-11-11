@@ -1,17 +1,19 @@
-import { AppWindow, ArrowUp, Code, Expand, GitBranch, Loader2, Lock, Mic, Monitor, Shrink, Square, SquareTerminal } from 'lucide-react'
+import { AppWindow, ArrowUp, Check, Code, Expand, Loader2, Lock, Mic, Monitor, Shrink, Square, SquareTerminal } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/lib/api'
 import { toPayload } from '@/lib/attachments'
-import { useAttachTarget, useInsertTarget } from '@/lib/compose'
+import { useAttachTarget, useContentTarget, useInsertTarget } from '@/lib/compose'
 import { spliceSpoken, useDictation, useDictationSupport } from '@/lib/dictation'
 import { cachedDraft, loadDraft, saveDraft } from '@/lib/drafts'
+import { closeQueued, useQueueEdit } from '@/lib/queue-edit'
 import type { AttachmentPayload, ContextUsage, RunOptions, SessionSettings } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useBackToClose } from '@/lib/back-close'
 import { useGlass } from '@/lib/wallpaper'
 import { useMachine } from '@/lib/machines'
 import { CLAUDE, currentMode, useFeatures, useProvider } from '@/lib/providers'
+import { BranchMenu } from './branch-menu'
 import { AttachmentTray, useAttachments } from './attachment-tray'
 import { AttachButton, ContextRing, MODE_TONE, ModeMenu, ModelPill, footerButton, useModels } from './composer-controls'
 import { PromptInput, type PromptInputHandle } from './prompt-input'
@@ -105,6 +107,7 @@ export function Composer({
   provider,
   agent,
   extra,
+  above,
 }: {
   sessionId: string
   cwd?: string
@@ -138,6 +141,8 @@ export function Composer({
   agent?: React.ReactNode
   /** Ao lado do modelo, na barra de baixo: o time de agentes da conversa. */
   extra?: React.ReactNode
+  /** No alto da casca, em cima da branch: a fila de mensagens (ver QueueBar). Some na caixa grande. */
+  above?: React.ReactNode
 }) {
   // Rascunho por conversa: trocar de chat, recarregar a tela ou o Android fechar o app não perde o
   // que foi digitado ou anexado. Sem ele na memória, vem do banco; até lá nada é gravado, para não
@@ -159,6 +164,17 @@ export function Composer({
   })
   // E anexar: soltar arquivos em qualquer lugar da conversa cai aqui (ver `useFileDrop`).
   useAttachTarget(sessionId, (list) => void files.add(list))
+  // E ler e trocar tudo o que está nela: uma mensagem da fila aberta aqui para editar (ver lib/queue-edit.ts).
+  useContentTarget(sessionId, {
+    get: () => ({ text, attachments: toPayload(files.items) }),
+    set: (content) => {
+      setText(content.text)
+      files.replace(content.attachments.map((a) => ({ ...a, id: crypto.randomUUID(), size: Math.round((a.data.length * 3) / 4) })))
+      input.current?.focus()
+    },
+  })
+  // A mensagem da fila aberta aqui: enviar grava nela, em vez de mandar uma nova.
+  const editing = useQueueEdit((s) => Boolean(s[sessionId]))
   const machine = useMachine()
   const models = useModels(provider)
   const info = useProvider(machine, provider)
@@ -236,7 +252,7 @@ export function Composer({
     return () => document.removeEventListener('keydown', onKey)
   }, [big])
   const empty = !text.trim() && files.items.length === 0
-  const showStop = working && empty && Boolean(onInterrupt)
+  const showStop = working && empty && Boolean(onInterrupt) && !editing
   // Em uso: o foco está nela (ou num menu dela, que abre fora: o modelo, o modo). Fora de uso e vazia, ela
   // fica numa linha só, sem a branch nem a caixa grande; tocar abre de novo, subindo.
   const root = useRef<HTMLDivElement>(null)
@@ -246,7 +262,8 @@ export function Composer({
     if (!el) return
     const away = (t: EventTarget | null) =>
       t instanceof Node && !el.contains(t) && !(t instanceof Element && t.closest('[data-radix-popper-content-wrapper],[role="dialog"]'))
-    const onIn = () => setUsing(true)
+    // Mexer na fila, no alto da casca, não abre a caixa.
+    const onIn = (e: FocusEvent) => !(e.target instanceof Element && e.target.closest('[data-composer-above]')) && setUsing(true)
     // Sem destino (a janela perdeu o foco, um clique no vazio), quem decide é o toque fora, logo abaixo.
     const onOut = (e: FocusEvent) => away(e.relatedTarget) && setUsing(false)
     const onDown = (e: PointerEvent) => away(e.target) && setUsing(false)
@@ -275,6 +292,12 @@ export function Composer({
     stopDictation()
     setBig(false)
     setSending(true)
+    if (editing) {
+      // Grava na mensagem da fila e a caixa volta ao que tinha antes de abri-la.
+      await closeQueued(sessionId).catch((err: unknown) => toast.error('Não deu para salvar na fila', { description: errorMessage(err) }))
+      setSending(false)
+      return
+    }
     try {
       await onSend(text.trim(), toPayload(files.items))
       setText('')
@@ -326,9 +349,10 @@ export function Composer({
         'ml-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-[filter] hover:brightness-110 disabled:opacity-40',
         tone.send,
       )}
-      aria-label="Enviar"
+      aria-label={editing ? 'Salvar na fila' : 'Enviar'}
+      title={editing ? 'Salvar na fila' : undefined}
     >
-      <ArrowUp className="size-4.5" />
+      {editing ? <Check className="size-4.5" /> : <ArrowUp className="size-4.5" />}
     </button>
     )
 
@@ -362,22 +386,22 @@ export function Composer({
                   // No tom da casca do app (quase preto no escuro): a caixa cinza não some num cinza parecido.
                   // 8px de casca em volta da caixa (raio 16 + 8 = 24, para as curvas ficarem paralelas).
                   'rounded-[24px] px-2 pb-2 transition-[padding] duration-200 ease-out motion-reduce:transition-none compact:bg-transparent compact:p-0',
-                  // Numa linha só, sem a faixa de cima: os 8px em volta valem também em cima.
-                  oneLine && 'pt-2',
+                  // Numa linha só, sem a faixa de cima: os 8px em volta valem também em cima (a fila, se houver, já os dá).
+                  oneLine && !above && 'pt-2',
                   docked ? cn('dock-tab relative rounded-b-none', glass && 'dock-glass backdrop-blur-md') : glass ? 'bg-shell/70 backdrop-blur-md' : 'bg-shell',
                 ),
           )}
         >
+          {above && !big && (
+            <div data-composer-above className="compact:hidden">
+              {above}
+            </div>
+          )}
           <div className={cn(fold(!oneLine), 'compact:hidden')} inert={oneLine}>
             <div className="min-h-0 overflow-hidden">
               <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', big ? 'h-11 border-b px-3.5' : 'h-8 pr-0 pl-2')}>
                 {remote && <RemoteChip {...remote} />}
-                {branch && (
-                  <span className="flex min-w-0 items-center gap-1 font-mono">
-                    <GitBranch className="size-3 shrink-0" />
-                    <span className="truncate">{branch}</span>
-                  </span>
-                )}
+                {branch && <BranchMenu machine={machine} cwd={cwd} branch={branch} working={working} />}
                 {/* Grande, os atalhos que valem nela (no toque, sem teclado, não). */}
                 {big && (
                   <span className="ml-auto hidden items-center gap-1 pointer-fine:flex">
@@ -446,7 +470,9 @@ export function Composer({
                         : 'Gravando… toque no microfone para transcrever'
                       : remote
                         ? `Enviar traz a conversa do ${REMOTE[remote.via].name} para cá…`
-                        : working
+                        : editing
+                          ? 'Editando a mensagem da fila…'
+                          : working
                           ? 'Enfileirar outra mensagem…'
                           : `Peça algo ao ${!info || info.id === CLAUDE ? 'Claude' : info.name}…`
                   }

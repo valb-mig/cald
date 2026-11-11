@@ -1,7 +1,6 @@
-import { Activity, Armchair, Bell, Blocks, ChevronLeft, ChevronRight, FolderSync, GitBranch, Info, Lock, Monitor, MonitorSmartphone, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
+import { Activity, Bell, Blocks, ChevronLeft, ChevronRight, FolderSync, GitBranch, Info, Lock, Monitor, MonitorSmartphone, Moon, Palette, RefreshCw, Sun, X } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'wouter'
 import { AccessSettings } from '@/components/access-settings'
 import { MemoryView } from '@/components/claude/memory-view'
 import { McpView, SkillsView } from '@/components/claude/setup-view'
@@ -328,23 +327,6 @@ function StatusSection() {
         <Stat value={counts.waiting} label="esperando você" />
         <Stat value={counts.pc} label="abertas no PC" />
         <Stat value={counts.saved} label="salvas" />
-      </Group>
-
-      {/* Link próprio, para deixar de fundo num tablet ou monitor (ver pages/office.tsx). */}
-      <Group>
-        <Link
-          href="/salinha"
-          // A salinha toma a tela toda: o painel fecha, para não estar aberto por cima ao voltar dela.
-          onClick={() => setComputerOpen(false)}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-foreground/5"
-        >
-          <Armchair className="size-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm">Salinha</div>
-            <div className="text-xs text-muted-foreground">Seus claudinhos num mini escritório, para deixar de fundo.</div>
-          </div>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        </Link>
       </Group>
     </>
   )

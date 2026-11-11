@@ -153,7 +153,7 @@ export type DiffSide = 'staged' | 'unstaged' | 'head' | 'base';
  * Diff de um arquivo. Sem `side`, contra o último commit (staged + não staged); com ele, o que ele
  * pede. Arquivo novo, ainda fora do índice, é comparado com o vazio.
  */
-export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promise<string> {
+export async function gitDiff(cwd: string, path: string, side?: DiffSide, baseRef?: string): Promise<string> {
   checkPath(path);
   const status = await gitStatus(cwd);
   if (!status) throw new HttpError(404, 'not_a_repository');
@@ -165,7 +165,7 @@ export async function gitDiff(cwd: string, path: string, side?: DiffSide): Promi
   } else if (side === 'unstaged' && !file?.untracked) {
     out = (await git(cwd, ['diff', '--', path])).stdout;
   } else if (side === 'base' && !file?.untracked) {
-    const base = await forkPoint(cwd);
+    const base = await forkPoint(cwd, baseRef);
     if (!base) throw new HttpError(409, 'no_base');
     out = (await git(cwd, ['diff', base.sha, '--', path])).stdout;
   } else if (file?.untracked) {
@@ -209,9 +209,9 @@ export async function gitBase(cwd: string, path: string): Promise<string | null>
 
 /**
  * O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede.
- * Com `input`, ele vai pela entrada padrão.
+ * Com `input`, ele vai pela entrada padrão; `env` soma variáveis (um índice à parte, por exemplo).
  */
-export function gitWrite(cwd: string, args: string[], input?: string) {
+export function gitWrite(cwd: string, args: string[], input?: string, env?: Record<string, string>) {
   const run = exec('git', args, {
     cwd,
     timeout: 120_000,
@@ -221,6 +221,7 @@ export function gitWrite(cwd: string, args: string[], input?: string) {
       GIT_TERMINAL_PROMPT: '0',
       GIT_EDITOR: 'true',
       GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=10',
+      ...env,
     },
   });
   if (input !== undefined) run.child.stdin?.end(input);
@@ -520,9 +521,21 @@ async function baseRef(cwd: string): Promise<string | null> {
   return null;
 }
 
-/** De onde a branch atual saiu da principal: o commit em comum com ela. */
-async function forkPoint(cwd: string): Promise<{ ref: string; sha: string } | null> {
-  const ref = await baseRef(cwd);
+/** A base pedida (ex.: a do worktree), se for uma ref que existe; senão `null`, e vale a principal. */
+async function askedBase(cwd: string, base?: string): Promise<string | null> {
+  if (!base || base.startsWith('-')) return null;
+  const valid = await git(cwd, ['check-ref-format', '--allow-onelevel', base]).then(
+    () => true,
+    () => false,
+  );
+  if (!valid) return null;
+  for (const ref of [base, `origin/${base}`]) if (await exists(cwd, ref)) return ref;
+  return null;
+}
+
+/** De onde a branch atual saiu da principal (ou da `base` pedida): o commit em comum com ela. */
+async function forkPoint(cwd: string, base?: string): Promise<{ ref: string; sha: string } | null> {
+  const ref = (await askedBase(cwd, base)) ?? (await baseRef(cwd));
   if (!ref) return null;
   const sha = await git(cwd, ['merge-base', ref, 'HEAD']).then(
     (r) => r.stdout.trim(),
@@ -537,9 +550,9 @@ export type BranchChange = { path: string; from?: string; letter: 'M' | 'A' | 'D
 /** O que a branch mudou desde que saiu da principal (`base`), commits e não commitado juntos. */
 export type BranchChanges = { base: string | null; files: BranchChange[] };
 
-export async function gitBranchChanges(cwd: string): Promise<BranchChanges> {
+export async function gitBranchChanges(cwd: string, baseRef?: string): Promise<BranchChanges> {
   const status = await requireRepo(cwd);
-  const base = await forkPoint(cwd);
+  const base = await forkPoint(cwd, baseRef);
   if (!base) return { base: null, files: [] };
   // Contra a árvore de trabalho: entra o que já tem commit e o que ainda não tem.
   const [names, nums] = await Promise.all([

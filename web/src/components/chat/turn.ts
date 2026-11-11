@@ -132,7 +132,7 @@ export function linksOf({ visited, cited }: Pick<TurnInfo, 'visited' | 'cited'>)
  * O que cada turno fez, pela chave da última resposta do Claude nele (onde os atalhos aparecem).
  * Turnos sem arquivos, comandos nem links ficam de fora.
  */
-export function turnsOf(items: Item[]): Map<string, TurnInfo> {
+export function turnsOf(items: Item[], working = false): Map<string, TurnInfo> {
   const turns = new Map<string, TurnInfo>()
   let tools: ToolEntry[] = []
   let texts: string[] = []
@@ -154,7 +154,9 @@ export function turnsOf(items: Item[]): Map<string, TurnInfo> {
       last = item.key
     } else if (item.type === 'result') close()
   }
-  close()
+  // O turno em andamento ainda não tem fim: a fileira dos atalhos na resposta dele guardaria lugar
+  // embaixo dela, com os passos seguintes já vindo depois.
+  if (!working) close()
   return turns
 }
 

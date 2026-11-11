@@ -371,7 +371,7 @@ function MergeBox({ pr }: { pr: GithubPullDetail }) {
       )
     lines.push(
       conflict
-        ? [CHECK.failure, `Tem conflito com ${pr.base}`, 'Resolva no PC (ou peça ao Claude) e suba a branch de novo.']
+        ? [CHECK.failure, `Tem conflito com ${pr.base}`, 'Resolva aqui, no "Resolver conflito", ou peça a um agente.']
         : pr.mergeable === 'UNKNOWN'
           ? [CHECK.pending, 'O GitHub ainda está conferindo se há conflito']
           : [CHECK.success, `Sem conflito com ${pr.base}`, 'Dá para juntar automaticamente.'],

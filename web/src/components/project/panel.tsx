@@ -1,4 +1,4 @@
-import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, PanelRight, PanelRightClose, PanelRightOpen, Search, WandSparkles, X } from 'lucide-react'
+import { CircleDot, FolderTree, GitBranch, GitPullRequest, ListTodo, MessageSquare, PanelRight, PanelRightClose, PanelRightOpen, Search, WandSparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ProjectMark } from '@/components/project-mark'
 import { ProjectMenu, type ProjectMenuAt } from '@/components/project-menu'
@@ -120,7 +120,7 @@ function ProjectTitle({ project }: { project: PanelProject }) {
  * O conteúdo da aba aberta. Na folha (celular, janela estreita), com as abas e o X no topo; ao lado das
  * conversas, as abas estão na alça, e o topo fica só com o nome da aba, como no VSCode.
  */
-function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) {
+function PanelBody({ project, tabs, bare = false }: { project: PanelProject; tabs: boolean; bare?: boolean }) {
   const tab = useProjectPanel((s) => s.tab)
   // Abrir a barra relê o git: o que ela mostra é o de agora.
   const git = useGitStatus(project.machine, project.cwd, null)
@@ -130,7 +130,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Na folha, a altura do cabeçalho da conversa; ao lado das conversas, na altura das abas delas
             (ver pages/workbench.tsx), sem linha: a casca já separa. */}
-        <div
+        {!bare && <div
           className={cn(
             'flex shrink-0 items-center gap-1 px-2',
             tabs ? 'border-b pt-[max(0.5rem,env(safe-area-inset-top))] pb-2' : 'mt-gap h-9',
@@ -181,7 +181,7 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
               <h2 className="shrink-0 px-1 text-xs text-muted-foreground">{TABS.find((t) => t.tab === tab)!.label}</h2>
             </>
           )}
-        </div>
+        </div>}
         {tab === 'files' ? (
           <FilesTab project={project} status={git.status} />
         ) : tab === 'search' ? (
@@ -200,13 +200,8 @@ function PanelBody({ project, tabs }: { project: PanelProject; tabs: boolean }) 
   )
 }
 
-/**
- * A alça da barra do projeto, sempre à direita no PC, como a da esquerda: o botão do topo abre e
- * recolhe a barra, e os ícones embaixo são as abas (tocar na aberta recolhe, como no VSCode).
- */
-function ProjectRail({ project }: { project: PanelProject }) {
-  const shown = useProjectPanel(isPanelShown)
-  const tab = useProjectPanel((s) => s.tab)
+/** Os contadores das abas (alterados, PRs, issues, TODO): a alça e a toolbar do celular buscam sozinhas, com o mesmo cache das abas. */
+function useTabCounts(project: PanelProject) {
   const changes = useGitStatus(project.machine, project.cwd, null).status?.files.length ?? 0
   // PRs e issues: a alça busca sozinha, com o mesmo cache das abas. O TODO é local e leve.
   const github = useGithubCounts(project.machine, project.cwd)
@@ -219,6 +214,17 @@ function ProjectRail({ project }: { project: PanelProject }) {
     issues: github && { n: github.issues, badge: COUNT_BADGE, tip: (n) => `${n} ${n === 1 ? 'aberta' : 'abertas'}` },
     todo: { n: todo, badge: COUNT_BADGE, tip: (n) => `${n} por fazer` },
   }
+  return counts
+}
+
+/**
+ * A alça da barra do projeto, sempre à direita no PC, como a da esquerda: o botão do topo abre e
+ * recolhe a barra, e os ícones embaixo são as abas (tocar na aberta recolhe, como no VSCode).
+ */
+function ProjectRail({ project }: { project: PanelProject }) {
+  const shown = useProjectPanel(isPanelShown)
+  const tab = useProjectPanel((s) => s.tab)
+  const counts = useTabCounts(project)
   const pick = (t: PanelTab) => {
     if (shown && tab === t) return setPanelShown(false)
     setPanelTab(t)
@@ -261,6 +267,69 @@ function ProjectRail({ project }: { project: PanelProject }) {
 }
 
 /**
+ * No celular, a barra do projeto é uma toolbar no pé da tela (na casca, ao alcance do dedão), que troca o que a janela mostra: a conversa
+ * ou uma das abas. Só o item aceso leva o nome, para caber; o que não couber rola de lado.
+ */
+export function ProjectToolbar({ project }: { project: PanelProject }) {
+  const shown = useProjectPanel(isPanelShown)
+  const tab = useProjectPanel((s) => s.tab)
+  const counts = useTabCounts(project)
+  const item = (key: string, label: string, Icon: React.ComponentType<{ className?: string }>, active: boolean, onClick: () => void, badge?: { n: number; cls: string }) => (
+    <button
+      key={key}
+      type="button"
+      role="tab"
+      aria-selected={active}
+      aria-label={badge?.n ? `${label}: ${badge.n}` : label}
+      onClick={onClick}
+      className={cn(
+        'relative flex h-10 shrink-0 items-center gap-1.5 rounded-full px-2 text-sm transition-colors',
+        active ? 'bg-foreground/10 font-medium text-foreground' : 'text-muted-foreground active:bg-foreground/5',
+      )}
+    >
+      <Icon className="size-4" />
+      {active && label}
+      {badge && badge.n > 0 && (
+        <span
+          className={cn(
+            'rounded-full px-1 text-center text-[10px] leading-4 font-semibold text-white tabular-nums',
+            active ? 'min-w-4' : 'absolute top-0.5 right-0 min-w-4 text-[9px]',
+            badge.cls,
+          )}
+        >
+          {badge.n > 99 ? '99+' : badge.n}
+        </span>
+      )}
+    </button>
+  )
+  return (
+    <div role="tablist" className="flex shrink-0 gap-0.5 overflow-x-auto px-1 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] [scrollbar-width:none]">
+      {item('chat', 'Conversa', MessageSquare, !shown, () => setPanelShown(false))}
+      {TABS.map(({ tab: t, label, icon }) => {
+        const c = counts[t]
+        return item(t, label, icon, shown && tab === t, () => {
+          setPanelTab(t)
+          setPanelShown(true)
+        }, c ? { n: c.n, cls: c.badge.includes('sky') ? 'bg-sky-600' : COUNT_BADGE } : undefined)
+      })}
+      {/* Fora das abas: abrem por cima. */}
+      <div className="flex-1" />
+      <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-full" onClick={() => openArtefatos()} aria-label="Artefatos">
+        <ArtefatoIcon />
+      </Button>
+      <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-full" onClick={openHabilidades} aria-label="Habilidades do edit.r">
+        <WandSparkles />
+      </Button>
+    </div>
+  )
+}
+
+/** A aba escolhida na toolbar do celular, na janela no lugar da conversa. */
+export function ProjectScreen({ project }: { project: PanelProject }) {
+  return <PanelBody key={`${project.machine}\n${project.cwd}`} project={project} tabs={false} bare />
+}
+
+/**
  * A barra do projeto à direita (ver lib/project-panel.ts). No PC, a alça fica sempre na borda, e a
  * barra entre ela e as conversas, com a divisória para mudar a largura, enquanto sobra espaço para
  * cada conversa na largura mínima; senão, e no celular, a barra abre por cima como folha. No modo zen
@@ -288,6 +357,8 @@ export function ProjectBar({ hidden }: { hidden: boolean }) {
   }, [project])
 
   if (!project || (wide && hidden)) return null
+  // No celular, na conversa, não há folha: a toolbar do pé troca a janela (ver ProjectToolbar). A conversa nova ainda usa a folha.
+  if (!wide && !project.chat.startsWith('new:')) return null
   const key = `${project.machine}\n${project.cwd}`
   const rail = wide && <ProjectRail project={project} />
 

@@ -7,7 +7,9 @@ import { useStore } from '@/lib/store'
 import { tokenStyle, useTokens } from '@/lib/highlight'
 import { cn } from '@/lib/utils'
 import { ImageThumb } from '@/components/image-viewer'
-import { collectEdits, filesOf } from './code-files'
+import type { GitStatus, WorktreeTag } from '@/lib/types'
+import { collectEdits, filesOf, withGit } from './code-files'
+import { useGitChanges } from './code-git'
 import { CodeEmpty, CodeVision } from './code-vision'
 import { ScreenBar } from './screen-bar'
 import { ScreenCtx } from './screen-ctx'
@@ -356,9 +358,28 @@ function Typing({ sessionId }: { sessionId: string }) {
 
 /** Cada tela do painel é uma janela como a da conversa: a folga entre elas mostra a margem escura da casca. */
 /** A tela do código: os arquivos que o Claude edita (ver code-vision.tsx). */
-export function CodeScreen({ sessionId, machine, items, cwd, live }: { sessionId: string; machine: string; items: Item[]; cwd: string; live: boolean }) {
-  const files = useMemo(() => filesOf(collectEdits(items), live), [items, live])
-  return files.length > 0 ? <CodeVision sessionId={sessionId} machine={machine} cwd={cwd} files={files} live={live} /> : <CodeEmpty />
+export function CodeScreen({
+  sessionId,
+  machine,
+  items,
+  cwd,
+  live,
+  worktree,
+  gitStatus,
+}: {
+  sessionId: string
+  machine: string
+  items: Item[]
+  cwd: string
+  live: boolean
+  worktree?: WorktreeTag
+  gitStatus: GitStatus | null
+}) {
+  const tools = useMemo(() => filesOf(collectEdits(items), live), [items, live])
+  // As edições das ferramentas e, junto, o que o git viu mudar (o que o Claude fez pelo terminal).
+  const { changes, side } = useGitChanges(machine, cwd, worktree, gitStatus)
+  const files = useMemo(() => withGit(tools, changes, cwd), [tools, changes, cwd])
+  return files.length > 0 ? <CodeVision sessionId={sessionId} machine={machine} cwd={cwd} files={files} live={live} gitSide={side} /> : <CodeEmpty />
 }
 
 /** O que o Claude executou, em cartões de terminal: do mais novo ao mais antigo (inclusive dentro de um passo, com o porquê por último). */
