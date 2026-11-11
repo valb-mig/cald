@@ -39,4 +39,10 @@ export function toggleBottomPanel(): void {
   saveBottomPanel()
 }
 
+/** Abre o painel (já aberto, fica): rodar um comando do chat põe o terminal à vista. */
+export function openBottomPanel(): void {
+  useBottomPanel.setState({ open: true })
+  saveBottomPanel()
+}
+
 export const setBottomHeight = (height: number) => useBottomPanel.setState({ height })
