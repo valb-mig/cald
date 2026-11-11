@@ -35,6 +35,7 @@ import { insertInChat, type Viewing } from '@/lib/project-panel'
 import { doneReveal, revealKey, useReveal } from '@/lib/reveal'
 import type { FileView } from '@/lib/types'
 import { drafts, draftsLoaded, persistDraft, registerSaver, setDirty, useUnsaved } from '@/lib/unsaved'
+import { reloadIfStale } from '@/lib/update'
 import { cn } from '@/lib/utils'
 import { keyOf, pinTab } from '@/lib/workbench'
 import { ChangePeek, type Block } from './changes'
@@ -619,10 +620,14 @@ export default function CodeEditor({
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: normalize(late.text) }, annotations: Transaction.addToHistory.of(false) })
     })
 
-    // A cor de cada linguagem baixa à parte, só a do arquivo aberto.
+    // A cor de cada linguagem baixa à parte, só a do arquivo aberto. O pedaço dela muda de nome a cada
+    // build: com a janela aberta desde antes de o servidor atualizar, ele já sumiu, e o arquivo ficaria
+    // sem cor, calado. Recarrega no app novo, como o próprio editor (ver viewer.tsx); sem app novo no
+    // servidor (a rede caiu), fica o texto puro.
     void LanguageDescription.matchFilename(languages, name)
       ?.load()
-      .then((support) => view.dom.isConnected && view.dispatch({ effects: conf.language.reconfigure(support) }))
+      .catch(reloadIfStale)
+      .then((support) => view.dom.isConnected && view.dispatch({ effects: conf.language.reconfigure(support) }), () => {})
 
     return () => {
       // Saiu da tela sem salvar (a aba foi para outro grupo): o texto espera o editor voltar.
