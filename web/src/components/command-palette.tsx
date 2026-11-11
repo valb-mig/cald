@@ -1,6 +1,5 @@
 import { Inbox, MessageSquarePlus, Search } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import { navigate } from 'wouter/use-browser-location'
 import { create } from 'zustand'
 import { Claudinho } from '@/components/claudinho'
@@ -9,14 +8,15 @@ import { ProjectMark } from '@/components/project-mark'
 import { ProjectPicker } from '@/components/project-picker'
 import { useQuickOpen } from '@/components/project/quick-open'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { api, ApiError, errorMessage } from '@/lib/api'
+import { api } from '@/lib/api'
 import { ArtefatoIcon, latestOf, loadArtefatos, openArtefatos, showArtefato, useArtefatos } from '@/lib/artefatos'
+import { askAgent } from '@/lib/ask-agent'
 import { claudinhoName } from '@/lib/claudinho'
 import { projectName, relativeTime } from '@/lib/format'
 import { useWide, WIDE_QUERY } from '@/lib/hooks'
 import { openInboxEntry, statusOf, useInbox, useInboxEntries } from '@/lib/inbox'
 import { useLock } from '@/lib/lock'
-import { HOME, machineName, newChatUrl, noteSession, useMachines } from '@/lib/machines'
+import { HOME, machineName, newChatUrl, useMachines } from '@/lib/machines'
 import { projectKey } from '@/lib/project-groups'
 import { useProjectPanel } from '@/lib/project-panel'
 import { useStore } from '@/lib/store'
@@ -99,33 +99,6 @@ function score(item: Item, words: string[], q: string): number {
 }
 
 type Target = { machine: string; cwd: string | undefined }
-
-/** Sem como abrir um worktree ali: a conversa roda no checkout, como faria a conversa nova. */
-const NO_WORKTREE = new Set(['not_a_repository', 'detached_head', 'no_commits', 'already_in_worktree'])
-
-/**
- * Cria a conversa já com `prompt` como primeira mensagem e vai para ela. Com outra conversa aberta no
- * mesmo checkout, ela abre num worktree à parte, o mesmo padrão da tela de conversa nova (ver lib/worktree.ts).
- */
-async function ask({ machine, cwd }: Target, prompt: string): Promise<void> {
-  const shared = Boolean(
-    cwd && projectOf(cwd) === cwd && useStore.getState().catalog.some((c) => c.owner && c.cwd === cwd && (c.machine ?? HOME) === machine),
-  )
-  const create = (worktree: boolean) => api.create(machine, { cwd, prompt, worktree: worktree || undefined })
-  const id = toast.loading('Criando a conversa…')
-  try {
-    const { sessionId } = await create(shared).catch((err: unknown) => {
-      if (shared && err instanceof ApiError && NO_WORKTREE.has(err.code)) return create(false)
-      throw err
-    })
-    // Antes do catálogo da máquina chegar, a conversa já sabe para onde ir.
-    noteSession(sessionId, machine)
-    toast.dismiss(id)
-    navigate(`/s/${sessionId}`)
-  } catch (err) {
-    toast.error(errorMessage(err), { id })
-  }
-}
 
 function openChat(id: string): void {
   // No PC, já à vista noutro grupo: só o grupo dela ganha o foco.
@@ -329,7 +302,7 @@ function useItems(text: string, target: Target, onAskElsewhere: (text: string) =
           text: '',
           name: '',
           at: 0,
-          run: () => void ask(target, prompt),
+          run: () => void askAgent(target, prompt),
         },
         {
           key: 'ask:elsewhere',
@@ -531,7 +504,7 @@ export function CommandPalette() {
           description={asking.text}
           onPick={(cwd, machine) => {
             setPicking(false)
-            void ask({ machine, cwd }, asking.text)
+            void askAgent({ machine, cwd }, asking.text)
           }}
         />
       )}
