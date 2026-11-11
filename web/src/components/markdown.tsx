@@ -6,12 +6,14 @@ import type { ThemedToken } from 'shiki/core'
 import { toast } from 'sonner'
 import { CommandRun } from '@/components/command-run'
 import { ImageThumb } from '@/components/image-viewer'
+import { OptionPick } from '@/components/option-pick'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { findColors } from '@/lib/colors'
 import { blockCommandOf, commandOf } from '@/lib/commands'
 import { languageOfTag, tokenStyle, useLangTokens } from '@/lib/highlight'
+import { chose, rehypeOptions } from '@/lib/options'
 import { rehypeOutline } from '@/lib/outline'
 import { cn } from '@/lib/utils'
 
@@ -315,6 +317,78 @@ function OutlineTitle({ mark, children }: { mark: string; children?: ReactNode }
   )
 }
 
+/**
+ * Uma opção da resposta (ver lib/options.ts): o número numa bolinha, como a escolha de uma pergunta do
+ * Claude, o título e a descrição em cinza. Na resposta que você ainda não respondeu, tocar na opção a
+ * escreve na caixa de mensagem; respondida, a que você escolheu fica acesa.
+ */
+function OptionItem({ node, children }: ComponentProps<'li'> & ExtraProps) {
+  const [ref, r] = useReading<HTMLLIElement>(node)
+  const options = useContext(OptionPick)
+  const mark = String(node?.properties.dataOption ?? '')
+  const text = String(node?.properties.dataPick ?? '')
+  const pick = options?.pick
+  const chosen = Boolean(options && (options.answer !== undefined ? chose(options.answer, mark, text) : options.picked === text))
+  const bullet = cn(
+    'flex size-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-medium tabular-nums transition-colors',
+    chosen ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/35 text-muted-foreground',
+  )
+  // Na lista sem número, a bolinha vazia, como a de uma escolha; escolhida, com o ponto dentro.
+  const inner = mark || (chosen && <span className="size-1.5 rounded-full bg-primary-foreground" />)
+  return (
+    <li
+      ref={ref}
+      onClick={
+        pick &&
+        ((e) => {
+          // Um link, um copiar ou um texto sendo selecionado dentro da opção não a escolhem.
+          if ((e.target as Element).closest('a, button') || getSelection()?.toString()) return
+          pick(text)
+        })
+      }
+      className={cn(
+        'flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors',
+        pick && 'cursor-pointer hover:bg-foreground/[0.04]',
+        chosen && 'bg-primary/[0.07] hover:bg-primary/10',
+        tone(r),
+      )}
+    >
+      {pick ? (
+        // Pelo teclado, a escolha é a bolinha; com o dedo ou o mouse, a linha toda.
+        <button
+          type="button"
+          title={text}
+          aria-label={`Responder: ${text}`}
+          onClick={() => pick(text)}
+          className={cn(bullet, 'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none')}
+        >
+          {inner}
+        </button>
+      ) : (
+        <span aria-hidden className={bullet}>
+          {inner}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">{children}</div>
+    </li>
+  )
+}
+
+/**
+ * O desenho de uma lista: as opções de uma resposta num bloco, uma linha por opção; um sumário de
+ * seções; ou a lista comum, com o número e o ponto em cinza, para o texto ficar na frente, e a
+ * sublista colada no item de cima.
+ */
+const listClass = (node: HastElement | undefined, numbered: boolean) =>
+  node?.properties.dataOptions !== undefined
+    ? 'my-3 list-none space-y-0.5 rounded-xl bg-foreground/[0.04] p-1'
+    : node?.properties.dataOutline !== undefined
+      ? 'my-3 list-none space-y-3'
+      : cn(
+          'my-2 space-y-1 pl-5 [li>&]:my-1',
+          numbered ? 'list-decimal marker:text-muted-foreground' : 'list-disc marker:text-muted-foreground/70',
+        )
+
 function Table({ node, children }: ComponentProps<'table'> & ExtraProps) {
   const [ref, r] = useReading<HTMLDivElement>(node)
   return (
@@ -409,27 +483,31 @@ const components: Components = {
     )
   },
   p: Paragraph,
-  li: ListItem,
-  // O número e o ponto em cinza, para o texto ficar na frente; a sublista cola no item de cima.
-  ul: ({ node, children }) =>
-    node?.properties.dataOutline !== undefined ? (
-      <ul className="my-3 list-none space-y-3">{children}</ul>
-    ) : (
-      <ul className="my-2 list-disc space-y-1 pl-5 marker:text-muted-foreground/70 [li>&]:my-1">{children}</ul>
-    ),
-  ol: ({ node, children, start }) =>
-    node?.properties.dataOutline !== undefined ? (
-      <ol start={start} className="my-3 list-none space-y-3">
-        {children}
-      </ol>
-    ) : (
-      <ol start={start} className="my-2 list-decimal space-y-1 pl-5 marker:text-muted-foreground [li>&]:my-1">
-        {children}
-      </ol>
-    ),
+  li: (props) => (props.node?.properties.dataOption !== undefined ? <OptionItem {...props} /> : <ListItem {...props} />),
+  ul: ({ node, children }) => <ul className={listClass(node, false)}>{children}</ul>,
+  ol: ({ node, children, start }) => (
+    <ol start={start} className={listClass(node, true)}>
+      {children}
+    </ol>
+  ),
   div: ({ node, children }) => {
     const mark = node?.properties.dataOutlineTitle
     if (typeof mark === 'string') return <OutlineTitle mark={mark}>{children}</OutlineTitle>
+    if (node?.properties.dataOptionTitle !== undefined)
+      return (
+        <div className="font-medium">
+          {children}
+          {node.properties.dataRecommended !== undefined && (
+            <span className="ml-2 inline-block rounded-full bg-emerald-500/15 px-1.5 py-px align-[1px] text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+              Recomendado
+            </span>
+          )}
+        </div>
+      )
+    const body = node?.properties.dataOptionBody
+    // A descrição embaixo do título, em cinza; sem título, o texto da opção é ela.
+    if (typeof body === 'string')
+      return <div className={cn('[&_ol]:my-1 [&_ul]:my-1', body && 'mt-0.5 text-[13px] leading-snug text-muted-foreground')}>{children}</div>
     if (node?.properties.dataOutlineBody === undefined) return <div>{children}</div>
     // O fio sai do meio do selo; os pontos começam onde começa o título.
     return <div className="mt-1 ml-2.5 border-l border-foreground/10 pl-[17px] [&>ol]:my-0 [&>ul]:my-0">{children}</div>
@@ -461,12 +539,18 @@ const chatComponents: Components = { ...components, code: code(true), a: link(tr
 
 const remarkPlugins = [remarkGfm]
 const rehypePlugins = [rehypeColors, rehypeOutline]
+// As opções de escolher só existem no chat: num README ou numa issue, uma lista de opções é só uma lista.
+const chatRehypePlugins = [rehypeColors, rehypeOptions, rehypeOutline]
 
-/** `chat`: uma resposta do Claude, com o copiar ao lado dos links e dos comandos. */
+/** `chat`: uma resposta do Claude, com o copiar ao lado dos links e dos comandos e as opções de escolher. */
 export const Markdown = memo(function Markdown({ text, className, chat = false }: { text: string; chat?: boolean } & ComponentProps<'div'>) {
   return (
     <div className={cn('text-sm break-words', className)}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={chat ? chatComponents : components}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={chat ? chatRehypePlugins : rehypePlugins}
+        components={chat ? chatComponents : components}
+      >
         {text}
       </ReactMarkdown>
     </div>

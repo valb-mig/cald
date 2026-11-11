@@ -156,7 +156,12 @@ export function Composer({
   const input = useRef<PromptInputHandle>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   // De fora do campo também se escreve aqui: mencionar um arquivo pela barra do projeto, por exemplo.
-  useInsertTarget(sessionId, (inserted) => input.current?.insert(inserted))
+  useInsertTarget(sessionId, (inserted, replacing) => {
+    if (!replacing || !text.includes(replacing)) return input.current?.insert(inserted)
+    // Em função: no texto trocado, um "$" não vira padrão.
+    setText(text.replace(replacing, () => inserted))
+    input.current?.focus()
+  })
   // E anexar: soltar arquivos em qualquer lugar da conversa cai aqui (ver `useFileDrop`).
   useAttachTarget(sessionId, (list) => void files.add(list))
   // E ler e trocar tudo o que está nela: uma mensagem da fila aberta aqui para editar (ver lib/queue-edit.ts).

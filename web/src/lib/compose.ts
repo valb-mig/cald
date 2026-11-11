@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { AttachmentPayload } from './types'
 
 /**
@@ -6,6 +6,13 @@ import type { AttachmentPayload } from './types'
  * mesa do projeto, ver project/hub.tsx): vale o último que apareceu, e quando ele sai volta o de antes.
  */
 type Registry<T> = Map<string, ((value: T) => void)[]>
+
+// Quem acompanha os campos entrando e saindo da tela (ver `useHasInsertTarget`).
+const watchers = new Set<() => void>()
+const watch = (fn: () => void) => {
+  watchers.add(fn)
+  return () => void watchers.delete(fn)
+}
 
 function useRegister<T>(registry: Registry<T>, id: string, handler: (value: T) => void): void {
   const latest = useRef(handler)
@@ -15,10 +22,12 @@ function useRegister<T>(registry: Registry<T>, id: string, handler: (value: T) =
   useEffect(() => {
     const fn = (value: T) => latest.current(value)
     registry.set(id, [...(registry.get(id) ?? []), fn])
+    watchers.forEach((w) => w())
     return () => {
       const rest = (registry.get(id) ?? []).filter((f) => f !== fn)
       if (rest.length) registry.set(id, rest)
       else registry.delete(id)
+      watchers.forEach((w) => w())
     }
   }, [registry, id])
 }
@@ -34,16 +43,25 @@ function deliver<T>(registry: Registry<T>, id: string, value: T): boolean {
  * do projeto. Cada campo na tela se registra pelo id do rascunho dele (o da conversa, ou `new:...`
  * na conversa nova).
  */
-const fields: Registry<string> = new Map()
+const fields: Registry<{ text: string; replacing?: string }> = new Map()
 
 /** Registra o campo `id` enquanto ele está na tela. */
-export function useInsertTarget(id: string, insert: (text: string) => void): void {
-  useRegister(fields, id, insert)
+export function useInsertTarget(id: string, insert: (text: string, replacing?: string) => void): void {
+  useRegister(fields, id, ({ text, replacing }) => insert(text, replacing))
 }
 
-/** Põe `text` onde está o cursor do campo `id` e o deixa em foco; `false` se o campo não está na tela. */
-export function insertInto(id: string, text: string): boolean {
-  return deliver(fields, id, text)
+/**
+ * Põe `text` onde está o cursor do campo `id` e o deixa em foco; `false` se o campo não está na tela.
+ * Com `replacing`, troca esse texto, se ele ainda está no campo, em vez de pôr mais um: escolher outra
+ * opção de uma resposta (ver OptionItem, em components/markdown.tsx) não junta as duas.
+ */
+export function insertInto(id: string, text: string, replacing?: string): boolean {
+  return deliver(fields, id, { text, replacing })
+}
+
+/** Se o campo `id` está na tela: a conversa aberta em outro app, por exemplo, fica sem ele. */
+export function useHasInsertTarget(id: string): boolean {
+  return useSyncExternalStore(watch, () => fields.has(id))
 }
 
 /**

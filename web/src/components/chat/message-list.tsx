@@ -6,10 +6,12 @@ import { ClaudeMark } from '@/components/claude-mark'
 import { ImageThumb } from '@/components/image-viewer'
 import { CommandRun } from '@/components/command-run'
 import { Markdown, StreamingMarkdown } from '@/components/markdown'
+import { OptionPick } from '@/components/option-pick'
 import { ReadingLine } from '@/components/reading-line'
 import { Button } from '@/components/ui/button'
 import { imageUrl, thumbUrl } from '@/lib/api'
 import { claudinhoName } from '@/lib/claudinho'
+import { insertInto, useHasInsertTarget } from '@/lib/compose'
 import { duration, messageTime, toolDoing } from '@/lib/format'
 import { useWide } from '@/lib/hooks'
 import { discard, retryItem, type OutboxItem } from '@/lib/outbox'
@@ -314,12 +316,31 @@ function useCommandRun(sessionId: string, cwd?: string): CommandRun | null {
 }
 
 /**
+ * As opções de uma resposta (ver OptionItem, em components/markdown.tsx): respondida, só acendem a
+ * escolhida; sem resposta, tocar numa a escreve na caixa de mensagem, e tocar em outra troca a de antes.
+ * Sem a caixa na tela (a conversa aberta em outro app), elas só se leem.
+ */
+function useOptionPick(sessionId: string, reply: string | null): OptionPick {
+  const [picked, setPicked] = useState<string>()
+  const field = useHasInsertTarget(sessionId)
+  return useMemo(() => {
+    if (reply !== null) return { answer: reply }
+    if (!field) return {}
+    const pick = (text: string) => {
+      if (insertInto(sessionId, text, picked)) setPicked(text)
+    }
+    return { picked, pick }
+  }, [sessionId, reply, field, picked])
+}
+
+/**
  * Resposta do Claude (quem escreveu fica no alto da resposta, ver ReplyHeader). Na última de cada turno,
  * os atalhos do que o turno fez embaixo. Os atalhos, **Ouvir** e **Copiar** (em Markdown) só aparecem
  * com o mouse em cima da resposta (ou o foco do teclado nela), para a conversa ficar limpa; no celular,
  * sem mouse, ficam sempre à vista. Ouvir lê o texto em voz alta, e o trecho sendo lido fica em destaque (a barra
  * de controle fica em cima da caixa de mensagem); lendo, o botão fica à vista. `fresh`: acabou de
- * chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois.
+ * chegar; o texto já estava na tela pelo streaming, então só os botões entram, logo depois. `reply`:
+ * a sua mensagem seguinte, `null` enquanto você não respondeu; é ela que decide as opções da resposta.
  */
 function AssistantMessage({
   id,
@@ -328,6 +349,7 @@ function AssistantMessage({
   turn,
   cwd,
   fresh,
+  reply,
 }: {
   id: string
   sessionId: string
@@ -335,7 +357,9 @@ function AssistantMessage({
   turn?: TurnInfo
   cwd?: string
   fresh: boolean
+  reply: string | null
 }) {
+  const options = useOptionPick(sessionId, reply)
   const run = useCommandRun(sessionId, cwd)
   const state = useSpeech((s) => (s.reading?.key === id ? (s.reading.playing ? 'playing' : 'paused') : null))
   const line = useSpeech((s) => (s.reading?.key === id ? (s.reading.units[s.reading.index]?.line ?? null) : null))
@@ -357,9 +381,11 @@ function AssistantMessage({
   return (
     <div className="group/answer relative">
       <ReadingLine value={line}>
-        <CommandRun value={run}>
-          <Markdown text={text} chat />
-        </CommandRun>
+        <OptionPick value={options}>
+          <CommandRun value={run}>
+            <Markdown text={text} chat />
+          </CommandRun>
+        </OptionPick>
       </ReadingLine>
       {row ? (
         <Arrival fresh={fresh} delay={120} className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -456,6 +482,21 @@ function replyHeads(items: Item[]): Map<string, Byline> {
   return heads
 }
 
+/**
+ * A sua mensagem logo depois de cada resposta do Claude, a que ainda está na fila contando; `null` nas
+ * que você ainda não respondeu.
+ */
+function repliesOf(items: Item[], queued?: string): Map<string, string | null> {
+  const replies = new Map<string, string | null>()
+  let next = queued ?? null
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!
+    if (item.type === 'user') next = item.text
+    else if (item.type === 'assistant') replies.set(item.key, next)
+  }
+  return replies
+}
+
 const failureLabel = (result: Extract<Item, { type: 'result' }>['result']) =>
   result.subtype === 'error_max_turns' ? 'Parou no limite de turnos' : 'Terminou com erro'
 
@@ -467,6 +508,7 @@ function ItemView({
   turn,
   cwd,
   fresh,
+  reply,
 }: {
   item: Item
   sessionId: string
@@ -475,6 +517,7 @@ function ItemView({
   onBranch?: (at: string, text: string) => void
   turn?: TurnInfo
   cwd?: string
+  reply?: string | null
 }) {
   switch (item.type) {
     case 'user':
@@ -497,6 +540,7 @@ function ItemView({
           turn={turn}
           cwd={cwd}
           fresh={fresh}
+          reply={reply ?? null}
         />
       )
     case 'notice':
@@ -699,6 +743,7 @@ export function MessageList({
   const shown = useMemo(() => items.filter((i) => !quiet(i)), [items])
   const turns = useMemo(() => turnsOf(items, working), [items, working])
   const heads = useMemo(() => replyHeads(shown), [shown])
+  const replies = useMemo(() => repliesOf(shown, queued[0]?.text), [shown, queued])
   const name = claudinhoName(sessionId, useStore((s) => s.catalog.find((c) => c.sessionId === sessionId)?.claudinhoName))
   // A resposta que ainda não tem item na lista (o turno acabou de começar) põe o cabeçalho no fim ao vivo.
   const last = shown.at(-1)
@@ -735,6 +780,7 @@ export function MessageList({
                 turn={turns.get(item.key)}
                 cwd={cwd}
                 fresh={isFresh(item.key)}
+                reply={replies.get(item.key)}
               />
             </Arrival>
           </div>
