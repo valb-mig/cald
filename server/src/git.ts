@@ -209,9 +209,9 @@ export async function gitBase(cwd: string, path: string): Promise<string | null>
 
 /**
  * O git, para o que muda o repositório: sem pedir senha nem abrir editor, e com tempo para hooks e rede.
- * Com `input`, ele vai pela entrada padrão.
+ * Com `input`, ele vai pela entrada padrão; `env` soma variáveis (um índice à parte, por exemplo).
  */
-export function gitWrite(cwd: string, args: string[], input?: string) {
+export function gitWrite(cwd: string, args: string[], input?: string, env?: Record<string, string>) {
   const run = exec('git', args, {
     cwd,
     timeout: 120_000,
@@ -221,6 +221,7 @@ export function gitWrite(cwd: string, args: string[], input?: string) {
       GIT_TERMINAL_PROMPT: '0',
       GIT_EDITOR: 'true',
       GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o ConnectTimeout=10',
+      ...env,
     },
   });
   if (input !== undefined) run.child.stdin?.end(input);

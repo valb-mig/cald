@@ -49,6 +49,7 @@ import {
 import { planPull, type PartialPlan } from './pull-plan.ts';
 import { planReview, type PartialReview } from './pull-review-plan.ts';
 import { githubAct, githubCreatePull, githubDraft, githubInfo, githubItem, githubPatches, type GithubAction } from './github.ts';
+import { prConflicts, resolvePrConflicts, type ConflictResolution } from './conflicts.ts';
 import { wakatime, wakatimeToday } from './wakatime.ts';
 import type { LoggedEvent } from './events.ts';
 import { accessGuard, loadAccessPolicy, localOnly, pinToken, refreshTailnet } from './guard.ts';
@@ -1383,6 +1384,50 @@ app.get<{ Querystring: { cwd: string; pr?: number; sha?: string } }>(
     if (req.query.pr) return githubPatches(cwd, { pr: req.query.pr });
     if (req.query.sha) return githubPatches(cwd, { sha: req.query.sha });
     throw new HttpError(400, 'invalid_target');
+  },
+);
+
+// O conflito de um PR com a base: ver o que conflita e fechar o merge com o que foi escolhido (ver conflicts.ts).
+const branchName = { type: 'string', minLength: 1, maxLength: 200 } as const;
+app.get<{ Querystring: { cwd: string; branch: string; base: string } }>(
+  '/api/github/conflicts',
+  {
+    schema: {
+      querystring: { type: 'object', required: ['cwd', 'branch', 'base'], properties: { cwd: { type: 'string' }, branch: branchName, base: branchName } },
+    },
+  },
+  async (req) => prConflicts(await manager.knownCwd(req.query.cwd), req.query.branch, req.query.base),
+);
+app.post<{ Body: { cwd: string; branch: string; base: string; head: string; baseSha: string; files: ConflictResolution[] } }>(
+  '/api/github/conflicts',
+  {
+    bodyLimit: ATTACHMENT_BODY_LIMIT,
+    schema: {
+      body: {
+        type: 'object',
+        required: ['cwd', 'branch', 'base', 'head', 'baseSha', 'files'],
+        properties: {
+          cwd: { type: 'string' },
+          branch: branchName,
+          base: branchName,
+          head: { type: 'string', maxLength: 64 },
+          baseSha: { type: 'string', maxLength: 64 },
+          files: {
+            type: 'array',
+            maxItems: 5000,
+            items: {
+              type: 'object',
+              required: ['path'],
+              properties: { path: { type: 'string', minLength: 1 }, content: { type: 'string' }, side: { type: 'string', enum: ['branch', 'base'] } },
+            },
+          },
+        },
+      },
+    },
+  },
+  async (req) => {
+    const { cwd, ...resolution } = req.body;
+    return resolvePrConflicts(await manager.knownCwd(cwd), resolution);
   },
 );
 
