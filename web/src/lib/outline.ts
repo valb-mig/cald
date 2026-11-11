@@ -1,7 +1,7 @@
 import type { ExtraProps } from 'react-markdown'
 
-type HastElement = NonNullable<ExtraProps['node']>
-type HastChild = HastElement['children'][number]
+export type HastElement = NonNullable<ExtraProps['node']>
+export type HastChild = HastElement['children'][number]
 
 // O que, dentro de um item, já é bloco: o título é só o que vem antes do primeiro deles.
 const BLOCKS = new Set(['p', 'ul', 'ol', 'pre', 'table', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'div'])
@@ -10,13 +10,25 @@ const BLOCKS = new Set(['p', 'ul', 'ol', 'pre', 'table', 'blockquote', 'h1', 'h2
 const SEPARATOR = /^[ \t]*(?::|—|–|\s-\s|\n)\s*/
 const COLON = /\s*:\s*$/
 
-const blank = (c: HastChild) => c.type === 'text' && !c.value.trim()
-const element = (c: HastChild | undefined, tag?: string): c is HastElement => c?.type === 'element' && (!tag || c.tagName === tag)
-const textOf = (c: HastChild): string => (c.type === 'text' ? c.value : c.type === 'element' ? c.children.map(textOf).join('') : '')
+export const blank = (c: HastChild) => c.type === 'text' && !c.value.trim()
+export const element = (c: HastChild | undefined, tag?: string): c is HastElement => c?.type === 'element' && (!tag || c.tagName === tag)
+export const textOf = (c: HastChild): string => (c.type === 'text' ? c.value : c.type === 'element' ? c.children.map(textOf).join('') : '')
 
 /** Uma cópia da lista com o texto do nó em `i` mudado, se ele for de texto. */
-const editText = (nodes: HastChild[], i: number, edit: (value: string) => string) =>
+export const editText = (nodes: HastChild[], i: number, edit: (value: string) => string) =>
   nodes.map((c, j) => (j === i && c.type === 'text' ? { ...c, value: edit(c.value) } : c))
+
+/**
+ * A primeira linha de um item e os blocos de baixo (a sublista, outros parágrafos). Na lista solta, a
+ * linha vem num parágrafo; na justa, solta no item, até o primeiro bloco.
+ */
+export function lineOf(li: HastElement): { line: HastChild[]; blocks: HastChild[] } {
+  const first = li.children.find((c) => !blank(c))
+  const holder = element(first, 'p') ? first : null
+  const found = li.children.findIndex((c) => element(c) && BLOCKS.has(c.tagName))
+  const end = holder ? li.children.indexOf(holder) + 1 : found < 0 ? li.children.length : found
+  return { line: holder ? holder.children : li.children.slice(0, end), blocks: li.children.slice(end) }
+}
 
 /** O título, o resto da linha dele e os blocos de baixo (a sublista, outros parágrafos). */
 type Lead = { title: HastChild[]; rest: HastChild[]; blocks: HastChild[] }
@@ -26,13 +38,7 @@ type Lead = { title: HastChild[]; rest: HastChild[]; blocks: HastChild[] }
  * `**Início:** o resto`. `null` se o negrito é só o começo de uma frase (`**Instale** o pacote`).
  */
 function leadOf(li: HastElement): Lead | null {
-  const first = li.children.find((c) => !blank(c))
-  // Lista solta: o título vem num parágrafo; justa, solto no item, até o primeiro bloco.
-  const holder = element(first, 'p') ? first : null
-  const found = li.children.findIndex((c) => element(c) && BLOCKS.has(c.tagName))
-  const end = holder ? li.children.indexOf(holder) + 1 : found < 0 ? li.children.length : found
-  const line = holder ? holder.children : li.children.slice(0, end)
-
+  const { line, blocks } = lineOf(li)
   const at = line.findIndex((c) => !blank(c))
   const strong = line[at]
   if (!element(strong, 'strong') || !textOf(strong).trim()) return null
@@ -46,10 +52,12 @@ function leadOf(li: HastElement): Lead | null {
 
   // Os dois pontos do fim do título saem: o desenho já separa título e corpo.
   const title = editText(strong.children, strong.children.length - 1, (v) => v.replace(COLON, ''))
-  return { title, rest, blocks: li.children.slice(end) }
+  return { title, rest, blocks }
 }
 
 function outline(list: HastElement) {
+  // A lista de opções de uma resposta já tem o desenho dela (ver lib/options.ts).
+  if (list.properties.dataOptions !== undefined) return
   const items = list.children.filter((c) => element(c, 'li'))
   const leads = items.map(leadOf)
   if (!items.length || !leads.every((l) => l !== null)) return
