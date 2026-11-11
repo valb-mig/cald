@@ -1,4 +1,18 @@
-import { CircleCheck, CircleDot, CircleSlash, Ellipsis, GitMerge, GitPullRequestDraft, Loader2, Tag, TriangleAlert, UserMinus, UserPlus, XCircle } from 'lucide-react'
+import {
+  CircleCheck,
+  CircleDot,
+  CircleSlash,
+  Ellipsis,
+  GitCompareArrows,
+  GitMerge,
+  GitPullRequestDraft,
+  Loader2,
+  Tag,
+  TriangleAlert,
+  UserMinus,
+  UserPlus,
+  XCircle,
+} from 'lucide-react'
 import { createContext, use, useState } from 'react'
 import { toast } from 'sonner'
 import { Segmented } from '@/components/settings-ui'
@@ -20,6 +34,7 @@ import { errorMessage } from '@/lib/api'
 import { actOnGithub } from '@/lib/github'
 import type { GithubAction, GithubIssueDetail, GithubLabel, GithubPullDetail, GithubQuota, MergeMethod } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { ConflictDialog } from './conflict-dialog'
 
 /**
  * O que dá para fazer numa issue ou num PR sem sair do painel: comentar, pôr e tirar etiquetas,
@@ -186,11 +201,14 @@ const MERGE_LABEL: Record<MergeMethod, { label: string; hint: string; verb: stri
   rebase: { label: 'Rebase', hint: 'Reaplica os commits do PR em cima da base, sem commit de merge.', verb: 'Fazer rebase' },
 }
 
+/** O PR tem conflito com a base, pelo GitHub. */
+const hasConflict = (pr: GithubPullDetail) => pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY'
+
 /** O que segura o merge, dito pelo GitHub; o resto (`CLEAN`, `HAS_HOOKS`, `UNSTABLE`) deixa passar. */
 export function mergeBlock(pr: GithubPullDetail): string | null {
   if (pr.state !== 'OPEN') return pr.state === 'MERGED' ? 'Já entrou.' : 'O PR está fechado.'
   if (pr.draft) return 'É rascunho: marque como pronto para revisão antes.'
-  if (pr.mergeable === 'CONFLICTING' || pr.mergeState === 'DIRTY') return `Tem conflito com ${pr.base}: resolva antes.`
+  if (hasConflict(pr)) return `Tem conflito com ${pr.base}: resolva antes.`
   return null
 }
 
@@ -341,16 +359,32 @@ function MergeDialog({ pr, open, onOpenChange }: { pr: GithubPullDetail; open: b
   )
 }
 
-/** Os botões do PR, no pé do quadro do que falta para ele entrar: revisar e dar merge. */
+/**
+ * Os botões do PR, no pé do quadro do que falta para ele entrar: revisar e dar merge e, com conflito,
+ * resolvê-lo ali mesmo (ver conflict-dialog.tsx).
+ */
 export function PullActions({ pr }: { pr: GithubPullDetail }) {
+  const target = use(TargetContext)!
   const [review, setReview] = useState(false)
   const [merge, setMerge] = useState(false)
+  const [resolve, setResolve] = useState(false)
   if (pr.state !== 'OPEN') return null
   const block = mergeBlock(pr)
+  const conflict = hasConflict(pr)
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => setMerge(true)} disabled={block !== null} title={block ?? undefined}>
+        {conflict && (
+          <Button
+            size="sm"
+            onClick={() => setResolve(true)}
+            disabled={pr.crossRepo}
+            title={pr.crossRepo ? 'A branch é de um fork: o edit.r não sobe nela.' : 'Escolher o que fica em cada trecho em conflito'}
+          >
+            <GitCompareArrows /> Resolver conflito
+          </Button>
+        )}
+        <Button size="sm" variant={conflict ? 'secondary' : 'default'} onClick={() => setMerge(true)} disabled={block !== null} title={block ?? undefined}>
           <GitMerge /> Dar merge
         </Button>
         <Button size="sm" variant="secondary" onClick={() => setReview(true)}>
@@ -360,6 +394,7 @@ export function PullActions({ pr }: { pr: GithubPullDetail }) {
       {/* A chave recomeça o diálogo a cada vez, com o jeito e o texto do zero. */}
       {review && <ReviewDialog key="review" pr={pr} open={review} onOpenChange={setReview} />}
       {merge && <MergeDialog key="merge" pr={pr} open={merge} onOpenChange={setMerge} />}
+      {resolve && <ConflictDialog pr={pr} machine={target.machine} cwd={target.cwd} open={resolve} onOpenChange={setResolve} />}
     </>
   )
 }

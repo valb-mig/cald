@@ -688,6 +688,19 @@ export type GithubItem =
     }
   | Extract<GithubInfo, { ok: false }>
 
+/**
+ * Um arquivo em conflito no merge da base num PR (ver server/src/conflicts.ts). `text`: com as marcas de
+ * conflito, para escolher trecho a trecho; `null` (binário, grande, apagado de um lado), escolhe-se o
+ * arquivo inteiro de um lado. `branch` e `base`: se ele existe em cada lado.
+ */
+export type ConflictFile = { path: string; text: string | null; branch: boolean; base: boolean }
+
+/** Os conflitos de um PR, com as pontas em que foram vistos: concluir faz o merge dessas mesmas. */
+export type PrConflicts = { branch: string; base: string; head: string; baseSha: string; files: ConflictFile[] }
+
+/** O que fica de um arquivo em conflito: o texto resolvido, ou o arquivo inteiro de um lado. */
+export type ConflictResolution = { path: string; content: string } | { path: string; side: 'branch' | 'base' }
+
 /** Uma ação numa issue ou num PR, pelo `gh` do PC (ver server/src/github.ts). `review`, `merge` e `draft` são de PR. */
 export type GithubAction =
   | { type: 'comment'; body: string }

@@ -140,6 +140,15 @@ export function useGithubItem(machine: string, cwd: string, kind: 'issue' | 'pr'
 }
 
 /**
+ * Busca de novo uma issue ou um PR (e a lista, se já foi buscada), depois de mudá-lo por fora das ações:
+ * subir o merge de um conflito, por exemplo (ver project/conflict-dialog.tsx).
+ */
+export function refreshGithubItem(machine: string, cwd: string, kind: 'issue' | 'pr', number: number): void {
+  void loadItem(machine, cwd, kind, number, true)
+  if (useGithubCache.getState()[keyOf(machine, cwd)]?.info) void loadGithub(machine, cwd, true)
+}
+
+/**
  * Faz uma ação no GitHub (comentar, etiquetas, fechar, revisar, merge…) e põe na tela o item como ficou,
  * que o servidor já devolve: sem outra busca do item. Erro sobe para quem chamou mostrar.
  */
