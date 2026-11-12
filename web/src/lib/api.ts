@@ -356,6 +356,8 @@ export const api = {
   ) => post<{ ok: true; queued?: string }>(`${sid(id)}/messages`, body, signal),
   /** A fila de mensagens da conversa: mandar uma agora, mesmo no meio do turno. */
   sendQueued: (id: string, itemId: string) => post(`${sid(id)}/queue/${encodeURIComponent(itemId)}/send`),
+  /** Pausa uma da fila (as outras passam por ela) ou a solta, e aí ela vai se a conversa está parada. */
+  pauseQueued: (id: string, itemId: string, paused: boolean) => post(`${sid(id)}/queue/${encodeURIComponent(itemId)}/pause`, { paused }),
   /**
    * Abre `open` da fila na caixa: ela fica segura (não sai no fim do turno) e volta inteira; `null` fecha.
    * `save` grava antes a que estava aberta, com o que mudou nela.

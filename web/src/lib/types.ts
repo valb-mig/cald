@@ -140,6 +140,8 @@ export type QueueItem = {
   attachments: { name: string; mediaType: string; thumb?: string }[];
   model?: string;
   effort?: string;
+  /** Pausada: fica no lugar e a fila passa por ela, até você a soltar (ou mandar agora). */
+  paused?: boolean;
   createdAt: number;
 };
 

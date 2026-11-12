@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, GripVertical, ListEnd, Paperclip, X } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, GripVertical, ListEnd, Paperclip, Pause, Play, X } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { create } from 'zustand'
@@ -13,6 +13,10 @@ import { EFFORTS, prettyModel } from './composer-controls'
 const DRAG_FROM = 4
 /** O deslizar das linhas que abrem espaço, e o encaixe da que foi solta. */
 const SLIDE = 'transform 160ms ease-out'
+
+/** Os botões de cada linha: no celular, estreitos o bastante para caberem quatro sem esmagar o texto. */
+const ACTION =
+  'flex h-11 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground wide:size-8'
 
 const FOLDED_KEY = 'cr:queue-folded'
 
@@ -59,8 +63,8 @@ function lift(el: HTMLElement, d: Drag): void {
 /**
  * A fila de mensagens, no alto da casca da caixa (o `above` do Composer): o que foi escrito com o Claude
  * trabalhando e sai sozinho no fim do turno. O cabeçalho diz quantas são e recolhe a lista. Cada linha
- * se arrasta (ponteiro, não o arrastar do HTML5, que não solta no app do PC), se envia na hora ou se
- * tira, com desfazer. Tocar no texto abre a mensagem na caixa, sem tirá-la da fila (ver lib/queue-edit.ts):
+ * se arrasta (ponteiro, não o arrastar do HTML5, que não solta no app do PC), se pausa (fica no lugar e a
+ * fila passa por ela), se envia na hora ou se tira, com desfazer. Tocar no texto abre a mensagem na caixa, sem tirá-la da fila (ver lib/queue-edit.ts):
  * tocar em outra troca, e tocar de novo, ou no ✓, grava e fecha.
  */
 export function QueueBar({
@@ -269,7 +273,7 @@ export function QueueBar({
                     onClick={() => void edit(item)}
                     aria-pressed={open}
                     title={open ? 'Salvar e fechar' : 'Abrir na caixa'}
-                    className="min-w-0 flex-1 truncate text-left text-sm wide:cursor-[inherit]"
+                    className={cn('min-w-0 flex-1 truncate text-left text-sm wide:cursor-[inherit]', item.paused && 'text-muted-foreground')}
                   >
                     {item.text || <span className="text-muted-foreground">Só anexos</span>}
                   </button>
@@ -294,19 +298,31 @@ export function QueueBar({
                       title="Salvar e fechar"
                       aria-label="Salvar e fechar"
                       onClick={() => closeQueued(sessionId).catch(fail('Não deu para salvar na fila'))}
-                      className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-foreground hover:bg-foreground/5 wide:size-8"
+                      className={cn(ACTION, 'text-foreground')}
                     >
                       <Check className="size-4" />
                     </button>
                   ) : (
                     <>
+                      {/* Pausada, ela espera você: o ▷ em âmbar solta, e ela vai na vez dela (ou já, com a conversa parada). */}
+                      <button
+                        type="button"
+                        data-no-drag
+                        title={item.paused ? 'Retomar' : 'Pausar'}
+                        aria-label={item.paused ? 'Retomar' : 'Pausar'}
+                        aria-pressed={Boolean(item.paused)}
+                        onClick={() => api.pauseQueued(sessionId, item.id, !item.paused).catch(fail(item.paused ? 'Não deu para retomar' : 'Não deu para pausar'))}
+                        className={cn(ACTION, item.paused && 'text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-400')}
+                      >
+                        {item.paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+                      </button>
                       <button
                         type="button"
                         data-no-drag
                         title="Enviar agora"
                         aria-label="Enviar agora"
                         onClick={() => api.sendQueued(sessionId, item.id).catch(fail('Não deu para enviar'))}
-                        className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground wide:size-8"
+                        className={ACTION}
                       >
                         <ArrowUp className="size-4" />
                       </button>
@@ -316,7 +332,7 @@ export function QueueBar({
                         title="Tirar da fila"
                         aria-label="Tirar da fila"
                         onClick={() => void remove(item, i)}
-                        className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground wide:size-8"
+                        className={ACTION}
                       >
                         <X className="size-4" />
                       </button>
