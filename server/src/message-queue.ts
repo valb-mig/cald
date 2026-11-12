@@ -20,6 +20,8 @@ export type QueuedMessage = {
   effort?: string;
   /** De que aparelho ela saiu, para o "enviada do celular" quando ela for. */
   from?: Device;
+  /** Pausada: fica no lugar e a fila passa por ela, até você a soltar (ou mandar agora). */
+  paused?: boolean;
   createdAt: number;
 };
 
@@ -30,6 +32,7 @@ export type QueueItemView = {
   attachments: { name: string; mediaType: string; thumb?: string }[];
   model?: string;
   effort?: string;
+  paused?: boolean;
   createdAt: number;
 };
 
@@ -45,6 +48,7 @@ export const viewOf = (m: QueuedMessage): QueueItemView => ({
   attachments: m.attachments.map((a) => ({ name: a.name, mediaType: a.mediaType, thumb: a.thumb })),
   model: m.model,
   effort: m.effort,
+  paused: m.paused,
   createdAt: m.createdAt,
 });
 
@@ -105,13 +109,33 @@ export class MessageQueues {
     return item;
   }
 
-  /** A próxima da vez, se a fila está andando. A primeira aberta na caixa segura a fila: a ordem vale. */
+  /**
+   * A próxima da vez, se a fila está andando, passando pelas pausadas. A primeira aberta na caixa segura a
+   * fila: a ordem vale.
+   */
   next(sessionId: string): QueuedMessage | undefined {
     const q = this.queues.get(sessionId);
-    if (!q || q.paused || !q.items.length) return undefined;
+    const first = q?.paused ? undefined : q?.items.find((i) => !i.paused);
+    if (!first) return undefined;
     const hold = this.holds.get(sessionId);
-    if (hold?.id === q.items[0]!.id && Date.now() - hold.at < HOLD_MS) return undefined;
-    return this.take(sessionId, q.items[0]!.id);
+    if (hold?.id === first.id && Date.now() - hold.at < HOLD_MS) return undefined;
+    return this.take(sessionId, first.id);
+  }
+
+  /** Alguma vai sair sozinha no fim do turno: a fila anda e nem todas estão pausadas. */
+  flowing(sessionId: string): boolean {
+    const q = this.queues.get(sessionId);
+    return Boolean(q && !q.paused && q.items.some((i) => !i.paused));
+  }
+
+  /** Pausa ou solta uma mensagem, no lugar dela; `false` se ela já saiu. */
+  pauseItem(sessionId: string, id: string, paused: boolean): boolean {
+    const item = this.queues.get(sessionId)?.items.find((i) => i.id === id);
+    if (!item) return false;
+    if (paused) item.paused = true;
+    else delete item.paused;
+    this.save(sessionId);
+    return true;
   }
 
   /** Segura (`id`) ou solta (`null`) a mensagem aberta na caixa; uma por conversa. */

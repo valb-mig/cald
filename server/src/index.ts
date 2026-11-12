@@ -680,10 +680,23 @@ app.post<{ Params: IdParams & { itemId: string } }>('/api/sessions/:id/queue/:it
   manager.takeQueued(req.params.id, req.params.itemId),
 );
 
+// Pausar uma da fila (ela fica no lugar e as outras passam por ela) ou soltar, que a manda se a conversa está parada.
+app.post<{ Params: IdParams & { itemId: string }; Body: { paused: boolean } }>(
+  '/api/sessions/:id/queue/:itemId/pause',
+  { schema: { body: { type: 'object', required: ['paused'], properties: { paused: { type: 'boolean' } } } } },
+  async (req) => {
+    manager.pauseQueued(req.params.id, req.params.itemId, req.body.paused);
+    return { ok: true };
+  },
+);
+
 // O desfazer de quem tirou uma da fila: ela volta para o lugar `index`.
 app.post<{
   Params: IdParams;
-  Body: { item: { id: string; text: string; attachments: Attachment[]; model?: string; effort?: string; createdAt: number }; index: number };
+  Body: {
+    item: { id: string; text: string; attachments: Attachment[]; model?: string; effort?: string; paused?: boolean; createdAt: number };
+    index: number;
+  };
 }>(
   '/api/sessions/:id/queue',
   {
@@ -703,6 +716,7 @@ app.post<{
               attachments: attachmentsSchema,
               model: runOptions.model,
               effort: runOptions.effort,
+              paused: { type: 'boolean' },
               createdAt: { type: 'number' },
             },
           },

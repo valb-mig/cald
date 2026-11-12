@@ -710,9 +710,8 @@ export class Manager extends EventEmitter {
     if (clientId && this.delivered.has(clientId)) return {};
     const session = this.get(sessionId);
     // `next`: com o Claude trabalhando (ou a fila ainda saindo), a mensagem espera a vez, com o modelo e o
-    // esforço de agora. Parado, ela vai direto, e a fila pausada volta a andar depois dela.
-    const queue = this.queues.get(session.id);
-    const busy = session.state !== 'idle' || session.pendingWork || this.dispatching.has(session.id) || Boolean(queue?.items.length && !queue.paused);
+    // esforço de agora. Parado, ela vai direto (passando pelas pausadas), e a fila pausada volta a andar depois dela.
+    const busy = session.state !== 'idle' || session.pendingWork || this.dispatching.has(session.id) || this.queues.flowing(session.id);
     if (next && busy) {
       const item = this.queues.add(session.id, { id: clientId, text, attachments: attachments ?? [], model, effort, from });
       if (clientId) this.remember(clientId);
@@ -815,6 +814,14 @@ export class Manager extends EventEmitter {
   orderQueue(sessionId: string, ids: string[]): void {
     this.queues.order(sessionId, ids);
     this.emit('catalog');
+  }
+
+  /** Pausa uma mensagem da fila (as outras passam por ela) ou a solta: solta, vai se a conversa está parada. */
+  pauseQueued(sessionId: string, id: string, paused: boolean): void {
+    if (!this.queues.pauseItem(sessionId, id, paused)) throw new HttpError(404, 'not_queued');
+    this.emit('catalog');
+    const session = this.sessions.get(sessionId);
+    if (!paused && session) setTimeout(() => this.dispatch(session), 0);
   }
 
   /** Parar o turno pausa a fila: quem parou costuma querer rever o que vem antes de seguir. */
